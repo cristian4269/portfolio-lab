@@ -122,7 +122,7 @@ revert a merged step with `git revert -m 1 <merge-commit>`.
 ---
 
 ## Step 0: Scaffold, tooling, CI
-Status: not started
+Status: **done 2026-10-01** (commit 967e8db; private repo created, first CI run green)
 
 **Context.** Repo at `C:\Users\crist\Documents\portfolio-lab` (only `plans/` exists).
 uv 0.12.20 and CPython 3.13.15 are installed; gh is logged in as cristian4269.
@@ -357,5 +357,6 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 ## Change log
 
 - 2026-10-01: draft v1 (steps 0-9).
+- 2026-10-01: step 0 done. G2 approved: private repo github.com/cristian4269/portfolio-lab, `main` pushed, CI green (checkout@v4, setup-uv@v6). Formal python-reviewer pass skipped for this scaffold-only step (no logic); required from step 1.
 - 2026-10-01: owner approved v2; G1 = runtime fetch + cite; G5 = MIT.
 - 2026-10-01: v2 after adversarial review (deep-opus): data-layer holdout guard, frozen vintage + manifest, t+1 execution, serial graph, steps 5 and 7 split, CAD design specified (optimizer currency, FX definition, CIP hedge, rate conversion), FHS replaces normal Monte Carlo, Ledoit-Wolf 2008 bootstrap test + minimum detectable difference, push approval per session, hosting/G4 coupling, CI lockfile and markers, `docs/career/` kept local, plan scrub before publishing.
