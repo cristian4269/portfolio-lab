@@ -1,0 +1,56 @@
+[project]
+name = "portfolio-lab"
+version = "0.1.0"
+description = "Build portfolios, backtest them honestly, and measure their risk, for USD and Canadian investors."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "cristian4269", email = "265893238+cristian4269@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "requests>=2.34.2",
+    "scipy>=1.18.1",
+    "statsmodels>=0.15.0",
+]
+
+[project.scripts]
+portfolio-lab = "portfolio_lab.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.20,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.168.3",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "NPY", "PD"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not network' --strict-markers"
+markers = [
+    "network: hits a real data source; run locally with `uv run pytest -m network`",
+]
+
+[tool.coverage.run]
+source = ["portfolio_lab"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
