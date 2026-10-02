@@ -95,7 +95,7 @@ def load_rates(
     }
     daily_10y = boc.fetch_valet("BD.CDN.10YR.DQ.YLD", refresh=refresh)
 
-    usable_from = [_next_business_day(s.dropna().index) for s in monthly.values()]
+    usable_from = [_next_business_day(_datetime_index(s.dropna())) for s in monthly.values()]
     first = min(min(ix[0] for ix in usable_from), daily_10y.index[0])
     last = max(max(ix[-1] for ix in usable_from), daily_10y.index[-1])
     if end_ts is not None:
@@ -123,10 +123,17 @@ def point_in_time_daily(monthly: pd.Series, calendar: pd.DatetimeIndex) -> pd.Se
     `calendar`, the value simply starts on the following calendar date.
     """
     observed = monthly.dropna()
-    shifted = pd.Series(observed.to_numpy(), index=_next_business_day(observed.index))
-    union = calendar.union(shifted.index)
-    out = shifted.reindex(union).ffill().reindex(calendar)
-    return out.rename(monthly.name)
+    starts = _next_business_day(_datetime_index(observed))
+    shifted = pd.Series(observed.to_numpy(), index=starts)
+    out = shifted.reindex(calendar.union(starts)).ffill().reindex(calendar)
+    out.name = monthly.name
+    return out
+
+
+def _datetime_index(s: pd.Series) -> pd.DatetimeIndex:
+    if not isinstance(s.index, pd.DatetimeIndex):
+        raise TypeError(f"{s.name!r} needs a DatetimeIndex, got {type(s.index).__name__}")
+    return s.index
 
 
 def _next_business_day(index: pd.DatetimeIndex) -> pd.DatetimeIndex:

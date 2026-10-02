@@ -2,6 +2,24 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-02: mypy with real pandas types (branch `typing-mypy`)
+
+- mypy had been run ad hoc via `uvx` in an env without pandas, so every pandas
+  type was `Any` and nothing pandas-related was checked. `mypy` and
+  `pandas-stubs` are now dev dependencies, configured in `[tool.mypy]`
+  (`files = src/portfolio_lab`; missing imports ignored only for `scipy.*` and
+  `statsmodels.*`, which ship no stubs). CI runs `uv run mypy src/portfolio_lab`
+  after ruff.
+- Fixed the 4 errors on `main`, all in `data/__init__.py`: a `_datetime_index`
+  helper narrows `Series.index` to `DatetimeIndex`, raising `TypeError` instead
+  of assuming. `point_in_time_daily` therefore rejects a non-datetime index
+  (date strings are not parsed silently); `Series.name` is set directly,
+  because the stubs do not accept a `Hashable` in `rename`.
+- Still open: the step-2 files (`data/views.py`, `report/metrics.py`) are only
+  on `step-2-returns`. Their errors (the `rename` overload in `views.py`) and the
+  Series -> float / DataFrame -> Series `@overload` pairs in `metrics.py` are
+  done there once this lands, since CI will then type-check them.
+
 ## 2026-10-02: step 2, session 2 of 2 (metrics)
 
 - `report/metrics.py`: `periods_per_year` is a required keyword everywhere
