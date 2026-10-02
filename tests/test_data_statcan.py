@@ -78,3 +78,12 @@ def test_fetch_refuses_vector_not_cleared(fake_http):
     with pytest.raises(PermissionError, match="DATA_SOURCES.md"):
         statcan.fetch_vector("v122543")
     assert fake_http.calls == []
+
+
+def test_unparseable_download_is_not_cached(fake_http):
+    url = statcan.data_url(V)
+    fake_http.add(url, wds_json(122531, [], status="FAILED"))
+    with pytest.raises(ValueError):
+        statcan.fetch_vector(V)
+    fake_http.add(url, wds_json(122531, [("1971-01-01", 6.25)]))
+    assert len(statcan.fetch_vector(V)) == 1

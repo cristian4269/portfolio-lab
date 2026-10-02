@@ -80,3 +80,18 @@ def test_usdcad_rejects_non_positive_rate(fake_http):
     fake_http.add(fred.csv_url("DEXCAUS"), "DATE,DEXCAUS\n1971-01-04,0\n")
     with pytest.raises(ValueError, match="positive"):
         fred.usdcad()
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf"])
+def test_parse_rejects_non_finite_strings(bad):
+    with pytest.raises(ValueError, match="1971-01-05"):
+        fred.parse_fred_csv(f"DATE,DEXCAUS\n1971-01-04,1.0\n1971-01-05,{bad}\n", "DEXCAUS")
+
+
+def test_unparseable_download_is_not_cached(fake_http):
+    url = fred.csv_url("DEXCAUS")
+    fake_http.add(url, "<html>error</html>")
+    with pytest.raises(ValueError):
+        fred.fetch_fred("DEXCAUS")
+    fake_http.add(url, CSV_NOW)
+    assert len(fred.fetch_fred("DEXCAUS")) == 4

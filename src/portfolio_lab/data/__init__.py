@@ -5,6 +5,12 @@ data. They stop at DEV_END by default; reading the holdout takes both
 `allow_holdout` and an explicit later `end` (or `end=None` for everything),
 which only the `reproduce` command and research/ may pass (tests enforce it).
 
+Timing convention: row t holds only values observed by the close of day t.
+Daily series sit on their own day (returns, the noon USD/CAD fix, the daily
+10-year yield); the backtest adds the t+1 trade lag (blueprint: estimate
+through close t, trade at close t+1). Monthly rates get a further one
+business day margin (see `point_in_time_daily`).
+
 Units: returns are simple daily decimal returns; USD/CAD is CAD per 1 USD;
 rates are annualized decimal yields as quoted by the source (converted to
 daily rates in step 2).
@@ -33,7 +39,11 @@ class HoldoutError(ValueError):
 
 def _resolve_end(end: End, allow_holdout: bool) -> pd.Timestamp | None:
     end_ts = None if end is None else pd.Timestamp(end)
-    if not allow_holdout and (end_ts is None or end_ts > pd.Timestamp(DEV_END)):
+    if end_ts is not None and pd.isna(end_ts):
+        # "", "NaT" and NaN all become NaT, and `.loc[:NaT]` would return everything.
+        raise ValueError(f"end={end!r} is not a date")
+    within_dev = end_ts is not None and end_ts <= pd.Timestamp(DEV_END)
+    if not allow_holdout and not within_dev:  # fails closed: only a real date <= DEV_END passes
         raise HoldoutError(
             f"end={end!r} reaches past DEV_END={DEV_END}, into the holdout. The holdout opens "
             "only after the pre-registration in research/PLAN.md is committed (blueprint "
@@ -71,11 +81,11 @@ def load_fx(*, end: End = DEV_END, allow_holdout: bool = False, refresh: bool = 
 def load_rates(
     *, end: End = DEV_END, allow_holdout: bool = False, refresh: bool = False
 ) -> pd.DataFrame:
-    """Canadian yields on a business-day calendar, each usable only once observed.
+    """Canadian yields on a business-day calendar (timing convention in the module doc).
 
     CA_TBILL_3M and CA_GOVT_LONG are monthly (last Wednesday) and enter the
-    calendar the business day after they are observed; CA_GOVT_10Y is the daily
-    Valet benchmark, NaN before 2001.
+    calendar the business day after they are observed. CA_GOVT_10Y is the daily
+    Valet benchmark close, on its own day, NaN before 2001.
     """
     end_ts = _resolve_end(end, allow_holdout)
     monthly = {
@@ -89,6 +99,10 @@ def load_rates(
     last = max(max(ix[-1] for ix in usable_from), daily_10y.index[-1])
     if end_ts is not None:
         last = min(last, end_ts)
+    if last < first:
+        raise ValueError(
+            f"end={end!r} is before the first Canadian rate observation ({first.date()})"
+        )
     calendar = pd.bdate_range(first, last, name="date")
 
     out = pd.DataFrame({name: point_in_time_daily(s, calendar) for name, s in monthly.items()})
@@ -101,6 +115,11 @@ def point_in_time_daily(monthly: pd.Series, calendar: pd.DatetimeIndex) -> pd.Se
 
     A value observed on day t is first used on the next business day; it then
     holds until the next observed value. Missing observations keep the last one.
+    The one-day margin also covers a source observing later than its stamp
+    ("last Wednesday unless otherwise stated").
+
+    `BDay` knows weekends but no holidays: if the next weekday is not in
+    `calendar`, the value simply starts on the following calendar date.
     """
     observed = monthly.dropna()
     shifted = pd.Series(observed.to_numpy(), index=_next_business_day(observed.index))

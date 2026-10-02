@@ -121,3 +121,44 @@ def test_no_delay_after_interval_has_passed(monkeypatch, fake_http):
     clock["now"] += cache.MIN_INTERVAL_SECONDS + 1
     cache.fetch("https://a.org/2")
     assert sleeps == []
+
+
+def test_metadata_for_another_url_counts_as_miss(fake_http, isolated_cache):
+    fake_http.add(URL, b"payload")
+    cache.fetch(URL)
+    meta_path = isolated_cache / f"{cache.cache_key(URL)}.meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta_path.write_text(json.dumps(meta | {"url": "https://example.org/other"}))
+    with pytest.warns(UserWarning, match="metadata"):
+        assert cache.cache_info(URL) is None
+
+
+def test_fetch_parsed_returns_parsed_value_and_caches(fake_http):
+    fake_http.add(URL, b"42")
+    assert cache.fetch_parsed(URL, lambda b: int(b)) == 42
+    assert cache.fetch_parsed(URL, lambda b: int(b)) == 42
+    assert len(fake_http.calls) == 1
+
+
+def test_fetch_parsed_evicts_a_body_that_does_not_parse(fake_http):
+    # A 200 response with an error page must not be cached and served forever.
+    fake_http.add(URL, b"<html>maintenance</html>")
+    with pytest.raises(ValueError):
+        cache.fetch_parsed(URL, lambda b: int(b))
+    assert cache.cache_info(URL) is None
+    fake_http.add(URL, b"42")
+    assert cache.fetch_parsed(URL, lambda b: int(b)) == 42
+    assert len(fake_http.calls) == 2
+
+
+def test_fetch_parsed_evicts_a_stale_cached_copy_that_no_longer_parses(fake_http):
+    fake_http.add(URL, b"old format")
+    cache.fetch(URL)  # cached by an earlier version, without validation
+    with pytest.raises(ValueError):
+        cache.fetch_parsed(URL, lambda b: int(b))
+    assert cache.cache_info(URL) is None
+
+
+def test_evict_missing_entry_is_a_no_op():
+    cache.evict(URL)
+    assert cache.cache_info(URL) is None

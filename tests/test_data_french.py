@@ -87,10 +87,21 @@ def test_header_without_rows_raises():
         french.parse_french_csv("Average Value Weighted Returns -- Daily\r\n,A,B\r\n\r\n")
 
 
-@pytest.mark.parametrize("bad", ["", "n/a"])
+@pytest.mark.parametrize("bad", ["", "n/a", "nan", "inf", "-inf"])
 def test_unparseable_value_names_the_row(bad):
     with pytest.raises(ValueError, match=r"row 19630702: cannot parse value"):
         french.parse_french_csv(f",A,B\r\n19630701, 1.0, 2.0\r\n19630702, 1.0,{bad}\r\n")
+
+
+def test_stray_row_inside_a_block_raises():
+    # A non-numeric row mid-block must not silently cut the block short.
+    text = ",A\r\n19630701, 1.0\r\nfootnote\r\n19630702, 2.0\r\n"
+    with pytest.raises(ValueError, match="footnote"):
+        french.parse_french_csv(text)
+
+
+def test_block_may_end_at_end_of_file():
+    assert len(french.parse_french_csv(",A\r\n19630701, 1.0").blocks[french.MAIN_BLOCK]) == 1
 
 
 @pytest.mark.parametrize("dates", [("1963070",), ("19630701", "196307")])
@@ -153,3 +164,36 @@ def test_factors_joins_ff5_and_momentum(fake_http):
     assert list(df.columns) == ["Mkt-RF", "SMB", "HML", "RMW", "CMA", "Mom", "RF"]
     assert df.loc["1963-07-01", "Mom"] == pytest.approx(0.0055)
     assert len(df) == 3  # FF5 dates drive the index
+
+
+def zip_text(text: str) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("inner.csv", text.encode("latin-1"))
+    return buf.getvalue()
+
+
+def test_factors_refuses_momentum_missing_on_ff5_dates(fake_http):
+    fake_http.add(french.BASE_URL + french.DATASETS["ff5_daily"], zipped("ff5_daily.csv"))
+    short_mom = "created by using the 209912 CRSP database\r\n\r\n,Mom\r\n19630701, 0.5\r\n"
+    fake_http.add(french.BASE_URL + french.DATASETS["mom_daily"], zip_text(short_mom))
+    with pytest.raises(ValueError, match="momentum is missing 2 FF5 dates"):
+        french.factors()
+
+
+def test_factors_refuses_mixed_vintages(fake_http):
+    fake_http.add(french.BASE_URL + french.DATASETS["ff5_daily"], zipped("ff5_daily.csv"))
+    other = fixture_text("mom_daily.csv").replace("209912", "209911")
+    fake_http.add(french.BASE_URL + french.DATASETS["mom_daily"], zip_text(other))
+    with pytest.raises(ValueError, match="vintages differ"):
+        french.factors()
+
+
+def test_unparseable_download_is_not_cached(fake_http):
+    url = french.BASE_URL + french.DATASETS["ff5_daily"]
+    fake_http.add(url, b"<html>not a zip</html>")
+    with pytest.raises(Exception):  # noqa: B017 - zipfile.BadZipFile today
+        french.fetch_french("ff5_daily")
+    fake_http.add(url, zipped("ff5_daily.csv"))
+    assert french.fetch_french("ff5_daily").vintage == "209912"
+    assert len(fake_http.calls) == 2

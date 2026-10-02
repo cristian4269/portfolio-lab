@@ -71,6 +71,8 @@ def parse_wds_json(text: str, vector: str) -> pd.Series:
 
 
 def fetch_vector(vector: str, *, refresh: bool = False) -> pd.Series:
+    """Download (or read from cache) one approved vector, as decimals on observation days."""
     _checks.require_approved(vector, APPROVED, "Statistics Canada")
-    content = cache.fetch(data_url(vector), refresh=refresh)
-    return parse_wds_json(content.decode("utf-8"), vector)
+    return cache.fetch_parsed(
+        data_url(vector), lambda b: parse_wds_json(b.decode("utf-8"), vector), refresh=refresh
+    )

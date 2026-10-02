@@ -49,6 +49,7 @@ class FrenchFile:
 
 
 def parse_french_csv(text: str) -> FrenchFile:
+    """Parse the text of one library CSV into its blocks; raises on anything unexpected."""
     lines = [line.strip() for line in text.splitlines()]
     match = _VINTAGE.search("\n".join(lines[:5]))
     blocks: dict[str, pd.DataFrame] = {}
@@ -71,15 +72,22 @@ def _parse_block(title: str, header: str, rest: list[str]) -> pd.DataFrame:
     for line in rest:
         fields = [f.strip() for f in line.split(",")]
         if not fields[0].isdigit():
+            # A block ends at a blank line (or end of file); any other line inside
+            # it would otherwise cut the block short without notice.
+            if rows and line:
+                raise ValueError(f"unexpected line inside block {title!r}: {line[:60]!r}")
             break
         if len(fields) - 1 != len(columns):
             raise ValueError(
                 f"row {fields[0]} has {len(fields) - 1} columns, header has {len(columns)}"
             )
         try:
-            rows.append([float(f) for f in fields[1:]])
+            row = [float(f) for f in fields[1:]]
         except ValueError:
-            raise ValueError(f"row {fields[0]}: cannot parse value in {fields[1:]}") from None
+            row = [np.nan]
+        if not np.isfinite(row).all():  # unparseable, or the strings "nan" / "inf"
+            raise ValueError(f"row {fields[0]}: cannot parse value in {fields[1:]}")
+        rows.append(row)
         dates.append(fields[0])
     if not rows:
         raise ValueError(f"no data rows under the header of block {title!r}")
@@ -102,6 +110,7 @@ def _parse_dates(raw: list[str]) -> pd.DatetimeIndex:
 
 
 def read_french_zip(content: bytes) -> FrenchFile:
+    """Parse a library zip, which must hold exactly one CSV file."""
     with zipfile.ZipFile(io.BytesIO(content)) as zf:
         names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
         if len(names) != 1:
@@ -111,9 +120,10 @@ def read_french_zip(content: bytes) -> FrenchFile:
 
 
 def fetch_french(dataset: str, *, refresh: bool = False) -> FrenchFile:
+    """Download (or read from cache) and parse one dataset named in DATASETS."""
     if dataset not in DATASETS:
         raise KeyError(f"unknown French dataset {dataset!r}; known: {sorted(DATASETS)}")
-    return read_french_zip(cache.fetch(BASE_URL + DATASETS[dataset], refresh=refresh))
+    return cache.fetch_parsed(BASE_URL + DATASETS[dataset], read_french_zip, refresh=refresh)
 
 
 def industry_returns(n: int = 12, *, refresh: bool = False) -> pd.DataFrame:
@@ -124,8 +134,21 @@ def industry_returns(n: int = 12, *, refresh: bool = False) -> pd.DataFrame:
 
 
 def factors(*, refresh: bool = False) -> pd.DataFrame:
-    """Daily FF5 factors plus momentum, and the US risk-free rate RF (decimal)."""
-    ff5 = fetch_french("ff5_daily", refresh=refresh).blocks[MAIN_BLOCK]
-    mom = fetch_french("mom_daily", refresh=refresh).blocks[MAIN_BLOCK]
-    out = ff5.join(mom, how="left")
+    """Daily FF5 factors plus momentum, and the US risk-free rate RF (decimal).
+
+    Both files must come from the same CRSP vintage, and momentum must cover
+    every FF5 date (momentum starts earlier, in 1926; its extra dates are dropped).
+    """
+    ff5_file = fetch_french("ff5_daily", refresh=refresh)
+    mom_file = fetch_french("mom_daily", refresh=refresh)
+    if ff5_file.vintage != mom_file.vintage:
+        raise ValueError(
+            f"French vintages differ: FF5 {ff5_file.vintage}, momentum {mom_file.vintage}; "
+            "refresh both files"
+        )
+    ff5, mom = ff5_file.blocks[MAIN_BLOCK], mom_file.blocks[MAIN_BLOCK]
+    gaps = ff5.index.difference(mom.index)
+    if len(gaps):
+        raise ValueError(f"momentum is missing {len(gaps)} FF5 dates, first {gaps[0].date()}")
+    out = ff5.join(mom)
     return out[[c for c in out.columns if c != "RF"] + ["RF"]]

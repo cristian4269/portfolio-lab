@@ -12,8 +12,15 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture(autouse=True)
-def isolated_cache(monkeypatch, tmp_path):
-    """Point the download cache at a temporary directory and reset the rate limiter."""
+def isolated_cache(request, monkeypatch, tmp_path):
+    """Point the download cache at a temporary directory and reset the rate limiter.
+
+    Live (`network`) tests keep the configured cache and the real rate limiter, so
+    a full live run downloads each file at most once (the sources' terms ask us
+    not to hammer them).
+    """
+    if request.node.get_closest_marker("network"):
+        return config.cache_dir()
     path = tmp_path / "cache"
     monkeypatch.setenv(config.CACHE_ENV_VAR, str(path))
     monkeypatch.setattr(cache, "_last_request", {})

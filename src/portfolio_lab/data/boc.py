@@ -38,6 +38,10 @@ def parse_valet_json(text: str, series: str) -> pd.Series:
 
 
 def fetch_valet(series: str, *, refresh: bool = False) -> pd.Series:
+    """Download (or read from cache) and parse one approved Valet series, as decimals."""
     _checks.require_approved(series, APPROVED, "Bank of Canada Valet")
-    content = cache.fetch(observations_url(series), refresh=refresh)
-    return parse_valet_json(content.decode("utf-8"), series)
+    return cache.fetch_parsed(
+        observations_url(series),
+        lambda b: parse_valet_json(b.decode("utf-8"), series),
+        refresh=refresh,
+    )

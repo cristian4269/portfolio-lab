@@ -14,8 +14,10 @@ import json
 import os
 import time
 import warnings
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 import requests
@@ -40,7 +42,7 @@ def _paths(url: str) -> tuple[Path, Path]:
     return stem.with_suffix(".bin"), stem.with_suffix(".meta.json")
 
 
-def cache_info(url: str) -> dict | None:
+def cache_info(url: str) -> dict[str, Any] | None:
     """Metadata of the cached copy of `url`, or None if it isn't cached or is unreadable."""
     _, meta_path = _paths(url)
     if not meta_path.exists():
@@ -49,10 +51,34 @@ def cache_info(url: str) -> dict | None:
         meta = json.loads(meta_path.read_text())
     except (json.JSONDecodeError, UnicodeDecodeError):
         meta = None
-    if not isinstance(meta, dict) or not isinstance(meta.get("sha256"), str):
+    if (
+        not isinstance(meta, dict)
+        or not isinstance(meta.get("sha256"), str)
+        or meta.get("url") != url
+    ):
         warnings.warn(f"unreadable cache metadata for {url}; treating as not cached", stacklevel=2)
         return None
     return meta
+
+
+def evict(url: str) -> None:
+    """Delete the cached copy of `url`, if any."""
+    for path in _paths(url):
+        path.unlink(missing_ok=True)
+
+
+def fetch_parsed[T](url: str, parse: Callable[[bytes], T], *, refresh: bool = False) -> T:
+    """Fetch `url` and parse it; a body that fails to parse is evicted, then the error raised.
+
+    Without this, a 200 response carrying an error page would be cached and
+    served on every later call.
+    """
+    content = fetch(url, refresh=refresh)
+    try:
+        return parse(content)
+    except Exception:
+        evict(url)
+        raise
 
 
 def fetch(url: str, *, refresh: bool = False) -> bytes:

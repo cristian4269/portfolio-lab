@@ -2,6 +2,31 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-02: step 1, session 3 of 3 (guarded loaders, review)
+
+- `load_assets/load_factors/load_fx/load_rates` stop at DEV_END; the holdout
+  needs `allow_holdout` *and* an explicit later `end` (`end=None` = all).
+- **Timing convention (data layer):** row t holds only what was observed by
+  the close of t. Daily series stay on their own day (returns, noon USD/CAD,
+  daily 10-year); the backtest adds the t+1 trade lag (step 4). Monthly
+  StatCan rates enter the business day *after* their last-Wednesday stamp, a
+  one-day margin that also covers "unless otherwise stated" exceptions. The
+  10-year is deliberately not lagged here: step 5b regresses same-day yield
+  changes.
+- python-reviewer findings fixed: **holdout bypass via NaT** (`end=""`,
+  `"NaT"`, `pd.NaT`, NaN all became NaT and `.loc[:NaT]` returns everything;
+  the guard now fails closed); error pages no longer cached (`fetch_parsed`
+  evicts what does not parse); `"nan"`/`"inf"` strings rejected; FF5 and
+  momentum must share vintage and dates; a stray line inside a French block
+  raises; `load_rates` with `end` before any data raises.
+- **Test-suite politeness bug:** live tests had each used a fresh temporary
+  cache, so one run downloaded the same StatCan vector 4+ times in seconds and
+  StatCan's WDS stopped answering for a few minutes. Live tests now share the
+  configured cache: a full live run is one download per file (9 files).
+- 49 industries: 67,250 missing cells (industries that start later, coded
+  -99.99). Step 7b's 49-industry robustness run must pick a start date or
+  handle a changing universe.
+
 ## 2026-10-02: step 1, session 2 of 3 (FRED, Bank of Canada, Statistics Canada)
 
 - `fred.py`, `boc.py`, `statcan.py` each refuse any series without an

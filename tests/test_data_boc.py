@@ -58,3 +58,12 @@ def test_fetch_refuses_series_not_cleared(fake_http):
     with pytest.raises(PermissionError, match="DATA_SOURCES.md"):
         boc.fetch_valet("FXUSDCAD")
     assert fake_http.calls == []
+
+
+def test_unparseable_download_is_not_cached(fake_http):
+    url = boc.observations_url(S)
+    fake_http.add(url, json.dumps({"message": "Series not found"}))
+    with pytest.raises(ValueError):
+        boc.fetch_valet(S)
+    fake_http.add(url, valet_json(S, [("2001-01-02", "5.28")]))
+    assert len(boc.fetch_valet(S)) == 1

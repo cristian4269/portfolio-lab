@@ -15,14 +15,17 @@ def require_approved(series: str, approved: Mapping[str, str], source: str) -> N
         )
 
 
-def to_float(raw: object, missing: Sequence[object], where: str) -> float:
-    """Parse one observation; values in `missing` become NaN, anything unparseable raises."""
+def to_float(raw: str | float | None, missing: Sequence[object], where: str) -> float:
+    """Parse one observation; values in `missing` become NaN, anything else must be finite."""
     if raw in missing:
         return np.nan
     try:
-        return float(raw)  # type: ignore[arg-type]
+        value = float(raw)  # type: ignore[arg-type]  # None is caught below
     except (TypeError, ValueError):
-        raise ValueError(f"{where}: cannot parse value {raw!r}") from None
+        value = np.nan
+    if not np.isfinite(value):  # also rejects the strings "nan" and "inf"
+        raise ValueError(f"{where}: cannot parse value {raw!r}")
+    return value
 
 
 def build_series(index: pd.DatetimeIndex, values: list[float], name: str) -> pd.Series:

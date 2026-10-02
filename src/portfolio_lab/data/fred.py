@@ -38,9 +38,11 @@ def parse_fred_csv(text: str, series: str) -> pd.Series:
 
 
 def fetch_fred(series: str, *, refresh: bool = False) -> pd.Series:
+    """Download (or read from cache) and parse one approved FRED series."""
     _checks.require_approved(series, APPROVED, "FRED")
-    content = cache.fetch(csv_url(series), refresh=refresh)
-    return parse_fred_csv(content.decode("utf-8-sig"), series)
+    return cache.fetch_parsed(
+        csv_url(series), lambda b: parse_fred_csv(b.decode("utf-8-sig"), series), refresh=refresh
+    )
 
 
 def usdcad(*, refresh: bool = False) -> pd.Series:

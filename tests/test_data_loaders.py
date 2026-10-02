@@ -79,6 +79,16 @@ def test_holdout_needs_the_flag(sources, loader, end):
 
 
 @pytest.mark.parametrize("loader", LOADERS)
+@pytest.mark.parametrize("allow", [False, True])
+@pytest.mark.parametrize("end", ["", "NaT", pd.NaT, float("nan")])
+def test_not_a_date_end_is_refused(sources, loader, allow, end):
+    # Regression: these all became NaT, and `.loc[:NaT]` returns the whole series.
+    with pytest.raises(ValueError, match="not a date"):
+        loader(end=end, allow_holdout=allow)
+    assert sources == []  # refused before any download
+
+
+@pytest.mark.parametrize("loader", LOADERS)
 def test_flag_alone_does_not_move_the_end(sources, loader):
     # Opening the holdout takes both the flag and an explicit later end.
     assert loader(allow_holdout=True).index.max() == DEV
@@ -134,6 +144,23 @@ def test_load_rates_with_holdout_includes_later_stamps(sources):
     assert rates["CA_TBILL_3M"].loc["2011-01-26"] == pytest.approx(0.011)
     assert rates["CA_TBILL_3M"].loc["2011-01-27"] == pytest.approx(0.012)
     assert rates.index.max() == pd.Timestamp("2011-01-27")
+
+
+def test_load_rates_daily_series_stay_on_their_observation_day(monkeypatch, sources):
+    # Convention: row t holds what was observed by the close of t. A daily close
+    # stays on its own day (the backtest adds the t+1 trade lag); only the monthly
+    # series get the extra one-business-day margin.
+    stepped = pd.Series(0.035, index=DAYS, name="BD.CDN.10YR.DQ.YLD")
+    stepped.loc["2010-12-29":] = 0.040
+    monkeypatch.setattr(boc, "fetch_valet", lambda s, *, refresh=False: stepped)
+    rates = data.load_rates()
+    assert rates["CA_GOVT_10Y"].loc["2010-12-28"] == pytest.approx(0.035)
+    assert rates["CA_GOVT_10Y"].loc["2010-12-29"] == pytest.approx(0.040)
+
+
+def test_load_rates_end_before_any_data_raises(sources):
+    with pytest.raises(ValueError, match="before the first"):
+        data.load_rates(end="1900-01-01")
 
 
 class TestPointInTimeDaily:
