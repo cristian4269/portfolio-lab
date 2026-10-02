@@ -2,6 +2,51 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-02: step 3, session 1 of 4 (covariance estimators)
+
+- Plan approved and saved as `plans/step-3-plan.md`. Owner decisions: strategies declare
+  their `lookback` (momentum gets its 252 days even with a 126-day covariance window; `window`
+  moves from Step 4's engine into the strategy); minimum variance has no cap by default (the
+  shortsale-constrained portfolio of DeMiguel et al.); PyPortfolioOpt's implementation is the
+  independent check for the constant-correlation estimator. scikit-learn 1.9.1 is a dev
+  dependency (test oracle only).
+- `construct/covariance.py`: `sample_cov`, `ledoit_wolf_identity`,
+  `ledoit_wolf_constant_correlation`, `ewma_cov` (decay 0.94, zero mean), `Shrunk(cov, target,
+  intensity)`. One convention: demeaned, divided by T (both Ledoit-Wolf papers, scikit-learn),
+  so intensity 0 returns the sample matrix exactly. A target within float noise of the sample
+  matrix (1e-12 relative) gets intensity 0; an asset with no variance raises for the
+  constant-correlation target (its correlations are undefined). `_validate.window_values` checks
+  every window: a DataFrame, complete, finite, unique sorted dates, unique assets.
+- Constant correlation has no library oracle, so it is checked five ways: the docstring hand
+  example redone in exact fractions (kappa = 651/88; delta = 1 at T = 4, 651/704 at T = 8); a
+  loop-by-loop transcription of the paper's appendix; PyPortfolioOpt 1.6.0's function, vendored
+  from the PyPI wheel (SHA-256 checked, MIT notice kept) and given its own sample matrix
+  (divided by T - 1), matching to 1e-12; properties; and a mutation run. The identity target
+  matches scikit-learn to 1e-10, incl. T < N and T = 2, and scikit-learn reproduces the hand
+  value 177/352.
+- Mutation run: 8 planted errors, all caught (rho's sqrt ratio swapped; rho's mirror term
+  dropped; a theta sign; kappa / (T - 1); rbar averaging the diagonal; pi without s^2; the
+  identity's b^2 divided by T instead of T^2; EWMA weighting the oldest period most). Each of
+  the six constant-correlation mutations failed the hand example, the paper transcription and
+  the PyPortfolioOpt match at once. On Windows, `Path.write_text` writes CRLF: restore mutated
+  files with `git checkout --`, not by rewriting them.
+- TDD evidence: RED `d0224bf` (collection fails: `cannot import name 'covariance'`), GREEN
+  `0104255` (84 covariance tests). Suite 366 passed, 99.75% coverage; ruff and mypy clean.
+- Dev-data diagnostics (12 industries, USD, 559 month-end windows of 252 days, 1964-06 to
+  2010-12; estimates only, no performance):
+
+  | | LW identity | LW constant correlation |
+  |---|---|---|
+  | Intensity 5% / median / 95% | 0.013 / 0.023 / 0.058 | 0.077 / 0.184 / 1.000 |
+  | Median condition number (sample 167) | 113 | 121 |
+  | Time per call | 0.5 ms | 1.3 ms |
+
+  Constant correlation shrinks fully in 29 windows (1964, and 24 in 1987-90): the October
+  1987 crash inflates pi-hat through fourth moments. Full shrinkage happens where the target
+  is already close to the sample matrix (median ||F - S|| / ||S|| = 7%, vs 18% otherwise), and
+  PyPortfolioOpt also gives delta = 1 on the same window, so this is the estimator, not a bug.
+  The sample matrix's worst condition number is 749 (1988-09-30).
+
 ## 2026-10-02: mypy with real pandas types (after step 2)
 
 - mypy had been run ad hoc via `uvx` in an env without pandas, so every pandas
