@@ -144,7 +144,7 @@ uv 0.12.20 and CPython 3.13.15 are installed; gh is logged in as cristian4269.
 ---
 
 ## Step 1: Data sources, licenses, loaders
-Status: not started
+Status: **in progress** (session 1 of 3 done 2026-10-02: DATA_SOURCES.md, `data/cache.py`, `data/french.py`. Next: `fred.py`, `boc.py`, `statcan.py`; then guarded loaders, text-scan test, review)
 
 **Context.** Pre-flight (2026-10-01): French library = copyright notice, no
 explicit reuse terms (handled by G1); daily FF5, momentum and 5-49 industry
@@ -355,6 +355,8 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 | Scope creep | Serial steps, MVP path, explicit cut order |
 
 ## Change log
+
+- 2026-10-02: step 1 session 1. Canadian rate history moved from Valet to Statistics Canada table 10-10-0122-01 (Valet daily series start 2001, the CAD view starts 1971); adds `data/statcan.py` to step 1. The `allow_holdout=True` text scan also exempts `tests/` (owner chose option A). FRED missing values are empty fields, not `.`.
 
 - 2026-10-01: draft v1 (steps 0-9).
 - 2026-10-01: step 0 done. G2 approved: private repo github.com/cristian4269/portfolio-lab, `main` pushed, CI green (checkout@v4, setup-uv@v6). Formal python-reviewer pass skipped for this scaffold-only step (no logic); required from step 1.
