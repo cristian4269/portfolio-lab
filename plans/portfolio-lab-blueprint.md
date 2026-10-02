@@ -144,7 +144,7 @@ uv 0.12.20 and CPython 3.13.15 are installed; gh is logged in as cristian4269.
 ---
 
 ## Step 1: Data sources, licenses, loaders
-Status: not started
+Status: **done 2026-10-02, pending PR merge** (3 sessions; 176 unit + 10 live tests, 99.5% coverage; python-reviewer and `/code-review` findings fixed, incl. a holdout bypass via NaT)
 
 **Context.** Pre-flight (2026-10-01): French library = copyright notice, no
 explicit reuse terms (handled by G1); daily FF5, momentum and 5-49 industry
@@ -355,6 +355,9 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 | Scope creep | Serial steps, MVP path, explicit cut order |
 
 ## Change log
+
+- 2026-10-02: step 1 done. Data-layer timing convention: row t = observed by close of t; monthly StatCan rates enter one business day after their last-Wednesday stamp (verified 299/299 months against Valet daily). Reviews found and fixed a holdout bypass (`end` that parses to NaT) and an unsorted-index truncation leak; truncation now uses a mask. Live tests share one cache (one download per file per run).
+- 2026-10-02: step 1 session 1. Canadian rate history moved from Valet to Statistics Canada table 10-10-0122-01 (Valet daily series start 2001, the CAD view starts 1971); adds `data/statcan.py` to step 1. The `allow_holdout=True` text scan also exempts `tests/` (owner chose option A). FRED missing values are empty fields, not `.`.
 
 - 2026-10-01: draft v1 (steps 0-9).
 - 2026-10-01: step 0 done. G2 approved: private repo github.com/cristian4269/portfolio-lab, `main` pushed, CI green (checkout@v4, setup-uv@v6). Formal python-reviewer pass skipped for this scaffold-only step (no logic); required from step 1.

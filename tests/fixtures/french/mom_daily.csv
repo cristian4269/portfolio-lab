@@ -1,0 +1,9 @@
+This file was created by using the 209912 CRSP database.  It
+contains a momentum factor. Synthetic fixture: values are made up.
+
+Missing data are indicated by -99.99 or -999.
+
+,Mom
+19630701,   0.55
+19630702,  -0.51
+19630703, -99.99
