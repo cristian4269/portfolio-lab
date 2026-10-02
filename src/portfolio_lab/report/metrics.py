@@ -36,6 +36,8 @@ Hand example (periods_per_year=4, so the 4 periods are one year). Returns of
 """
 
 import math
+from collections.abc import Hashable
+from typing import overload
 
 import numpy as np
 import pandas as pd
@@ -85,18 +87,30 @@ type Returns = pd.Series | pd.DataFrame
 type Rate = pd.Series | float
 
 
+@overload
+def cagr(r: pd.Series, *, periods_per_year: float) -> float: ...
+@overload
+def cagr(r: pd.DataFrame, *, periods_per_year: float) -> pd.Series: ...
 def cagr(r: Returns, *, periods_per_year: float) -> float | pd.Series:
     """Compound annual growth rate."""
     f, ppy = _frame(r), _ppy(periods_per_year)
     return _out(r, (1 + f).prod() ** (ppy / len(f)) - 1)
 
 
+@overload
+def annualized_vol(r: pd.Series, *, periods_per_year: float) -> float: ...
+@overload
+def annualized_vol(r: pd.DataFrame, *, periods_per_year: float) -> pd.Series: ...
 def annualized_vol(r: Returns, *, periods_per_year: float) -> float | pd.Series:
     """Sample standard deviation (ddof=1) times sqrt(periods_per_year)."""
     f, ppy = _frame(r), _ppy(periods_per_year)
     return _out(r, f.std(ddof=1) * math.sqrt(ppy))
 
 
+@overload
+def sharpe(r: pd.Series, rf: Rate, *, periods_per_year: float) -> float: ...
+@overload
+def sharpe(r: pd.DataFrame, rf: Rate, *, periods_per_year: float) -> pd.Series: ...
 def sharpe(r: Returns, rf: Rate, *, periods_per_year: float) -> float | pd.Series:
     """Annualized Sharpe ratio: mean / std of excess returns, times sqrt(periods_per_year)."""
     f, ppy = _frame(r), _ppy(periods_per_year)
@@ -104,6 +118,10 @@ def sharpe(r: Returns, rf: Rate, *, periods_per_year: float) -> float | pd.Serie
     return _out(r, _ratio(ex.mean(), ex.std(ddof=1), _scale(f, rf)) * math.sqrt(ppy))
 
 
+@overload
+def sortino(r: pd.Series, rf: Rate, *, periods_per_year: float) -> float: ...
+@overload
+def sortino(r: pd.DataFrame, rf: Rate, *, periods_per_year: float) -> pd.Series: ...
 def sortino(r: Returns, rf: Rate, *, periods_per_year: float) -> float | pd.Series:
     """Annualized Sortino ratio: mean excess return / downside deviation (target = rf)."""
     f, ppy = _frame(r), _ppy(periods_per_year)
@@ -112,17 +130,29 @@ def sortino(r: Returns, rf: Rate, *, periods_per_year: float) -> float | pd.Seri
     return _out(r, _ratio(ex.mean(), downside, _scale(f, rf)) * math.sqrt(ppy))
 
 
+@overload
+def drawdowns(r: pd.Series) -> pd.Series: ...
+@overload
+def drawdowns(r: pd.DataFrame) -> pd.DataFrame: ...
 def drawdowns(r: Returns) -> Returns:
     """Wealth / running peak - 1 each period (0 at a new high, -0.2 = 20% below the peak)."""
     dd = _drawdowns(_frame(r, min_periods=1))
-    return dd.iloc[:, 0].rename(r.name) if isinstance(r, pd.Series) else dd
+    return _first_column(dd, r.name) if isinstance(r, pd.Series) else dd
 
 
+@overload
+def max_drawdown(r: pd.Series) -> float: ...
+@overload
+def max_drawdown(r: pd.DataFrame) -> pd.Series: ...
 def max_drawdown(r: Returns) -> float | pd.Series:
     """The deepest drawdown, as a negative fraction (0 if wealth never fell)."""
     return _out(r, _drawdowns(_frame(r, min_periods=1)).min())
 
 
+@overload
+def max_drawdown_duration(r: pd.Series) -> int: ...
+@overload
+def max_drawdown_duration(r: pd.DataFrame) -> pd.Series: ...
 def max_drawdown_duration(r: Returns) -> int | pd.Series:
     """The longest run of periods spent below an earlier peak, recovered or not."""
     under = _drawdowns(_frame(r, min_periods=1)) < 0
@@ -134,6 +164,10 @@ def max_drawdown_duration(r: Returns) -> int | pd.Series:
     return int(out.iloc[0]) if isinstance(r, pd.Series) else out
 
 
+@overload
+def calmar(r: pd.Series, *, periods_per_year: float) -> float: ...
+@overload
+def calmar(r: pd.DataFrame, *, periods_per_year: float) -> pd.Series: ...
 def calmar(r: Returns, *, periods_per_year: float) -> float | pd.Series:
     """CAGR / |max drawdown|; NaN when wealth never fell."""
     f = _frame(r)
@@ -141,16 +175,30 @@ def calmar(r: Returns, *, periods_per_year: float) -> float | pd.Series:
     return _out(r, cagr(f, periods_per_year=periods_per_year) / depth.where(depth > 0))
 
 
+@overload
+def skew(r: pd.Series) -> float: ...
+@overload
+def skew(r: pd.DataFrame) -> pd.Series: ...
 def skew(r: Returns) -> float | pd.Series:
     """Bias-corrected sample skewness (G1)."""
     return _out(r, _frame(r, min_periods=3).skew())
 
 
+@overload
+def excess_kurtosis(r: pd.Series) -> float: ...
+@overload
+def excess_kurtosis(r: pd.DataFrame) -> pd.Series: ...
 def excess_kurtosis(r: Returns) -> float | pd.Series:
     """Bias-corrected sample excess kurtosis (G2; 0 for a normal distribution)."""
     return _out(r, _frame(r, min_periods=4).kurt())
 
 
+@overload
+def tracking_error(r: pd.Series, benchmark: pd.Series, *, periods_per_year: float) -> float: ...
+@overload
+def tracking_error(
+    r: pd.DataFrame, benchmark: pd.Series, *, periods_per_year: float
+) -> pd.Series: ...
 def tracking_error(
     r: Returns, benchmark: pd.Series, *, periods_per_year: float
 ) -> float | pd.Series:
@@ -159,6 +207,12 @@ def tracking_error(
     return _out(r, _minus(f, benchmark, "benchmark").std(ddof=1) * math.sqrt(ppy))
 
 
+@overload
+def information_ratio(r: pd.Series, benchmark: pd.Series, *, periods_per_year: float) -> float: ...
+@overload
+def information_ratio(
+    r: pd.DataFrame, benchmark: pd.Series, *, periods_per_year: float
+) -> pd.Series: ...
 def information_ratio(
     r: Returns, benchmark: pd.Series, *, periods_per_year: float
 ) -> float | pd.Series:
@@ -169,6 +223,14 @@ def information_ratio(
     return _out(r, ratio * math.sqrt(ppy))
 
 
+@overload
+def summary(
+    r: pd.Series, rf: Rate, *, periods_per_year: float, benchmark: pd.Series | None = None
+) -> pd.Series: ...
+@overload
+def summary(
+    r: pd.DataFrame, rf: Rate, *, periods_per_year: float, benchmark: pd.Series | None = None
+) -> pd.DataFrame: ...
 def summary(
     r: Returns, rf: Rate, *, periods_per_year: float, benchmark: pd.Series | None = None
 ) -> pd.Series | pd.DataFrame:
@@ -190,7 +252,7 @@ def summary(
         rows["tracking_error"] = tracking_error(f, benchmark, periods_per_year=ppy)
         rows["information_ratio"] = information_ratio(f, benchmark, periods_per_year=ppy)
     table = pd.DataFrame(rows).T.astype(float)
-    return table.iloc[:, 0].rename(r.name) if isinstance(r, pd.Series) else table
+    return _first_column(table, r.name) if isinstance(r, pd.Series) else table
 
 
 def _frame(r: Returns, *, min_periods: int = 2) -> pd.DataFrame:
@@ -249,3 +311,10 @@ def _ppy(periods_per_year: float) -> float:
 
 def _out(r: Returns, values: pd.Series) -> float | pd.Series:
     return float(values.iloc[0]) if isinstance(r, pd.Series) else values
+
+
+def _first_column(table: pd.DataFrame, name: Hashable) -> pd.Series:
+    """The single column of a table built from a Series, under the Series' name."""
+    col = table.iloc[:, 0]
+    col.name = name  # a new Series object: the table's column label is untouched
+    return col
