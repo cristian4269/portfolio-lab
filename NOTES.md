@@ -2,6 +2,26 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-02: step 1, session 2 of 3 (FRED, Bank of Canada, Statistics Canada)
+
+- `fred.py`, `boc.py`, `statcan.py` each refuse any series without an
+  "allowed" verdict in DATA_SOURCES.md (`APPROVED` dicts, `PermissionError`).
+- **Timing rule confirmed on live data.** StatCan monthly `v122531` re-stamped
+  on the last Wednesday equals Valet's daily `TB.CDN.90D.MID` on that day in
+  299 of 299 months where the Wednesday is a trading day (2001-02 to 2026-09,
+  0.0 bp difference). Using the 1st instead is off by a median 4.5 bp, max
+  126 bp. The live test `test_statcan_monthly_matches_valet_daily_on_last_wednesday`
+  guards this.
+- **Holiday months** (9 since 2001: Christmas/Boxing Day Wednesdays, and
+  2026-09-30, National Day for Truth and Reconciliation) are observed on the
+  *previous* business day, never later. Our Wednesday stamp is then 1-2 days
+  late: slightly stale, never look-ahead. Kept as is.
+- Coverage: `v122531` starts 1962-01 (4 missing months, none after 1971),
+  `v122487` starts 1936-01; `DEXCAUS` 1971-01-04 to 2026-09-25, 558 missing
+  days (US holidays); Valet daily series start 2001-01-02.
+- Session 3 needs: forward-fill monthly rates onto the daily calendar from
+  the business day *after* the stamp (so a rate is used only once observed).
+
 ## 2026-10-02: step 1, session 1 of 3 (sources, cache, French loader)
 
 - Plan confirmed. The `allow_holdout=True` text scan exempts `tests/` as well

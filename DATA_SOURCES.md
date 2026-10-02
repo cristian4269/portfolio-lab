@@ -26,8 +26,8 @@ into a local cache (`~/.cache/portfolio-lab`, override with `PORTFOLIO_LAB_CACHE
 | Factors, US risk-free | Fama/French 5 Factors (2x3), daily (`F-F_Research_Data_5_Factors_2x3_daily_CSV.zip`): Mkt-RF, SMB, HML, RMW, CMA, RF | French | Daily, 1963-07-01 on | G1 | Allowed (G1) |
 | Factors | Momentum factor, daily (`F-F_Momentum_Factor_daily_CSV.zip`) | French | Daily, 1926-11-03 on | G1 | Allowed (G1) |
 | USD/CAD | `DEXCAUS`, CAD per 1 USD, H.10 noon buying rates in New York | FRED | Daily, 1971-01-04 on | "Public Domain: Citation Requested" | Allowed |
-| CAD short rate | `v122531`, Treasury bills: 3 month, % per year | Statistics Canada table 10-10-0122-01 (data from the Bank of Canada) | Monthly, last Wednesday of the month; covers 1971 | Open Licence | Allowed |
-| CAD 10-year yield (history) | `v122487`, Government of Canada marketable bonds, average yield, over 10 years, % per year | Statistics Canada table 10-10-0122-01 | Monthly, last Wednesday of the month; 1960 on | Open Licence | Allowed |
+| CAD short rate | `v122531`, Treasury bills: 3 month, % per year | Statistics Canada table 10-10-0122-01 (data from the Bank of Canada) | Monthly, last Wednesday of the month; 1962-01 on | Open Licence | Allowed |
+| CAD 10-year yield (history) | `v122487`, Government of Canada marketable bonds, average yield, over 10 years, % per year | Statistics Canada table 10-10-0122-01 | Monthly, last Wednesday of the month; 1936-01 on | Open Licence | Allowed |
 | CAD 10-year yield (daily) | `BD.CDN.10YR.DQ.YLD`, benchmark bond yield, 10-year, % per year | Bank of Canada Valet | Daily, 2001-01-02 on | Bank of Canada terms | Allowed |
 | CAD 3-month T-bill (daily, cross-check) | `TB.CDN.90D.MID`, Treasury bills 3-month mid yield, % per year | Bank of Canada Valet | Daily, 2001-01-02 on | Bank of Canada terms | Allowed; used only to cross-check the monthly series |
 
