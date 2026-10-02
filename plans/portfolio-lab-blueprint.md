@@ -171,7 +171,7 @@ use only → **not allowed**). SEC EDGAR: considered, not needed for this scope.
 ---
 
 ## Step 2: Returns, CAD/hedged views, metrics
-Status: **done 2026-10-02, pending PR** (2 sessions; `data/views.py`, `report/metrics.py`, shared `_validate.py`; 281 unit tests, 99.7% coverage; python-reviewer x2 and `/code-review` findings fixed)
+Status: **done and merged 2026-10-02** (PR #2, merge commit b0913fc; 2 sessions; `data/views.py`, `report/metrics.py`, shared `_validate.py`; 281 unit tests, 99.7% coverage; python-reviewer x2 and `/code-review` findings fixed; typing follow-up merged as PR #3, merge commit 5114847)
 
 **Context.** `fx_t = S_t / S_{t-1} - 1` with `S` = CAD per USD. Unhedged CAD
 return of a USD asset: `r_cad = (1 + r_usd)(1 + fx) - 1` (USD up → CAD investor
