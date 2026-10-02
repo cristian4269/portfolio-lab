@@ -2,6 +2,71 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-02: step 2, session 2 of 2 (metrics)
+
+- `report/metrics.py`: `periods_per_year` is a required keyword everywhere
+  (`TRADING_DAYS = 252`, `MONTHS = 12` are named constants, never defaults).
+  Series in -> float out; DataFrame in -> one value per column. Missing
+  returns raise; so do returns below -100%.
+- Conventions: CAGR geometric; vol, Sharpe, TE, IR arithmetic (ddof=1,
+  scaled by ppy and sqrt(ppy)); Sharpe/Sortino always take rf (Series or a
+  constant) so they never run on total returns by accident; Sortino's
+  downside deviation averages over *all* periods (Sortino and Price 1994);
+  drawdowns start from wealth 1, and an unrecovered drawdown counts toward
+  duration; skew/kurtosis bias-corrected (G1/G2, Joanes and Gill 1998).
+- Sanity, 12-industry 1/N, 1971-01-05 to 2010-12-31 (daily):
+
+  | | USD | CAD | CAD hedged | US market |
+  |---|---|---|---|---|
+  | CAGR | 11.1% | 11.1% | 12.6% | 10.3% |
+  | Vol | 15.8% | 16.1% | 15.8% | 16.5% |
+  | Sharpe | 0.41 | 0.32 | 0.41 | 0.35 |
+  | Max DD | -54.0% | -48.3% | -53.6% | -54.6% |
+
+  Hedged Sharpe == USD Sharpe (CIP identity). 1/N beats the market's Sharpe
+  in dev, as in DeMiguel et al. The CAD view's drawdown is shallower because
+  the USD rallied in the 2008 crash; its Sharpe is lower because Canadian
+  bills paid more (6.9% vs 5.5%/yr). Daily excess kurtosis ~16-19 (Oct 1987).
+  Growth of $1: USD 68, CAD 68, CAD hedged 118.
+- Review fixes: zero-risk ratios are NaN (a constant series once gave a
+  Sharpe of 8.7e16 from float noise); drawdowns within 1e-12 of the peak
+  are 0; metrics reject unsorted or repeated dates (reversed returns gave a
+  wrong drawdown duration); index checks live in `portfolio_lab/_validate.py`.
+- **End of the CAD views:** first version ended them at the last FX fix,
+  which dropped 2010-12-31, a Fed holiday (New Year observed) when the NYSE
+  traded. Now they end 7 days after the last observation: a lagging source
+  (FRED posts USD/CAD with a delay) shortens them, a trailing holiday is
+  carried like any other.
+- Typing: `uvx mypy` sees pandas as `Any` (no pandas-stubs), so overloads
+  (Series -> float, DataFrame -> Series) were dropped; with stubs there are
+  12 existing errors in the data layer. Follow-up task, not step 2.
+
+## 2026-10-02: step 2, session 1 of 2 (currency views)
+
+- `data/views.py`: pure functions, no loading. US trading days (the French
+  index) drive the calendar; FX and rate *levels* are carried onto them from
+  the last observation at or before each day, then turned into returns. A
+  level older than 7 calendar days raises (`MAX_AGE_DAYS`). On 1971-2010 the
+  oldest carried USD/CAD fix is 3 days (Columbus Day: Fed closed, NYSE open).
+- **Canadian rf = rolling 3-month bills (owner decision).** T-bill yields are
+  simple act/365 (price 100 / (1 + y·T/365)), so the daily rate is
+  `(1 + y·91/365)^(d/91) - 1`, with y known at the previous trading day and d
+  calendar days (Monday earns 3). The blueprint's `(1 + y)^(d/365) - 1` would
+  understate it: 8% quoted gives 8.24%/yr rolled, not 8.00%; 20% gives 21.6%.
+  Dev 1971-2010: 6.91%/yr earned vs 6.76% average quote.
+- **Day-count mismatch, harmless:** French RF spreads each month's T-bill
+  return evenly over trading days; CAD rf accrues by calendar day (Mondays
+  larger). Both sum to the right monthly return. Only daily `rf_cad - rf_usd`
+  in the hedged view carries a weekly pattern.
+- **CIP hedge duplicates USD Sharpe:** r_hedged = r_usd + rf_cad - rf_usd, so
+  the hedged excess return equals the USD excess return *exactly* (property
+  test). The CAD_HEDGED view adds information only through total-return
+  metrics (CAGR, drawdown). To state in research/PLAN.md (step 7a).
+- Sanity on dev data, 12 industries 1/N, 1971-01-05 to 2010-12-31: USD
+  11.1%/yr, CAD unhedged 11.1% (USD/CAD ~flat, 1.01 -> 1.00), CAD hedged
+  12.6% (= USD + ~1.4%/yr rate differential). No NaN in any view; CAD views
+  start 1971-01-05.
+
 ## 2026-10-02: step 1, session 3 of 3 (guarded loaders, review)
 
 - `load_assets/load_factors/load_fx/load_rates` stop at DEV_END; the holdout

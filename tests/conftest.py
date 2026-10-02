@@ -4,11 +4,16 @@ from pathlib import Path
 
 import pytest
 import requests
+from hypothesis import settings
 
 from portfolio_lab import config
 from portfolio_lab.data import cache
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+# Properties are about values, not speed: a loaded machine must not fail them.
+settings.register_profile("portfolio-lab", deadline=None)
+settings.load_profile("portfolio-lab")
 
 
 @pytest.fixture(autouse=True)
