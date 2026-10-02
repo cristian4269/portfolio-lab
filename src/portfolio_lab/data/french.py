@@ -106,6 +106,8 @@ def _parse_dates(raw: list[str]) -> pd.DatetimeIndex:
         index = index + pd.offsets.MonthEnd(0)
     elif width == 4:
         index = index + pd.offsets.YearEnd(0)
+    if not index.is_monotonic_increasing or not index.is_unique:
+        raise ValueError(f"dates must be strictly increasing in block starting {raw[:1]}")
     return index
 
 

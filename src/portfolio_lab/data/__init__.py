@@ -53,7 +53,8 @@ def _resolve_end(end: End, allow_holdout: bool) -> pd.Timestamp | None:
 
 
 def _truncate[T: (pd.Series, pd.DataFrame)](obj: T, end: pd.Timestamp | None) -> T:
-    return obj if end is None else obj.loc[:end]
+    # A mask, not `.loc[:end]`: label slicing keeps later rows if the index is unsorted.
+    return obj if end is None else obj.loc[obj.index <= end]
 
 
 def load_assets(

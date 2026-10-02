@@ -197,3 +197,10 @@ def test_unparseable_download_is_not_cached(fake_http):
     fake_http.add(url, zipped("ff5_daily.csv"))
     assert french.fetch_french("ff5_daily").vintage == "209912"
     assert len(fake_http.calls) == 2
+
+
+@pytest.mark.parametrize("dates", [("19630702", "19630701"), ("19630701", "19630701")])
+def test_unsorted_or_duplicate_dates_raise(dates):
+    rows = "".join(f"{d}, 1.0\r\n" for d in dates)
+    with pytest.raises(ValueError, match="increasing"):
+        french.parse_french_csv(",A\r\n" + rows)

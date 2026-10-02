@@ -194,3 +194,12 @@ class TestPointInTimeDaily:
         s = data.point_in_time_daily(monthly, self.calendar)
         # A missing month keeps the last observed rate (it is still the latest known value).
         assert s.loc["1971-03-01"] == pytest.approx(0.06)
+
+
+def test_truncation_does_not_depend_on_sort_order(monkeypatch, sources):
+    # Regression: `.loc[:end]` on an unsorted index keeps rows after `end`.
+    unsorted = pd.DataFrame(
+        {"A": [1.0, 2.0, 3.0]}, index=pd.to_datetime(["2010-12-30", "2011-01-03", "2010-12-31"])
+    )
+    monkeypatch.setattr(french, "industry_returns", lambda n, *, refresh=False: unsorted)
+    assert list(data.load_assets().index) == list(pd.to_datetime(["2010-12-30", "2010-12-31"]))
