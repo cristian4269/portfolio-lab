@@ -144,7 +144,7 @@ uv 0.12.20 and CPython 3.13.15 are installed; gh is logged in as cristian4269.
 ---
 
 ## Step 1: Data sources, licenses, loaders
-Status: **done 2026-10-02, pending PR merge** (3 sessions; 176 unit + 10 live tests, 99.5% coverage; python-reviewer and `/code-review` findings fixed, incl. a holdout bypass via NaT)
+Status: **done and merged 2026-10-02** (PR #1, merge commit 91e6245; 3 sessions; 176 unit + 10 live tests, 99.5% coverage; python-reviewer and `/code-review` findings fixed, incl. a holdout bypass via NaT)
 
 **Context.** Pre-flight (2026-10-01): French library = copyright notice, no
 explicit reuse terms (handled by G1); daily FF5, momentum and 5-49 industry
