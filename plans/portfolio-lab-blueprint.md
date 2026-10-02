@@ -171,15 +171,17 @@ use only → **not allowed**). SEC EDGAR: considered, not needed for this scope.
 ---
 
 ## Step 2: Returns, CAD/hedged views, metrics
-Status: not started
+Status: **in progress** (session 1 of 2 done 2026-10-02: `data/views.py`)
 
 **Context.** `fx_t = S_t / S_{t-1} - 1` with `S` = CAD per USD. Unhedged CAD
 return of a USD asset: `r_cad = (1 + r_usd)(1 + fx) - 1` (USD up → CAD investor
 gains). Hedged approximation by covered interest parity:
 `r_hedged ≈ r_usd + (rf_cad - rf_usd)` per period. Excess returns use the
 matching risk-free rate (US for USD view, Canadian for CAD views).
-Annualized % rates → daily: `(1 + y)^(days/365) - 1` per calendar day between
-observations (act/365), documented.
+Canadian T-bill yields are simple act/365 yields, so the daily rate is the
+return from rolling 3-month bills: `(1 + y·91/365)^(days/91) - 1`, days = calendar
+days since the previous trading day (amended 2026-10-02 by the owner; v2 had
+`(1 + y)^(days/365) - 1`, which treats y as an effective annual rate).
 
 **Tasks**
 - `data/views.py`: `to_cad_unhedged`, `to_cad_hedged`, `excess`; US/Canada holiday alignment rule (inner join on US trading days, carry last FX/rate, documented and tested).
@@ -356,6 +358,7 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 
 ## Change log
 
+- 2026-10-02: step 2 session 1. Owner chose the rolling-bill rate conversion `(1 + y·91/365)^(d/91) - 1` over v2's `(1 + y)^(d/365) - 1` (T-bills are quoted as simple act/365 yields; v2 understated CAD rf by ~24 bp/yr on average, ~160 bp/yr at 1981 rates). Carried FX/rate levels older than 7 calendar days raise.
 - 2026-10-02: step 1 done. Data-layer timing convention: row t = observed by close of t; monthly StatCan rates enter one business day after their last-Wednesday stamp (verified 299/299 months against Valet daily). Reviews found and fixed a holdout bypass (`end` that parses to NaT) and an unsorted-index truncation leak; truncation now uses a mask. Live tests share one cache (one download per file per run).
 - 2026-10-02: step 1 session 1. Canadian rate history moved from Valet to Statistics Canada table 10-10-0122-01 (Valet daily series start 2001, the CAD view starts 1971); adds `data/statcan.py` to step 1. The `allow_holdout=True` text scan also exempts `tests/` (owner chose option A). FRED missing values are empty fields, not `.`.
 

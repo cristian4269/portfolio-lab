@@ -2,6 +2,32 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-02: step 2, session 1 of 2 (currency views)
+
+- `data/views.py`: pure functions, no loading. US trading days (the French
+  index) drive the calendar; FX and rate *levels* are carried onto them from
+  the last observation at or before each day, then turned into returns. A
+  level older than 7 calendar days raises (`MAX_AGE_DAYS`). On 1971-2010 the
+  oldest carried USD/CAD fix is 3 days (Columbus Day: Fed closed, NYSE open).
+- **Canadian rf = rolling 3-month bills (owner decision).** T-bill yields are
+  simple act/365 (price 100 / (1 + y·T/365)), so the daily rate is
+  `(1 + y·91/365)^(d/91) - 1`, with y known at the previous trading day and d
+  calendar days (Monday earns 3). The blueprint's `(1 + y)^(d/365) - 1` would
+  understate it: 8% quoted gives 8.24%/yr rolled, not 8.00%; 20% gives 21.6%.
+  Dev 1971-2010: 6.91%/yr earned vs 6.76% average quote.
+- **Day-count mismatch, harmless:** French RF spreads each month's T-bill
+  return evenly over trading days; CAD rf accrues by calendar day (Mondays
+  larger). Both sum to the right monthly return. Only daily `rf_cad - rf_usd`
+  in the hedged view carries a weekly pattern.
+- **CIP hedge duplicates USD Sharpe:** r_hedged = r_usd + rf_cad - rf_usd, so
+  the hedged excess return equals the USD excess return *exactly* (property
+  test). The CAD_HEDGED view adds information only through total-return
+  metrics (CAGR, drawdown). To state in research/PLAN.md (step 7a).
+- Sanity on dev data, 12 industries 1/N, 1971-01-05 to 2010-12-31: USD
+  11.1%/yr, CAD unhedged 11.1% (USD/CAD ~flat, 1.01 -> 1.00), CAD hedged
+  12.6% (= USD + ~1.4%/yr rate differential). No NaN in any view; CAD views
+  start 1971-01-05.
+
 ## 2026-10-02: step 1, session 3 of 3 (guarded loaders, review)
 
 - `load_assets/load_factors/load_fx/load_rates` stop at DEV_END; the holdout
