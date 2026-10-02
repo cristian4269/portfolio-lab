@@ -76,15 +76,14 @@ def align_levels(
     a carried level is more than `max_age_days` calendar days old.
     """
     check_dates(days, "days")
-    check_dates(levels.index, f"levels {levels.name!r}")
-
-    observed = levels.dropna()
-    pos = observed.index.searchsorted(days, side="right") - 1
+    known = levels.notna().to_numpy()
+    observed = check_dates(levels.index, f"levels {levels.name!r}")[known]
+    pos = observed.searchsorted(days, side="right") - 1
     found = pos >= 0
     values = np.full(len(days), np.nan)
-    values[found] = observed.to_numpy(dtype=float)[pos[found]]
+    values[found] = levels.to_numpy(dtype=float)[known][pos[found]]
 
-    age = days[found] - observed.index[pos[found]]
+    age = days[found] - observed[pos[found]]
     stale = age > pd.Timedelta(days=max_age_days)
     if stale.any():
         day = days[found][stale][0]
@@ -169,18 +168,20 @@ def make_views(
     holiday. A gap of more than MAX_AGE_DAYS inside the period still raises.
     """
     usd = View(assets, rf_usd)
-    ends = [usdcad.last_valid_index(), ca_tbill.last_valid_index()]
-    if None in ends:
+    fx_end = _last_observed(usdcad, "USD/CAD")
+    rate_end = _last_observed(ca_tbill, "Canadian T-bill yields")
+    if fx_end is None or rate_end is None:
         raise ValueError("no day has both a USD/CAD return and a Canadian rate")
-    fresh_until = min(ends) + pd.Timedelta(days=MAX_AGE_DAYS)
-    days = assets.index[assets.index <= fresh_until]
+    fresh_until = min(fx_end, rate_end) + pd.Timedelta(days=MAX_AGE_DAYS)
+    us_days = check_dates(assets.index, "returns")
+    days = us_days[us_days <= fresh_until]
     fx = fx_returns(usdcad, days)
     rf_cad = daily_rate(ca_tbill, days, term_days=term_days)
 
-    usable = fx.notna() & rf_cad.notna()
+    usable = (fx.notna() & rf_cad.notna()).to_numpy()  # on `days`, position by position
     if not usable.any():
         raise ValueError("no day has both a USD/CAD return and a Canadian rate")
-    cad_days = days[days >= usable.idxmax()]
+    cad_days = days[int(usable.argmax()) :]  # from the first usable day on
 
     r, fx, rf_cad = assets.loc[cad_days], fx.loc[cad_days], rf_cad.loc[cad_days]
     return {
@@ -190,5 +191,12 @@ def make_views(
     }
 
 
+def _last_observed(s: pd.Series, what: str) -> pd.Timestamp | None:
+    observed = check_dates(s.index, what)[s.notna().to_numpy()]
+    return observed[-1] if len(observed) else None
+
+
 def _keep_name[T: (pd.Series, pd.DataFrame)](like: T, out: T) -> T:
-    return out.rename(like.name) if isinstance(out, pd.Series) else out
+    if isinstance(out, pd.Series):  # `out` is always a new object here
+        out.name = like.name
+    return out

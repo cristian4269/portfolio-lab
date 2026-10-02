@@ -12,13 +12,14 @@ def check_order(index: pd.Index, what: str) -> None:
         raise ValueError(f"{what} must have unique dates")
 
 
-def check_dates(index: pd.Index, what: str) -> None:
-    """A sorted, unique, tz-naive DatetimeIndex (calendar dates)."""
+def check_dates(index: pd.Index, what: str) -> pd.DatetimeIndex:
+    """A sorted, unique, tz-naive DatetimeIndex (calendar dates); returns it, typed as such."""
     if not isinstance(index, pd.DatetimeIndex):
         raise ValueError(f"{what} must have a DatetimeIndex, got {type(index).__name__}")
     if index.tz is not None:
         raise ValueError(f"{what} must be tz-naive (dates), got tz={index.tz}")
     check_order(index, what)
+    return index
 
 
 def check_aligned(a: pd.Series | pd.DataFrame, b: pd.Series, what: str = "dates") -> None:

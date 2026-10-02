@@ -195,6 +195,12 @@ class TestPointInTimeDaily:
         # A missing month keeps the last observed rate (it is still the latest known value).
         assert s.loc["1971-03-01"] == pytest.approx(0.06)
 
+    def test_non_datetime_index_raises(self):
+        # Date strings are not parsed silently: the observation day must be explicit.
+        monthly = pd.Series([0.06], index=["1971-01-27"], name="x")
+        with pytest.raises(TypeError, match="DatetimeIndex"):
+            data.point_in_time_daily(monthly, self.calendar)
+
 
 def test_truncation_does_not_depend_on_sort_order(monkeypatch, sources):
     # Regression: `.loc[:end]` on an unsorted index keeps rows after `end`.

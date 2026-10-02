@@ -2,6 +2,30 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-02: mypy with real pandas types (after step 2)
+
+- mypy had been run ad hoc via `uvx` in an env without pandas, so every pandas
+  type was `Any` and nothing pandas-related was checked. `mypy` and
+  `pandas-stubs` are now dev dependencies, configured in `[tool.mypy]`
+  (`files = src/portfolio_lab`; missing imports ignored only for `scipy.*` and
+  `statsmodels.*`, which ship no stubs). CI runs `uv run mypy src/portfolio_lab`
+  after ruff.
+- Real types surfaced 32 errors (4 in `data/__init__.py`, 28 in the step-2
+  `views.py`/`metrics.py`), all `Index[Any]` where a `DatetimeIndex` is
+  needed, `Hashable` labels, or `float | Series` unions. Fixed by narrowing,
+  no `# type: ignore`: `_validate.check_dates` now returns the checked
+  `DatetimeIndex`; `data._datetime_index` does the same for
+  `point_in_time_daily`, which therefore raises `TypeError` on a non-datetime
+  index (date strings are not parsed silently). `Series.name` is set directly
+  because the stubs reject a `Hashable` in `rename`; `make_views` finds the
+  first usable CAD day by position instead of `idxmax`.
+- `report/metrics.py` has `@overload` pairs again (removed in step 2 when
+  mypy saw both as `Any`): Series in -> `float` (`int` for drawdown duration),
+  DataFrame in -> `pd.Series`; `drawdowns` and `summary` map Series -> Series
+  and DataFrame -> DataFrame. This also types `summary`'s rows without casts.
+- Added `py.typed`: without it, code importing `portfolio_lab` saw every
+  function as `Any`, overloads included (checked with `reveal_type`).
+
 ## 2026-10-02: step 2, session 2 of 2 (metrics)
 
 - `report/metrics.py`: `periods_per_year` is a required keyword everywhere
