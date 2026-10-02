@@ -2,6 +2,33 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-02: step 2, session 2 of 2 (metrics)
+
+- `report/metrics.py`: `periods_per_year` is a required keyword everywhere
+  (`TRADING_DAYS = 252`, `MONTHS = 12` are named constants, never defaults).
+  Series in -> float out; DataFrame in -> one value per column. Missing
+  returns raise; so do returns below -100%.
+- Conventions: CAGR geometric; vol, Sharpe, TE, IR arithmetic (ddof=1,
+  scaled by ppy and sqrt(ppy)); Sharpe/Sortino always take rf (Series or a
+  constant) so they never run on total returns by accident; Sortino's
+  downside deviation averages over *all* periods (Sortino and Price 1994);
+  drawdowns start from wealth 1, and an unrecovered drawdown counts toward
+  duration; skew/kurtosis bias-corrected (G1/G2, Joanes and Gill 1998).
+- Sanity, 12-industry 1/N, 1971-01-05 to 2010-12-31 (daily):
+
+  | | USD | CAD | CAD hedged | US market |
+  |---|---|---|---|---|
+  | CAGR | 11.1% | 11.1% | 12.6% | 10.3% |
+  | Vol | 15.8% | 16.1% | 15.8% | 16.5% |
+  | Sharpe | 0.41 | 0.32 | 0.41 | 0.35 |
+  | Max DD | -54.0% | -48.3% | -53.6% | -54.6% |
+
+  Hedged Sharpe == USD Sharpe (CIP identity). 1/N beats the market's Sharpe
+  in dev, as in DeMiguel et al. The CAD view's drawdown is shallower because
+  the USD rallied in the 2008 crash; its Sharpe is lower because Canadian
+  bills paid more (6.9% vs 5.5%/yr). Daily excess kurtosis ~16-19 (Oct 1987).
+  Growth of $1: USD 68, CAD 68, CAD hedged 118.
+
 ## 2026-10-02: step 2, session 1 of 2 (currency views)
 
 - `data/views.py`: pure functions, no loading. US trading days (the French
