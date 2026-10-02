@@ -36,3 +36,31 @@ def as_floats(s: pd.Series | pd.DataFrame, what: str) -> np.ndarray:
         return s.to_numpy(dtype=float)
     except (TypeError, ValueError) as err:
         raise ValueError(f"{what} must be numeric") from err
+
+
+def window_values(returns: pd.DataFrame, what: str, *, min_rows: int) -> np.ndarray:
+    """A window of returns as floats: rows = periods in date order, columns = assets.
+
+    Every value must be present and finite (an estimator can't guess what a gap means), with
+    unique asset names, unique sorted dates and at least `min_rows` rows.
+    """
+    if not isinstance(returns, pd.DataFrame):
+        raise TypeError(
+            f"{what} must be a DataFrame (rows = periods, columns = assets), "
+            f"got {type(returns).__name__}"
+        )
+    if returns.shape[1] == 0:
+        raise ValueError(f"{what} have no assets")
+    if not returns.columns.is_unique:
+        raise ValueError(f"{what} need unique asset names")
+    if len(returns) < min_rows:
+        raise ValueError(f"{what} need at least {min_rows} periods, got {len(returns)}")
+    check_order(returns.index, what)
+    values = as_floats(returns, what)
+    missing = np.isnan(values)
+    if missing.any():
+        row, col = (int(k) for k in np.argwhere(missing)[0])
+        raise ValueError(f"{what} are missing for {returns.columns[col]} on {returns.index[row]}")
+    if not np.isfinite(values).all():
+        raise ValueError(f"{what} must be finite")
+    return values
