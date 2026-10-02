@@ -171,7 +171,7 @@ use only → **not allowed**). SEC EDGAR: considered, not needed for this scope.
 ---
 
 ## Step 2: Returns, CAD/hedged views, metrics
-Status: **in progress** (session 1 of 2 done 2026-10-02: `data/views.py`)
+Status: **done 2026-10-02, pending PR** (2 sessions; `data/views.py`, `report/metrics.py`, shared `_validate.py`; 281 unit tests, 99.7% coverage; python-reviewer x2 and `/code-review` findings fixed)
 
 **Context.** `fx_t = S_t / S_{t-1} - 1` with `S` = CAD per USD. Unhedged CAD
 return of a USD asset: `r_cad = (1 + r_usd)(1 + fx) - 1` (USD up → CAD investor
@@ -358,6 +358,7 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 
 ## Change log
 
+- 2026-10-02: step 2 done. Metrics: `periods_per_year` required; zero-risk ratios (Sharpe, Sortino, IR, Calmar) are NaN, never inf, so they cannot rank first; drawdowns within 1e-12 of the peak count as 0; returns must be finite, >= -100%, in date order with unique dates. CAD views end 7 days after the last FX/rate observation (a lagged source shortens them, a trailing holiday is carried). Hypothesis runs without a deadline. Follow-up: pandas-stubs + mypy in CI.
 - 2026-10-02: step 2 session 1. Owner chose the rolling-bill rate conversion `(1 + y·91/365)^(d/91) - 1` over v2's `(1 + y)^(d/365) - 1` (T-bills are quoted as simple act/365 yields; v2 understated CAD rf by ~24 bp/yr on average, ~160 bp/yr at 1981 rates). Carried FX/rate levels older than 7 calendar days raise.
 - 2026-10-02: step 1 done. Data-layer timing convention: row t = observed by close of t; monthly StatCan rates enter one business day after their last-Wednesday stamp (verified 299/299 months against Valet daily). Reviews found and fixed a holdout bypass (`end` that parses to NaT) and an unsorted-index truncation leak; truncation now uses a mask. Live tests share one cache (one download per file per run).
 - 2026-10-02: step 1 session 1. Canadian rate history moved from Valet to Statistics Canada table 10-10-0122-01 (Valet daily series start 2001, the CAD view starts 1971); adds `data/statcan.py` to step 1. The `allow_holdout=True` text scan also exempts `tests/` (owner chose option A). FRED missing values are empty fields, not `.`.

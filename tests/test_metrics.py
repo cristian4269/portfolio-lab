@@ -371,3 +371,16 @@ def test_information_ratio_sign_follows_mean_active_return(values):
     for shift, sign in ((0.0005, 1), (-0.0005, -1)):
         ir = m.information_ratio(bench + noise + shift, bench, periods_per_year=252)
         assert np.sign(ir) == sign
+
+
+def test_returns_out_of_date_order_raise():
+    # Reversed, the same returns would give a 2-period drawdown instead of 3.
+    with pytest.raises(ValueError, match="sorted"):
+        m.max_drawdown_duration(R.iloc[::-1])
+    with pytest.raises(ValueError, match="unique"):
+        m.cagr(pd.concat([R, R.iloc[-1:]]), periods_per_year=PPY)
+
+
+def test_text_rf_raises():
+    with pytest.raises(ValueError, match="numeric"):
+        m.sharpe(R, pd.Series(["n/a"] * 4, index=DAYS, dtype=object), periods_per_year=PPY)

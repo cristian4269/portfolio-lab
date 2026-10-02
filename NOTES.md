@@ -28,6 +28,18 @@ Running log of decisions, data quirks and findings. Newest first.
   the USD rallied in the 2008 crash; its Sharpe is lower because Canadian
   bills paid more (6.9% vs 5.5%/yr). Daily excess kurtosis ~16-19 (Oct 1987).
   Growth of $1: USD 68, CAD 68, CAD hedged 118.
+- Review fixes: zero-risk ratios are NaN (a constant series once gave a
+  Sharpe of 8.7e16 from float noise); drawdowns within 1e-12 of the peak
+  are 0; metrics reject unsorted or repeated dates (reversed returns gave a
+  wrong drawdown duration); index checks live in `portfolio_lab/_validate.py`.
+- **End of the CAD views:** first version ended them at the last FX fix,
+  which dropped 2010-12-31, a Fed holiday (New Year observed) when the NYSE
+  traded. Now they end 7 days after the last observation: a lagging source
+  (FRED posts USD/CAD with a delay) shortens them, a trailing holiday is
+  carried like any other.
+- Typing: `uvx mypy` sees pandas as `Any` (no pandas-stubs), so overloads
+  (Series -> float, DataFrame -> Series) were dropped; with stubs there are
+  12 existing errors in the data layer. Follow-up task, not step 2.
 
 ## 2026-10-02: step 2, session 1 of 2 (currency views)
 

@@ -26,6 +26,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from portfolio_lab._validate import as_floats, check_aligned, check_dates
+
 __all__ = [
     "MAX_AGE_DAYS",
     "TBILL_TERM_DAYS",
@@ -43,7 +45,7 @@ MAX_AGE_DAYS = 7  # longest calendar gap a carried level may cover (holidays + w
 TBILL_TERM_DAYS = 91  # 3-month Government of Canada T-bill
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)  # DataFrame fields: no value equality or hashing
 class View:
     """Daily returns in one currency view, with the matching risk-free rate.
 
@@ -55,8 +57,8 @@ class View:
     rf: pd.Series
 
     def __post_init__(self) -> None:
-        _check_calendar(self.returns.index, "returns")
-        _check_aligned(self.returns, self.rf)
+        check_dates(self.returns.index, "returns")
+        check_aligned(self.returns, self.rf)
         if self.rf.isna().any():
             raise ValueError(f"rf is missing on {self.rf.index[self.rf.isna()][0].date()}")
 
@@ -73,8 +75,8 @@ def align_levels(
     Raises if either index is not a sorted, unique, tz-naive DatetimeIndex, or
     a carried level is more than `max_age_days` calendar days old.
     """
-    _check_calendar(days, "days")
-    _check_calendar(levels.index, f"levels {levels.name!r}")
+    check_dates(days, "days")
+    check_dates(levels.index, f"levels {levels.name!r}")
 
     observed = levels.dropna()
     pos = observed.index.searchsorted(days, side="right") - 1
@@ -97,10 +99,10 @@ def fx_returns(
     usdcad: pd.Series, days: pd.DatetimeIndex, *, max_age_days: int = MAX_AGE_DAYS
 ) -> pd.Series:
     """Daily change in CAD per USD on `days`; NaN on the first day with no prior fix."""
-    observed = usdcad.dropna()
+    observed = as_floats(usdcad.dropna(), "USD/CAD")
     bad = ~np.isfinite(observed) | (observed <= 0)
     if bad.any():
-        raise ValueError(f"USD/CAD must be positive and finite, got {observed[bad].iloc[0]!r}")
+        raise ValueError(f"USD/CAD must be positive and finite, got {observed[bad][0]!r}")
     s = align_levels(usdcad, days, max_age_days=max_age_days)
     return (s / s.shift(1) - 1).rename("fx")
 
@@ -127,7 +129,7 @@ def daily_rate(
 
 def to_cad_unhedged[T: (pd.Series, pd.DataFrame)](r_usd: T, fx: pd.Series) -> T:
     """CAD return of USD assets held unhedged: (1 + r_usd)(1 + fx) - 1."""
-    _check_aligned(r_usd, fx)
+    check_aligned(r_usd, fx)
     return _keep_name(r_usd, (1 + r_usd).mul(1 + fx, axis=0) - 1)
 
 
@@ -135,14 +137,14 @@ def to_cad_hedged[T: (pd.Series, pd.DataFrame)](
     r_usd: T, rf_cad: pd.Series, rf_usd: pd.Series
 ) -> T:
     """CAD return of USD assets with the currency hedged by CIP: r_usd + rf_cad - rf_usd."""
-    _check_aligned(r_usd, rf_cad)
-    _check_aligned(r_usd, rf_usd)
+    check_aligned(r_usd, rf_cad)
+    check_aligned(r_usd, rf_usd)
     return _keep_name(r_usd, r_usd.add(rf_cad - rf_usd, axis=0))
 
 
 def excess[T: (pd.Series, pd.DataFrame)](r: T, rf: pd.Series) -> T:
     """Returns minus the risk-free rate of the same day."""
-    _check_aligned(r, rf)
+    check_aligned(r, rf)
     return _keep_name(r, r.sub(rf, axis=0))
 
 
@@ -160,10 +162,18 @@ def make_views(
     trading-day index. `usdcad` is CAD per USD; `ca_tbill` the annualized
     3-month T-bill yield (decimal) on a daily calendar, as `load_rates` gives
     it. The CAD views start on the first day with both an FX return and a
-    Canadian rate (1971-01-05 with the real sources).
+    Canadian rate (1971-01-05 with the real sources). They end MAX_AGE_DAYS
+    after the last observation of either source at the latest: a source that
+    is published later (FRED posts USD/CAD with a lag) shortens the CAD views
+    instead of failing, while a holiday at the end is carried like any other
+    holiday. A gap of more than MAX_AGE_DAYS inside the period still raises.
     """
     usd = View(assets, rf_usd)
-    days = assets.index
+    ends = [usdcad.last_valid_index(), ca_tbill.last_valid_index()]
+    if None in ends:
+        raise ValueError("no day has both a USD/CAD return and a Canadian rate")
+    fresh_until = min(ends) + pd.Timedelta(days=MAX_AGE_DAYS)
+    days = assets.index[assets.index <= fresh_until]
     fx = fx_returns(usdcad, days)
     rf_cad = daily_rate(ca_tbill, days, term_days=term_days)
 
@@ -178,24 +188,6 @@ def make_views(
         "CAD": View(to_cad_unhedged(r, fx), rf_cad),
         "CAD_HEDGED": View(to_cad_hedged(r, rf_cad, rf_usd.loc[cad_days]), rf_cad),
     }
-
-
-def _check_calendar(index: pd.Index, what: str) -> None:
-    if not isinstance(index, pd.DatetimeIndex):
-        raise ValueError(f"{what} must have a DatetimeIndex, got {type(index).__name__}")
-    if index.tz is not None:
-        raise ValueError(f"{what} must be tz-naive (dates), got tz={index.tz}")
-    if not index.is_monotonic_increasing:
-        raise ValueError(f"{what} must be sorted by date")
-    if not index.is_unique:
-        raise ValueError(f"{what} must have unique dates")
-
-
-def _check_aligned(a: pd.Series | pd.DataFrame, b: pd.Series) -> None:
-    if not a.index.equals(b.index):
-        diff = a.index.symmetric_difference(b.index)
-        where = f"first difference {diff[0]}" if len(diff) else "same dates, different order"
-        raise ValueError(f"dates don't align ({len(a)} vs {len(b)} rows; {where})")
 
 
 def _keep_name[T: (pd.Series, pd.DataFrame)](like: T, out: T) -> T:

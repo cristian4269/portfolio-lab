@@ -340,11 +340,45 @@ def test_make_views_rejects_misaligned_rf(inputs):
         views.make_views(assets, rf_usd.iloc[1:], usdcad, ca_tbill)
 
 
-def test_make_views_rejects_a_gap_after_the_cad_start(inputs):
+def test_cad_views_end_when_fx_would_go_stale(inputs):
+    # FRED posts USD/CAD with a lag: the CAD views stop once the last fix is over
+    # 7 days old (6 Jan + 7 = 13 Jan); the USD view does not.
     assets, rf_usd, usdcad, ca_tbill = inputs
-    short_fx = usdcad.loc[:"1971-01-06"]  # FX stops; the rest of January would be stale
+    out = views.make_views(assets, rf_usd, usdcad.loc[:"1971-01-06"], ca_tbill)
+    assert out["USD"].returns.index[-1] == pd.Timestamp("1971-01-15")
+    for name in ("CAD", "CAD_HEDGED"):
+        assert out[name].returns.index[-1] == pd.Timestamp("1971-01-13")
+
+
+def test_a_holiday_on_the_last_day_is_carried(inputs):
+    # No fix on the last trading day (like the Fed holiday on 2010-12-31): carry it.
+    assets, rf_usd, usdcad, ca_tbill = inputs
+    out = views.make_views(assets, rf_usd, usdcad.loc[:"1971-01-14"], ca_tbill)
+    assert out["CAD"].returns.index[-1] == pd.Timestamp("1971-01-15")
+
+
+def test_make_views_rejects_a_gap_inside_the_cad_period(inputs):
+    assets, rf_usd, usdcad, ca_tbill = inputs
+    gappy = usdcad.drop(pd.bdate_range("1971-01-05", "1971-01-13"))  # 4 Jan, then 14 Jan
     with pytest.raises(ValueError, match="stale"):
-        views.make_views(assets, rf_usd, short_fx, ca_tbill)
+        views.make_views(assets, rf_usd, gappy, ca_tbill)
+
+
+def test_make_views_needs_both_sources(inputs):
+    assets, rf_usd, usdcad, ca_tbill = inputs
+    with pytest.raises(ValueError, match="no day"):
+        views.make_views(assets, rf_usd, usdcad * np.nan, ca_tbill)
+
+
+def test_views_are_compared_by_identity(inputs):
+    out = views.make_views(*inputs)
+    assert out["CAD"] != out["CAD_HEDGED"]
+    assert len({out["CAD"], out["USD"]}) == 2  # hashable
+
+
+def test_fx_returns_rejects_text():
+    with pytest.raises(ValueError, match="numeric"):
+        views.fx_returns(pd.Series(["n/a"] * 5, index=DAYS, dtype=object), DAYS)
 
 
 def test_make_views_needs_some_cad_history(inputs):

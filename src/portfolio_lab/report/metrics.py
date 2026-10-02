@@ -4,9 +4,9 @@ Every annualized metric takes `periods_per_year` explicitly (252 for daily,
 12 for monthly): nothing assumes daily data. A Series gives a number, a
 DataFrame gives one value per column. Returns must be finite numbers, no
 lower than -100%, with no missing values (drop or fill them first,
-knowingly). Drawdowns work from 1 period; everything else needs at least 2
-(skew 3, kurtosis 4). A risk-free rate or benchmark Series must have exactly
-the returns' index, in the same order.
+knowingly), in date order with no repeated dates. Drawdowns work from 1
+period; everything else needs at least 2 (skew 3, kurtosis 4). A risk-free
+rate or benchmark Series must have exactly the returns' index.
 
 Conventions:
 - CAGR is geometric: (prod(1 + r)) ** (periods_per_year / n) - 1.
@@ -39,6 +39,8 @@ import math
 
 import numpy as np
 import pandas as pd
+
+from portfolio_lab._validate import as_floats, check_aligned, check_order
 
 __all__ = [
     "METRICS",
@@ -197,10 +199,8 @@ def _frame(r: Returns, *, min_periods: int = 2) -> pd.DataFrame:
         raise ValueError("returns need unique column names")
     if len(f) < min_periods:
         raise ValueError(f"need at least {min_periods} periods, got {len(f)}")
-    try:
-        values = f.to_numpy(dtype=float)
-    except (TypeError, ValueError) as err:
-        raise ValueError("returns must be numeric") from err
+    check_order(f.index, "returns")
+    values = as_floats(f, "returns")
     missing = np.isnan(values).any(axis=1)
     if missing.any():
         raise ValueError(f"returns are missing on {f.index[missing][0]}")
@@ -219,13 +219,13 @@ def _drawdowns(f: pd.DataFrame) -> pd.DataFrame:
 
 def _minus(f: pd.DataFrame, other: Rate, what: str) -> pd.DataFrame:
     if isinstance(other, pd.Series):
-        if not f.index.equals(other.index):
-            raise ValueError(f"{what} dates don't align with the returns")
-        if other.isna().any():
-            raise ValueError(f"{what} is missing on {other.index[other.isna()][0]}")
-        if not np.isfinite(other.to_numpy(dtype=float)).all():
+        check_aligned(f, other, f"{what} and returns dates")
+        values = as_floats(other, what)
+        if np.isnan(values).any():
+            raise ValueError(f"{what} is missing on {other.index[np.isnan(values)][0]}")
+        if not np.isfinite(values).all():
             raise ValueError(f"{what} must be finite")
-        return f.sub(other, axis=0)
+        return f.sub(pd.Series(values, index=other.index), axis=0)
     if not math.isfinite(other):
         raise ValueError(f"{what} must be finite, got {other}")
     return f - other
