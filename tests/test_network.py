@@ -8,6 +8,8 @@ cross-check below, they do not assert specific values.
 import pandas as pd
 import pytest
 
+from portfolio_lab import data
+from portfolio_lab.config import DEV_END
 from portfolio_lab.data import boc, fred, french, statcan
 
 pytestmark = pytest.mark.network
@@ -67,3 +69,20 @@ def test_french_factors_live():
     assert df.index[0] == pd.Timestamp("1963-07-01")
     assert df["Mom"].notna().mean() > 0.99
     assert french.fetch_french("ff5_daily").vintage is not None
+
+
+def test_loaders_live_stop_at_dev_end_and_cover_cad_view():
+    dev_end = pd.Timestamp(DEV_END)
+    frames = {
+        "assets": data.load_assets(),
+        "factors": data.load_factors(),
+        "fx": data.load_fx(),
+        "rates": data.load_rates(),
+    }
+    for name, obj in frames.items():
+        assert obj.index.max() <= dev_end, name
+        assert obj.index.max() >= dev_end - pd.Timedelta(days=7), name
+    rates = frames["rates"]
+    # Every input the CAD view needs is present from its 1971-01 start.
+    assert rates.loc["1971-01-04":, ["CA_TBILL_3M", "CA_GOVT_LONG"]].notna().all().all()
+    assert frames["fx"].loc["1971-01-04"] > 0
