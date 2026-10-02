@@ -58,6 +58,19 @@ def test_missing_metadata_counts_as_miss(fake_http, isolated_cache):
     assert len(fake_http.calls) == 2
 
 
+@pytest.mark.parametrize("bad_meta", ["{not json", '{"url": "x"}', "[]"])
+def test_unreadable_metadata_counts_as_miss(fake_http, isolated_cache, bad_meta):
+    fake_http.add(URL, b"payload")
+    cache.fetch(URL)
+    (isolated_cache / f"{cache.cache_key(URL)}.meta.json").write_text(bad_meta)
+    with pytest.warns(UserWarning, match="metadata"):
+        assert cache.cache_info(URL) is None
+    with pytest.warns(UserWarning, match="metadata"):
+        assert cache.fetch(URL) == b"payload"
+    assert len(fake_http.calls) == 2
+    assert cache.cache_info(URL)["sha256"] == hashlib.sha256(b"payload").hexdigest()
+
+
 def test_http_error_raises_and_caches_nothing(fake_http):
     fake_http.add(URL, b"server error", status_code=500)
     with pytest.raises(requests.HTTPError):

@@ -81,6 +81,18 @@ def test_bad_row_width_raises():
         french.parse_french_csv(",A,B\r\n19630701, 1.0\r\n")
 
 
+def test_header_without_rows_raises():
+    # A format change that moves the data must fail loudly, not yield an empty frame.
+    with pytest.raises(ValueError, match="no data rows.*'Average Value"):
+        french.parse_french_csv("Average Value Weighted Returns -- Daily\r\n,A,B\r\n\r\n")
+
+
+@pytest.mark.parametrize("bad", ["", "n/a"])
+def test_unparseable_value_names_the_row(bad):
+    with pytest.raises(ValueError, match=r"row 19630702: cannot parse value"):
+        french.parse_french_csv(f",A,B\r\n19630701, 1.0, 2.0\r\n19630702, 1.0,{bad}\r\n")
+
+
 @pytest.mark.parametrize("dates", [("1963070",), ("19630701", "196307")])
 def test_unrecognized_or_mixed_date_widths_raise(dates):
     rows = "".join(f"{d}, 1.0\r\n" for d in dates)

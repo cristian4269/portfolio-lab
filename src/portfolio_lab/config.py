@@ -2,7 +2,8 @@
 
 Development uses data up to DEV_END. The holdout (HOLDOUT_START on) stays
 unseen until the pre-registration is committed (blueprint step 7a); the data
-loaders truncate at DEV_END unless called with allow_holdout=True.
+loaders truncate at DEV_END unless their `allow_holdout` flag is set, which only
+the `reproduce` command and research/ may do (enforced by tests/test_holdout_scan.py).
 """
 
 import os

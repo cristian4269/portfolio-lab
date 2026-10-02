@@ -58,13 +58,13 @@ def parse_french_csv(text: str) -> FrenchFile:
         title = lines[i - 1] if i > 0 and lines[i - 1] else MAIN_BLOCK
         if title in blocks:
             raise ValueError(f"duplicate block title {title!r}")
-        blocks[title] = _parse_block(line, lines[i + 1 :])
+        blocks[title] = _parse_block(title, line, lines[i + 1 :])
     if not blocks:
         raise ValueError("no data blocks found (no header line starting with ',')")
     return FrenchFile(blocks=blocks, vintage=match.group(1) if match else None)
 
 
-def _parse_block(header: str, rest: list[str]) -> pd.DataFrame:
+def _parse_block(title: str, header: str, rest: list[str]) -> pd.DataFrame:
     columns = [c.strip() for c in header.split(",")[1:]]
     dates: list[str] = []
     rows: list[list[float]] = []
@@ -76,8 +76,13 @@ def _parse_block(header: str, rest: list[str]) -> pd.DataFrame:
             raise ValueError(
                 f"row {fields[0]} has {len(fields) - 1} columns, header has {len(columns)}"
             )
+        try:
+            rows.append([float(f) for f in fields[1:]])
+        except ValueError:
+            raise ValueError(f"row {fields[0]}: cannot parse value in {fields[1:]}") from None
         dates.append(fields[0])
-        rows.append([float(f) for f in fields[1:]])
+    if not rows:
+        raise ValueError(f"no data rows under the header of block {title!r}")
 
     values = np.array(rows, dtype=np.float64).reshape(len(rows), len(columns))
     values[np.isin(values, MISSING_CODES)] = np.nan

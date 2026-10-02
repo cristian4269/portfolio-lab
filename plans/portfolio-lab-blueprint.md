@@ -144,7 +144,7 @@ uv 0.12.20 and CPython 3.13.15 are installed; gh is logged in as cristian4269.
 ---
 
 ## Step 1: Data sources, licenses, loaders
-Status: **in progress** (session 1 of 3 done 2026-10-02: DATA_SOURCES.md, `data/cache.py`, `data/french.py`. Next: `fred.py`, `boc.py`, `statcan.py`; then guarded loaders, text-scan test, review)
+Status: **in progress** (session 1 of 3 done 2026-10-02: DATA_SOURCES.md, `data/cache.py`, `data/french.py`, `allow_holdout=True` text-scan test. Next: `fred.py`, `boc.py`, `statcan.py`; then guarded loaders, review)
 
 **Context.** Pre-flight (2026-10-01): French library = copyright notice, no
 explicit reuse terms (handled by G1); daily FF5, momentum and 5-49 industry

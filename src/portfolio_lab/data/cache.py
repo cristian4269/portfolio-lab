@@ -41,11 +41,18 @@ def _paths(url: str) -> tuple[Path, Path]:
 
 
 def cache_info(url: str) -> dict | None:
-    """Metadata of the cached copy of `url`, or None if it isn't cached."""
+    """Metadata of the cached copy of `url`, or None if it isn't cached or is unreadable."""
     _, meta_path = _paths(url)
     if not meta_path.exists():
         return None
-    return json.loads(meta_path.read_text())
+    try:
+        meta = json.loads(meta_path.read_text())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        meta = None
+    if not isinstance(meta, dict) or not isinstance(meta.get("sha256"), str):
+        warnings.warn(f"unreadable cache metadata for {url}; treating as not cached", stacklevel=2)
+        return None
+    return meta
 
 
 def fetch(url: str, *, refresh: bool = False) -> bytes:
