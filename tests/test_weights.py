@@ -223,8 +223,9 @@ def test_min_variance_with_a_cap_that_does_not_bind():
     close(wt.min_variance(cov, cap=0.8), [36 / 49, 9 / 49, 4 / 49])
 
 
-@pytest.mark.parametrize(("n", "cap"), [(3, 1 / 3), (4, 0.25), (10, 0.1), (1, 1.0)])
+@pytest.mark.parametrize(("n", "cap"), [(3, 1 / 3), (4, 0.25), (10, 0.1), (1, 1.0), (49, 1 / 49)])
 def test_a_cap_of_one_over_n_leaves_only_equal_weights(n, cap):
+    # 49 * (1/49) = 0.9999999999999999: the caps fall short of 1 by rounding only.
     w = wt.min_variance(random_cov(n, n), cap=cap)
     close(w, [1 / n] * n, atol=1e-15)
 
@@ -304,19 +305,34 @@ def test_reordering_the_assets_reorders_the_weights(rule, seed, n):
     close(moved, base[order], atol=1e-10)
 
 
-def test_polishing_recovers_the_exact_optimum_from_a_rough_solution():
-    s = np.diag([1.0, 4.0, 9.0])
-    a = s / np.mean(np.diag(s))
-    exact = np.array([1 / 2, 9 / 26, 4 / 26])
-    rough = exact + np.array([3e-8, -2e-8, -1e-8])
-    close(wt._polish(a, rough, 0.5), exact, atol=1e-15)
+# Variances 1, 4, 9, uncorrelated; and the 3-asset example where c drops out at (1/2, 1/2, 0).
+UNCORRELATED = np.diag([1.0, 4.0, 9.0])
+DROPS_C = np.array([[1.0, 0, 1], [0, 1, 1], [1, 1, 4]])
+
+
+@pytest.mark.parametrize(
+    ("s", "cap", "exact", "error"),
+    [
+        (UNCORRELATED, 0.5, [1 / 2, 9 / 26, 4 / 26], [3e-8, -2e-8, -1e-8]),
+        (UNCORRELATED, 0.5, [1 / 2, 9 / 26, 4 / 26], [-3e-8, 2e-8, 1e-8]),
+        (DROPS_C, 1.0, [1 / 2, 1 / 2, 0], [-2e-8, -1e-8, 3e-8]),
+    ],
+    ids=["above-cap", "below-cap", "above-zero"],
+)
+def test_polishing_recovers_the_exact_optimum_from_a_rough_solution(s, cap, exact, error):
+    # SLSQP may stop a little off a bound: that asset still counts as at it.
+    a, exact = s / np.mean(np.diag(s)), np.array(exact)
+    polished = wt._polish(a, exact + error, cap)
+    close(polished, exact, atol=1e-15)
+    at_bound = (exact == 0) | (exact == cap)
+    np.testing.assert_array_equal(polished[at_bound], exact[at_bound])  # not 1e-8 away
 
 
 @pytest.mark.parametrize(
     ("s", "guess"),
     [
-        (np.diag([1.0, 4.0, 9.0]), [0.5, 0.5, 0.0]),  # c belongs in the portfolio: KKT fails
-        (np.array([[1.0, 0, 1], [0, 1, 1], [1, 1, 4]]), [1 / 3] * 3),  # free solve: c = -1/5
+        (UNCORRELATED, [0.5, 0.5, 0.0]),  # c belongs in the portfolio: KKT fails
+        (DROPS_C, [1 / 3] * 3),  # the free solve gives c = -1/5: infeasible
     ],
     ids=["missing-asset", "negative-weight"],
 )

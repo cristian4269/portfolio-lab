@@ -45,8 +45,8 @@ from portfolio_lab._validate import as_floats
 
 __all__ = ["equal_risk_contribution", "equal_weight", "min_variance"]
 
-# Rounding: a cap within this of 1/N leaves only equal weights; polished weights may miss their
-# bounds and their sum by this much; cov and cov' may differ by this much (relative).
+# Rounding: N caps may fall short of 1 by this much (49 * (1/49) < 1); polished weights may miss
+# their bounds and their sum by this much; cov and cov' may differ by this much (relative).
 _ROUNDING = 1e-12
 # A correlation matrix whose smallest eigenvalue is below this fraction of its largest is
 # singular for our purposes: the weights would be dominated by rounding.
@@ -78,11 +78,8 @@ def min_variance(cov: pd.DataFrame, *, cap: float = 1.0) -> pd.Series:
     n = len(s)
     if not 0 < cap <= 1:
         raise ValueError(f"cap must be in (0, 1], got {cap}")
-    room = cap * n - 1
-    if room < -_ROUNDING:
+    if cap * n < 1 - _ROUNDING:
         raise ValueError(f"a cap of {cap} cannot hold {n} assets: cap * N must be at least 1")
-    if room <= _ROUNDING:
-        return equal_weight(cov.index)  # the only portfolio that fits
     a = s / np.mean(np.diag(s))
     result = minimize(
         _objective,
