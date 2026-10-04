@@ -34,9 +34,11 @@ Branch `step-3-construct`.
 ## Conventions
 
 - scikit-learn is a test-only dev dependency (oracle for the identity target, to 1e-10).
-- Covariance = demeaned cross-products / T everywhere (both Ledoit-Wolf papers, scikit-learn), so
-  intensity 0 returns the sample matrix exactly. Minimum-variance and ERC weights are invariant to
-  scaling the matrix (tested), so this cannot change a strategy.
+- Sample and Ledoit-Wolf covariances = demeaned cross-products / T (scikit-learn's convention), so
+  intensity 0 returns the sample matrix exactly. For the sample matrix the divisor is only a scale
+  (minimum-variance and ERC weights are invariant to it, tested in session 2); inside the shrinkage
+  formulas it is part of the estimator: T - 1 would lower the intensity by about 2/T, relative.
+  (Corrected after the session-1 review, which caught the earlier "cannot change a strategy".)
 - No silent estimator default: minimum-variance and ERC strategies take the estimator explicitly.
 - Tilt: `w_i ∝ base_i * exp(strength * z_i)`, z = cross-sectional z-score of the signal (momentum:
   12-1 return; low-vol: -sigma). Strength 0 or equal signals return the base. `strength` is

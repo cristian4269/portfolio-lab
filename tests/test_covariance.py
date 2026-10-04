@@ -32,6 +32,7 @@ HAND = pd.DataFrame(
 )
 S_HAND = np.array([[9, 2, 2], [2, 1, 0], [2, 0, 1]])  # PCT2 units; sd 3, 1, 1
 F_HAND = np.array([[9, 4 / 3, 4 / 3], [4 / 3, 1, 4 / 9], [4 / 3, 4 / 9, 1]])  # rbar = 4/9
+HAND_PCT = [[Fraction(round(v * 100)) for v in row] for row in HAND.to_numpy()]  # whole percents
 
 ESTIMATORS = {
     "sample": cv.sample_cov,
@@ -122,6 +123,26 @@ def paper_lw_cc(rows, sqrt):
     }
 
 
+def paper_lw_identity(rows):
+    """Ledoit and Wolf (2004a), loop by loop, with the paper's norm ||A||^2 = trace(AA') / N.
+
+    rows[t][i] = asset i in period t; exact for fractions.
+    """
+    T, N = len(rows), len(rows[0])
+    mean = [sum(row[i] for row in rows) / T for i in range(N)]
+    x = [[row[i] - mean[i] for i in range(N)] for row in rows]
+    s = [[sum(xt[i] * xt[j] for xt in x) / T for j in range(N)] for i in range(N)]
+    m = sum(s[i][i] for i in range(N)) / N
+
+    def norm2(a):
+        return sum(a[i][j] ** 2 for i in range(N) for j in range(N)) / N
+
+    d2 = norm2([[s[i][j] - (m if i == j else 0) for j in range(N)] for i in range(N)])
+    deviations = [[[xt[i] * xt[j] - s[i][j] for j in range(N)] for i in range(N)] for xt in x]
+    b2_bar = sum(norm2(dev) for dev in deviations) / T**2
+    return {"m": m, "d2": d2, "b2_bar": b2_bar, "delta": min(b2_bar, d2) / d2}
+
+
 # --- Hand examples (module docstring) ---
 
 
@@ -136,11 +157,11 @@ def test_sample_cov_divides_by_t():
 
 def test_identity_hand_example():
     shrunk = cv.ledoit_wolf_identity(HAND)
-    delta, mu = 177 / 352, 11 / 3
+    delta, m = 177 / 352, 11 / 3
     assert shrunk.intensity == pytest.approx(delta, rel=1e-12)
     assert LedoitWolf().fit(HAND.to_numpy()).shrinkage_ == pytest.approx(delta, rel=1e-12)
-    close(shrunk.target, mu * np.eye(3) * PCT2)
-    close(shrunk.cov, (delta * mu * np.eye(3) + (1 - delta) * S_HAND) * PCT2)
+    close(shrunk.target, m * np.eye(3) * PCT2)
+    close(shrunk.cov, (delta * m * np.eye(3) + (1 - delta) * S_HAND) * PCT2)
 
 
 def test_identity_hand_example_with_every_period_twice():
@@ -165,9 +186,17 @@ def test_constant_correlation_hand_example_with_every_period_twice():
     close(shrunk.cov, (delta * F_HAND + (1 - delta) * S_HAND) * PCT2)
 
 
-def test_hand_example_in_exact_fractions():
-    pct = [[Fraction(round(v * 100)) for v in row] for row in HAND.to_numpy()]  # whole percents
-    paper = paper_lw_cc(pct, exact_sqrt)
+def test_identity_hand_example_in_exact_fractions():
+    paper = paper_lw_identity(HAND_PCT)
+    assert paper["m"] == Fraction(11, 3)
+    assert paper["d2"] == Fraction(176, 9)
+    assert paper["b2_bar"] == Fraction(59, 6)
+    assert paper["delta"] == Fraction(177, 352)
+    assert paper_lw_identity(HAND_PCT + HAND_PCT)["delta"] == Fraction(177, 704)
+
+
+def test_constant_correlation_hand_example_in_exact_fractions():
+    paper = paper_lw_cc(HAND_PCT, exact_sqrt)
     assert paper["s"] == S_HAND.tolist()
     assert paper["rbar"] == Fraction(4, 9)
     assert paper["gamma"] == Fraction(176, 81)
@@ -175,7 +204,7 @@ def test_hand_example_in_exact_fractions():
     assert paper["rho"] == Fraction(2752, 27)
     assert paper["kappa"] == Fraction(651, 88)
     assert paper["delta"] == 1
-    doubled = paper_lw_cc(pct + pct, exact_sqrt)
+    doubled = paper_lw_cc(HAND_PCT + HAND_PCT, exact_sqrt)
     assert doubled["kappa"] == Fraction(651, 88)
     assert doubled["delta"] == Fraction(651, 704)
 
@@ -319,6 +348,64 @@ def test_a_single_asset_is_not_shrunk_toward_the_identity():
     shrunk = cv.ledoit_wolf_identity(HAND[["a"]])
     assert shrunk.intensity == 0
     close(shrunk.cov, [[9 * PCT2]])
+
+
+# --- Clipping and float noise (each test fails under the mutation named in its comment) ---
+
+
+def test_a_negative_kappa_means_no_constant_correlation_shrinkage():
+    # Two spikes (12% days) make rho exceed pi: kappa = -0.44, clipped to 0 (not -0.06).
+    returns = (
+        pd.DataFrame(
+            [[1, 1, 1], [12, 1, 5], [-4, -1, 1], [-4, 0, 3], [0, 1, 3], [3, 2, 12], [0, 0, 2]],
+            columns=["a", "b", "c"],
+        )
+        / 100
+    )
+    assert paper_lw_cc(returns.to_numpy().tolist(), math.sqrt)["kappa"] < 0
+    shrunk = cv.ledoit_wolf_constant_correlation(returns)
+    assert shrunk.intensity == 0
+    pd.testing.assert_frame_equal(shrunk.cov, cv.sample_cov(returns))
+
+
+def test_identity_shrinks_fully_when_the_noise_exceeds_the_distance_to_the_target():
+    # b-bar^2 > d^2, so b^2 = d^2 and delta = 1 (without the clip, delta = 2.53).
+    pct = [[2, 2, -2], [0, -1, 0], [2, -2, 2], [2, -2, -2], [-3, 0, -1]]
+    paper = paper_lw_identity([[Fraction(v) for v in row] for row in pct])
+    assert paper["b2_bar"] == Fraction(38204, 9375)
+    assert paper["d2"] == Fraction(9068, 5625)
+    returns = pd.DataFrame(pct, columns=["a", "b", "c"]) / 100
+    shrunk = cv.ledoit_wolf_identity(returns)
+    assert shrunk.intensity == 1
+    assert LedoitWolf().fit(returns.to_numpy()).shrinkage_ == 1
+    pd.testing.assert_frame_equal(shrunk.cov, shrunk.target)
+
+
+def test_nearly_equal_correlations_are_not_mistaken_for_equal_ones():
+    # One correlation 1e-9 above the others is real, not float noise (fails if _NOISE >= 1e-9).
+    # The target is then that close to the sample matrix, so the estimator shrinks fully.
+    corr = np.full((4, 4), 0.3)
+    np.fill_diagonal(corr, 1.0)
+    corr[0, 1] = corr[1, 0] = 0.3 + 1e-9
+    sd = np.array([0.01, 0.02, 0.015, 0.03])
+    returns = with_sample_cov(corr * np.outer(sd, sd), t=50)
+    assert cv.ledoit_wolf_constant_correlation(returns).intensity == 1
+
+
+def test_a_sample_matrix_nearly_proportional_to_the_identity_is_shrunk():
+    # A covariance of 1e-9 (relative) is real, not float noise (fails if _NOISE >= 1e-9).
+    near_identity = np.eye(4)
+    near_identity[0, 1] = near_identity[1, 0] = 1e-9
+    returns = with_sample_cov(4e-4 * near_identity, t=30)
+    assert cv.ledoit_wolf_identity(returns).intensity == 1
+
+
+def test_a_nearly_constant_asset_is_not_mistaken_for_a_constant_one():
+    # Moves of 1e-11 around 10% are a variance, not float noise (fails if _NOISE >= 1e-9).
+    returns = HAND.assign(c=0.1 + 1e-11 * np.array([1, -1, 1, -1]))
+    shrunk = cv.ledoit_wolf_constant_correlation(returns)
+    assert 0 <= shrunk.intensity <= 1
+    assert np.isfinite(shrunk.cov.to_numpy()).all()
 
 
 # --- EWMA ---

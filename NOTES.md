@@ -12,8 +12,8 @@ Running log of decisions, data quirks and findings. Newest first.
   dependency (test oracle only).
 - `construct/covariance.py`: `sample_cov`, `ledoit_wolf_identity`,
   `ledoit_wolf_constant_correlation`, `ewma_cov` (decay 0.94, zero mean), `Shrunk(cov, target,
-  intensity)`. One convention: demeaned, divided by T (both Ledoit-Wolf papers, scikit-learn),
-  so intensity 0 returns the sample matrix exactly. A target within float noise of the sample
+  intensity)`. One convention: demeaned, divided by T (scikit-learn's), so intensity 0 returns
+  the sample matrix exactly. A target within float noise of the sample
   matrix (1e-12 relative) gets intensity 0; an asset with no variance raises for the
   constant-correlation target (its correlations are undefined). `_validate.window_values` checks
   every window: a DataFrame, complete, finite, unique sorted dates, unique assets.
@@ -28,8 +28,8 @@ Running log of decisions, data quirks and findings. Newest first.
   dropped; a theta sign; kappa / (T - 1); rbar averaging the diagonal; pi without s^2; the
   identity's b^2 divided by T instead of T^2; EWMA weighting the oldest period most). Each of
   the six constant-correlation mutations failed the hand example, the paper transcription and
-  the PyPortfolioOpt match at once. On Windows, `Path.write_text` writes CRLF: restore mutated
-  files with `git checkout --`, not by rewriting them.
+  the PyPortfolioOpt match at once. On Windows, `Path.write_text` writes CRLF: a mutation script
+  must restore files byte for byte (`read_bytes`/`write_bytes`) or with `git checkout --`.
 - TDD evidence: RED `d0224bf` (collection fails: `cannot import name 'covariance'`), GREEN
   `0104255` (84 covariance tests). Suite 366 passed, 99.75% coverage; ruff and mypy clean.
 - Dev-data diagnostics (12 industries, USD, 559 month-end windows of 252 days, 1964-06 to
@@ -46,6 +46,24 @@ Running log of decisions, data quirks and findings. Newest first.
   is already close to the sample matrix (median ||F - S|| / ||S|| = 7%, vs 18% otherwise), and
   PyPortfolioOpt also gives delta = 1 on the same window, so this is the estimator, not a bug.
   The sample matrix's worst condition number is 749 (1988-09-30).
+- Fresh-eyes review (2026-10-04; a separate agent working from the papers: both Ledoit-Wolf PDFs
+  and RiskMetrics 1996 chapter 5). No formula errors: it re-derived every hand-example number
+  in fractions and matched both estimators to 1e-14 on about 300 random cases each. Fixed:
+  - Doc error: the docstring said the divisor (T vs T - 1) can't change a strategy. That holds
+    for the sample matrix only; inside the shrinkage formulas T - 1 lowers the intensity by
+    about 2/T in relative terms (checked: -0.8% at T = 252, -8% at T = 24). "Both Ledoit-Wolf
+    papers divide by T" was overstated (2004a divides by T for zero-mean data; 1/T is
+    scikit-learn's convention); the identity's scale is m (mu is the population value); EWMA
+    is zero-mean, not demeaned.
+  - Test gaps: kappa < 0 and the identity's clip at d^2 were reached only by chance (random
+    Hypothesis draws), and nothing pinned the float-noise threshold. New tests: 7 integer days
+    with kappa = -0.44 (intensity 0, not -0.06); 5 integer days with b-bar^2 = 38204/9375 >
+    d^2 = 9068/5625 (intensity exactly 1, as in scikit-learn); correlations 1e-9 apart, a matrix
+    1e-9 from the identity, an asset moving 1e-11 around 10%. Each fails under its mutation
+    (dropped clip at 0, dropped clip at d^2, `_NOISE` = 1e-9 or 1e-6); the `_NOISE` mutations
+    passed every earlier test.
+  - EWMA decay stays 0.94 (owner, 2026-10-04): RiskMetrics' factor for 1-day forecasts; its
+    1-month factor is 0.97. Revisit at 7a only if EWMA becomes a strategy variant.
 
 ## 2026-10-02: mypy with real pandas types (after step 2)
 

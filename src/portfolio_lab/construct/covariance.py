@@ -5,16 +5,20 @@ every value present and finite. Each estimator returns the per-period covariance
 annualized), labeled by the assets, and uses nothing but the window it is given.
 
 Conventions:
-- Returns are demeaned and cross-products divided by T, the number of periods: the
-  normalization of both Ledoit-Wolf papers and scikit-learn. pandas' `cov` divides by T - 1
-  (0.4% more at T = 252); minimum-variance and equal-risk-contribution weights don't change when
-  the matrix is scaled, so the choice can't change a strategy.
+- The sample and Ledoit-Wolf estimators demean the returns and divide cross-products by T, the
+  number of periods, as scikit-learn does (Ledoit and Wolf 2004a divide by T for data with a
+  known zero mean). pandas' `cov` divides by T - 1. For the sample matrix that is only a scale,
+  which leaves minimum-variance and equal-risk-contribution weights unchanged; inside the
+  shrinkage formulas the divisor is part of the estimator: T - 1 would lower the intensity by
+  about 2/T in relative terms (0.8% at T = 252, 8% at T = 24).
+- EWMA instead uses a zero mean and its own weights (RiskMetrics, below).
 - Shrinkage blends the sample matrix S with a structured target F: delta F + (1 - delta) S,
   with the intensity delta in [0, 1]. A target equal to S up to float noise gets delta = 0.
 
-Ledoit and Wolf (2004a, J. Multivariate Analysis), scaled identity target: F = mu I with
-mu = trace(S) / N. With ||A||^2 = trace(A A') / N and x_t the demeaned returns of period t,
-d^2 = ||S - mu I||^2, b^2 = min(d^2, (1 / T^2) sum_t ||x_t x_t' - S||^2) and delta = b^2 / d^2.
+Ledoit and Wolf (2004a, J. Multivariate Analysis), scaled identity target: F = m I with
+m = trace(S) / N (the paper's estimate of mu). With ||A||^2 = trace(A A') / N and x_t the
+demeaned returns of period t, d^2 = ||S - m I||^2, b^2 = min(d^2, (1 / T^2) sum_t ||x_t x_t' -
+S||^2) and delta = b^2 / d^2.
 
 Ledoit and Wolf (2004b, J. Portfolio Management, "Honey, I shrunk the sample covariance
 matrix", appendix), constant-correlation target: F_ii = s_ii and F_ij = rbar sqrt(s_ii s_jj),
@@ -31,7 +35,7 @@ EWMA (RiskMetrics): sum_k w_k r_k r_k' with zero mean and w_k proportional to de
 Hand example: returns in %, T = 4, demeaned (the tests add a mean of 1% to a and 2% to c):
     a = 5, -1, -1, -3    b = 1, 1, -1, -1    c = 1, -1, 1, -1
 S = [[9, 2, 2], [2, 1, 0], [2, 0, 1]]: sd 3, 1, 1; r_ab = r_ac = 2/3 and r_bc = 0.
-- Identity: mu = 11/3 and d^2 = 176/9. sum_t ||x_t||^4 = 729 + 9 + 9 + 121 = 868 and
+- Identity: m = 11/3 and d^2 = 176/9. sum_t ||x_t||^4 = 729 + 9 + 9 + 121 = 868 and
   sum_ij s_ij^2 = 99, so b^2 = (868 - 4 * 99) / (4^2 * 3) = 59/6 and delta = 177/352 = 0.503.
 - Constant correlation: rbar = 4/9, so F_ab = F_ac = 4/3 and F_bc = 4/9; gamma = 2 ((2/3)^2 +
   (2/3)^2 + (4/9)^2) = 176/81. pi = 96 + 2 (5 + 5 + 1) = 118. theta_aa,ab = theta_aa,ac = 20
@@ -57,7 +61,7 @@ __all__ = [
     "sample_cov",
 ]
 
-EWMA_DECAY = 0.94  # RiskMetrics, daily data
+EWMA_DECAY = 0.94  # RiskMetrics' decay for 1-day forecasts from daily returns (1-month: 0.97)
 
 # Relative size below which a difference is float noise: a target this close to the sample
 # matrix is the sample matrix, and a variance this small is no variance.
