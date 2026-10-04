@@ -2,6 +2,59 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-04: step 3, session 2 of 4 (weight rules)
+
+- `construct/weights.py`: `equal_weight(assets)`, `min_variance(cov, *, cap=1.0)`,
+  `equal_risk_contribution(cov)`. Each returns a Series labeled by the assets, >= 0, summing
+  to 1. Both covariance rules check the matrix (square, same assets in the same order on both
+  axes, finite, symmetric to 1e-12, positive variances) and require its correlation matrix to be
+  numerically positive definite (smallest eigenvalue > 1e-10 x largest).
+- **Two additions to the approved plan**, both behind the same interface:
+  - *Polish after SLSQP.* SLSQP alone stopped up to 6.6e-8 from the exact weights (300 random
+    small cases). It does find the active set (assets
+    at 0 and at the cap). With those fixed, the free assets solve the equality-constrained
+    problem exactly, a linear system. The result is kept only if it is feasible and passes the
+    KKT check (every asset that could be sold has a marginal variance no higher than every asset
+    that could be bought), otherwise SLSQP's weights are returned. Result: within 2e-15 of an
+    exhaustive 3^N search, with no fallback in 400 random cases. Dropped assets get exactly 0
+    and capped ones exactly the cap, so the engine trades no dust.
+  - *Minimum variance also rejects singular matrices* (the plan said this for ERC only). This
+    keeps the optimum unique and the polish's linear system solvable. A T < N sample matrix raises
+    with "use a shrinkage estimator", and the identity-target Ledoit-Wolf estimate of the same
+    window works (tested).
+- **Scaling matters, as the plan's risk table said.** On the raw daily matrix (variances ~1e-4)
+  SLSQP's absolute tolerance stops it early: at N = 49 the weights were off by 3.4e-4. The
+  matrix is divided by its mean variance first; without that, the KKT property test fails. Time per call at `ftol` 1e-12 (synthetic): N = 12 about 3-5 ms, N = 49 about 30-40 ms.
+- **ERC** follows Spinu (2013) as described by Griveau-Billion, Richard and Roncalli (2013):
+  Newton on f(y) = y'Cy / 2 - sum ln y_i with C the correlation matrix, then w proportional to
+  y_i / sigma_i. Budgets b_i = 1 instead of Spinu's sum-to-1 give the same weights and make f
+  standard self-concordant. Damped steps run while the decrement is >= 0.95 (3 - sqrt 5) / 2,
+  starting from the best multiple of equal weights; it takes 10-20 iterations on realistic
+  matrices. Rounding sets a floor on the Newton decrement (about 1e-12 at condition number
+  1e8), so a fixed 1e-12 stop could loop forever. Instead: once the decrement is below 1e-8,
+  one more full step (which squares it) and stop. Risk contributions are equal to 1e-10 on
+  random matrices and to 1e-8 at condition 1e8.
+- Hand examples (module docstring, exact fractions in the tests): 2 assets 8/11; the corner
+  (1, 0) where the closed form says 7/6; a 3-asset case where an asset with unconstrained weight
+  -1/5 gets exactly 0; inverse variance (36, 9, 4)/49 and, capped at 1/2, (1/2, 9/26, 4/26); ERC
+  (1/2, 1/3, 1/6) for sd 1, 2, 4% with correlations 1/2, 1/2, -1/16 (every risk contribution
+  7/12); ERC proportional to 1/sigma for uncorrelated and for equally correlated assets
+  (Maillard et al. 2010); 2-asset ERC = sigma2 / (sigma1 + sigma2) for any correlation. Weights
+  are the same for the sample matrix divided by T or by T - 1 (tested for both rules).
+- Mutation run: 21 planted errors. The first run let 2 survive, and both were test gaps:
+  - `_ACTIVE` = 1e-12 survived because SLSQP usually lands exactly on a bound, so the polish had
+    never been fed an asset slightly off one. Tests were added for that.
+  - The cap * N = 1 equal-weight shortcut turned out to be redundant: SLSQP plus the polish
+    return exactly 1/N even when the caps fall short of 1 by rounding (49 * (1/49) =
+    0.9999999999999999). It was removed and that case is now tested.
+
+  All 21 are caught now.
+- TDD evidence: RED `3971e7f` (collection fails: `cannot import name 'weights'`), GREEN
+  `22c8012` (105 weight tests), mutation fixes `ca219eb`. Suite: 480 passed, 99.79% coverage;
+  ruff, ruff format, mypy clean.
+- For session 3's dev-data checks: count polish fallbacks (expected 0) and time per call on
+  the 12 industries.
+
 ## 2026-10-02: step 3, session 1 of 4 (covariance estimators)
 
 - Plan approved and saved as `plans/step-3-plan.md`. Owner decisions: strategies declare

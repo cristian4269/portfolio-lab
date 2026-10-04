@@ -75,6 +75,9 @@ Branch `step-3-construct`.
   2013), w = y / Σy; raises for a non-PD matrix. Tests: risk contributions equal within 1e-10;
   uncorrelated -> ∝ 1/sigma; 2 assets -> w1 = sigma2 / (sigma1 + sigma2) for any correlation; scale
   invariance; permutations.
+- As built (2026-10-04, see NOTES.md): SLSQP's active set is polished to the exact optimum
+  (kept only if it passes the KKT check); minimum variance also rejects a singular matrix; ERC
+  runs on the correlation matrix (Spinu's form), w ∝ y / sigma.
 
 **Session 3 (extra effort): signals, tilts, strategies, dev-data checks.**
 - `momentum_12_1`, `low_volatility`, `tilt` with hand examples (incl. a big move in the last 21
