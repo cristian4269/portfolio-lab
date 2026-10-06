@@ -2,6 +2,33 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-06: step 3, session 4 of 4 (review)
+
+- python-reviewer: no critical or high findings. It re-derived the Ledoit-Wolf algebra, the ERC
+  Newton steps and the KKT test, and ran ERC on 200 random problems (risk contributions equal to
+  1e-6). `/code-review` (high) and the reviewer agreed on two real defects, both fixed test-first
+  (RED bd7d0e4, GREEN a0d4d78, 19 new tests):
+  - `tilt` returned all-NaN weights when `strength * z` overflowed (12 assets, strength 1e308:
+    inf - inf). The z-scores are now shifted before scaling, so every exponent is <= 0 and a
+    -inf exponent is a weight of 0.
+  - Constructors accepted a cap outside (0, 1], a non-finite strength or a one-day window, and
+    failed only at the first rebalance. They now check when the strategy is built.
+  - Also fixed: names use every digit of their parameters (`:g` gave 0.1234567 and 0.1234568
+    the same name, and names will key results); `ESTIMATORS` is read-only.
+- Left as is, for the owner:
+  - The z-score's "constant signal" threshold is relative (sd <= 1e-12 max|s|). Signals near 0
+    with float noise can still tilt, but an absolute floor would break the scale invariance
+    the tests pin (1e-20-sized signals tilt). Real 12-1 spreads are ~1e-2.
+  - When polishing fails, `min_variance` returns SLSQP's clipped weights without a warning.
+    There were 0 fallbacks in 5031 dev-data calls; recheck on 49 industries / 126 days (7b).
+  - The window is validated several times per rebalance. That is minor next to SLSQP; revisit
+    only if Step 4 needs speed.
+- Verification: 663 passed, 99.82% coverage; ruff, format and mypy clean; `uv build` and
+  `uv lock --check` fine; invariants 1-6 hold (no data files, no tiingo or sibling-repo
+  references, no secrets, `allow_holdout=True` only in prose).
+- Blueprint: Step 3 status, the interface superseded by `Strategy`, Step 4's `run(...)` without
+  `window`, change log.
+
 ## 2026-10-05: step 3, session 3 of 4 (signals, tilts, strategies)
 
 - `construct/weights.py` adds `momentum_12_1(returns)` (rows [-252, -21) of the history: close

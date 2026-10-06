@@ -95,6 +95,8 @@ Branch `step-3-construct`.
 **Session 4 (extra effort): review and merge.** python-reviewer -> `/code-review` ->
 verification-loop; fix findings. Invariants 1-6; blueprint status + change log (incl. the Step 4
 `window` change); `/save-session`; ask the owner before pushing and opening the PR.
+- As built (2026-10-06, see NOTES.md): reviews fixed the tilt's overflow at huge strengths and
+  moved parameter checks into the constructors; names keep every digit; `ESTIMATORS` read-only.
 
 ## Checks every session
 
