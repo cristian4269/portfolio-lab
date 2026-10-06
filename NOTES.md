@@ -2,6 +2,77 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-05: step 3, session 3 of 4 (signals, tilts, strategies)
+
+- `construct/weights.py` adds `momentum_12_1(returns)` (rows [-252, -21) of the history: close
+  of t - 252 to close of t - 21, 231 returns; only the last 252 rows are read),
+  `low_volatility(returns)` (minus the volatility, demeaned, divided by T) and
+  `tilt(signal, *, strength, base=None)`: w_i proportional to b_i exp(strength z_i), with z the
+  cross-sectional z-score. `strength` is required and keyword-only; the base defaults to 1/N.
+- **Conventions to carry into 7a (the strength is pre-registered there):**
+  - z uses the population sd across the N assets (divides by N). Centering z is cosmetic: it
+    multiplies every weight by the same factor (the mutation run confirms it is equivalent).
+  - Signals equal up to rounding (sd <= 1e-12 x max |s|) give the base, so float noise never
+    tilts. A negative strength tilts away from the signal. An asset with base weight 0 stays
+    at 0.
+  - Exponents are shifted so the largest among the assets held is 0: no overflow at any
+    strength (tested up to 1e6).
+- `construct/strategy.py`: `Strategy(name, lookback, rule)`. `weights(history)` checks that the
+  whole history is in date order and that the last `lookback` rows are complete; rows before
+  them may have gaps and are never read (this matters for the 49 industries in 7b). It passes
+  those rows to the rule and checks the result: a Series labeled by the history's columns, in
+  order, finite, >= 0, summing to 1 within 1e-9. Constructors: `equal_weight()` (lookback 1),
+  `min_variance(estimator, *, window=252, cap=1.0)`, `erc(estimator, *, window=252)`,
+  `momentum_tilt(*, strength, base=None)` and `low_volatility_tilt(*, strength, window=252,
+  base=None)`. A tilt's base is any strategy, and its lookback is max(signal, base): momentum
+  on a 126-day minimum variance looks back 252 days (owner decision 1, now tested).
+- **Choices made here (for the owner at review):**
+  - Estimators are named by a key of `ESTIMATORS` (`sample`, `lw_identity`,
+    `lw_constant_correlation`, `ewma`), not passed as functions. This keeps strategy names
+    readable for 7a and the dashboard ("min variance (lw_identity, 252d)"), and it is still
+    explicit with no default.
+  - 1/N has lookback 1, so on its own it could start trading earlier than the others. The
+    Step 4 / 7a comparison needs one common start date.
+  - Windows are checked up front in every constructor: a tilt's lookback also covers its base,
+    so a bad window would not show in the lookback.
+- Shared checks in `_validate.py`: `last_rows` (the window of a history) and
+  `portfolio_values` (a long-only portfolio over given assets), used by the tilt's base and by
+  every strategy's output.
+- Dev data (12 industries, USD, 559 month-end dates 1964-06 to 2010-12, 252-day windows;
+  weights and estimator diagnostics only, never performance):
+  - **Minimum variance is concentrated in Utilities.** Average weight 0.61 (sample matrix) and
+    0.57 (LW identity). It is the largest weight in 73% of months, then NoDur (21%). The
+    portfolio is 100% Utilities in 59 of 559 months with the sample matrix and 15 with LW
+    identity. Median 3-4 assets held, effective N (1 / sum w^2) about 1.7-1.9. A 0.25 cap
+    gives a median of 6 held and effective N 4.6. Capped variants are a 7a pre-registration
+    choice (owner decision 2).
+  - **Polish: 0 fallbacks in 5031 calls**, worst KKT gap 7e-16. An independent KKT check on
+    the returned weights agrees (<= 7.2e-16 for every estimator).
+  - ERC is close to 1/sigma: half the L1 distance has a median of 0.03-0.05 and a max of 0.09
+    (EWMA 0.21). Risk contributions are equal to 9e-16. The largest ERC weight is 0.21 (EWMA
+    0.31).
+  - Correlation-matrix condition numbers, median / max: sample 138 / 756, LW identity 100 /
+    256, LW constant correlation 87 / 195, EWMA 235 / 3521 (1987-10-30; EWMA's effective
+    sample is about 32 days). All far from the 1e10 singularity threshold.
+  - Tilts of 1/N, effective N (median [5%]): strength 0.5 gives 9.4 [7.7] for momentum and
+    9.8 [8.0] for low vol; strength 1 gives 5.5 [2.6] and 6.3 [3.1], max weight up to 0.70;
+    strength 2 gives about 2.5, close to a single asset. With N = 12, |z| <= sqrt(11), so
+    strengths above 1 concentrate quickly. Context for 7a.
+  - Time through `Strategy.weights` (the engine's path), per call: 1/N 0.3 ms, minimum
+    variance 3.2-3.8 ms, ERC 1.0-1.7 ms, tilts of 1/N 1.2-1.3 ms, momentum on a 126-day
+    minimum variance 5.3 ms. **12 strategies over 559 dates: 15.1 s.** Step 4's budget is
+    30 s for everything. If 7a adds capped or 126-day variants, minimum variance dominates;
+    warm-starting SLSQP from the previous weights is the first speed-up to try.
+- Mutation run: 40 planted errors in the new code (momentum window ends, skip length,
+  compounding, the -100% check; low-vol sign and divisor; z-score sd, threshold and centering;
+  tilt shift, base and sign; every input check; the strategy lookbacks, window slicing,
+  output check and estimator registry). 39 caught. The survivor (z-score without centering)
+  is equivalent, as noted above.
+- TDD evidence: RED `90ecdb7` (46 signal tests fail with AttributeError; the strategy tests
+  fail at collection: `cannot import name 'strategy'`), GREEN `c639fe2` (164 new tests). One
+  test tolerance went from 1e-16 to 1e-15 (a 1-ulp difference at 1/3). Suite: 644 passed,
+  99.82% coverage; ruff, ruff format, mypy clean.
+
 ## 2026-10-04: step 3, session 2 of 4 (weight rules)
 
 - `construct/weights.py`: `equal_weight(assets)`, `min_variance(cov, *, cap=1.0)`,

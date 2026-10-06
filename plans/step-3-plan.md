@@ -87,6 +87,10 @@ Branch `step-3-construct`.
   1, labeled by the history's columns.
 - Dev data, 12 industries, weights only: LW intensities over time, condition numbers, min-var
   concentration, ERC vs 1/sigma, time per call (Step 4 runs all strategies in < 30 s). NOTES.md.
+- As built (2026-10-05, see NOTES.md): the tilt's z-score uses the population sd; estimators
+  are named by `ESTIMATORS` keys; a tilt's base is any strategy and its lookback is max(signal,
+  base); minimum variance holds mostly Utilities on dev data (cap choice for 7a); 12 strategies
+  take 15 s over 559 dates.
 
 **Session 4 (extra effort): review and merge.** python-reviewer -> `/code-review` ->
 verification-loop; fix findings. Invariants 1-6; blueprint status + change log (incl. the Step 4
