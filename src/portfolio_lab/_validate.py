@@ -1,5 +1,7 @@
 """Checks shared across the library: one rule for order, alignment, windows and portfolios."""
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -95,6 +97,17 @@ def portfolio_values(w: pd.Series, assets: pd.Index, what: str, other: str) -> n
     if abs(x.sum() - 1) > _BUDGET:
         raise ValueError(f"{what} must sum to 1, got {x.sum():.12g}")
     return x
+
+
+def check_cap(cap: float) -> None:
+    """A maximum weight per asset must be in (0, 1] (1 = no cap)."""
+    if not 0 < cap <= 1:
+        raise ValueError(f"cap must be in (0, 1], got {cap}")
+
+
+def check_finite(x: float, what: str) -> None:
+    if not math.isfinite(x):
+        raise ValueError(f"{what} must be finite, got {x}")
 
 
 def _check_frame(returns: pd.DataFrame, what: str) -> None:

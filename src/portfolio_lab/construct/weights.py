@@ -29,7 +29,8 @@ lambda the Newton decrement, while lambda >= 0.95 (3 - sqrt 5) / 2; full steps a
 Signals (one value per asset, higher = more weight under a positive tilt strength):
 - Momentum 12-1: the cumulative return from the close of t - 252 to the close of t - 21, t the
   last row of the history: rows [-252, -21), 231 returns. The last month is skipped (short-term
-  reversal; Jegadeesh and Titman 1993). Only the last 252 rows are read.
+  reversal; Jegadeesh and Titman 1993). Only the last 252 rows are read, and all of them must
+  be complete returns >= -100%, the skipped month included.
 - Low volatility: minus each asset's volatility over the window (demeaned, divided by T, as
   `sample_cov`).
 
@@ -59,7 +60,14 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from portfolio_lab._validate import as_floats, last_rows, portfolio_values, window_values
+from portfolio_lab._validate import (
+    as_floats,
+    check_cap,
+    check_finite,
+    last_rows,
+    portfolio_values,
+    window_values,
+)
 
 __all__ = [
     "MOMENTUM_LOOKBACK",
@@ -107,8 +115,7 @@ def min_variance(cov: pd.DataFrame, *, cap: float = 1.0) -> pd.Series:
     """Long-only minimum variance, each weight at most `cap` (1 = no cap)."""
     s = _covariance(cov)
     n = len(s)
-    if not 0 < cap <= 1:
-        raise ValueError(f"cap must be in (0, 1], got {cap}")
+    check_cap(cap)
     if cap * n < 1 - _ROUNDING:
         raise ValueError(f"a cap of {cap} cannot hold {n} assets: cap * N must be at least 1")
     a = s / np.mean(np.diag(s))
@@ -171,17 +178,19 @@ def tilt(signal: pd.Series, *, strength: float, base: pd.Series | None = None) -
     `base` defaults to equal weight; it must be a long-only portfolio over the signal's assets.
     """
     s = _signal(signal)
-    if not math.isfinite(strength):
-        raise ValueError(f"strength must be finite, got {strength}")
+    check_finite(strength, "strength")
     if base is None:
         b = np.full(len(s), 1 / len(s))
     else:
         b = portfolio_values(base, signal.index, "base", "the signal")
-    exponent = strength * _zscore(s)
+    z = _zscore(s)
     held = b > 0
-    # Shifted so the largest exponent among the assets held is 0: no overflow at any strength.
+    # Shifted before scaling, so the asset held that the tilt favors most has exponent 0 and
+    # every other one is below it: strength * z alone overflows near the largest strengths.
+    top = z[held].max() if strength >= 0 else z[held].min()
     w = np.zeros(len(b))
-    w[held] = b[held] * np.exp(exponent[held] - exponent[held].max())
+    with np.errstate(over="ignore"):  # an exponent of -inf is a weight of 0
+        w[held] = b[held] * np.exp(strength * (z[held] - top))
     return pd.Series(w / w.sum(), index=signal.index)
 
 
