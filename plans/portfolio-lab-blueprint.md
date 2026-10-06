@@ -171,7 +171,7 @@ use only → **not allowed**). SEC EDGAR: considered, not needed for this scope.
 ---
 
 ## Step 2: Returns, CAD/hedged views, metrics
-Status: **done 2026-10-02, pending PR** (2 sessions; `data/views.py`, `report/metrics.py`, shared `_validate.py`; 281 unit tests, 99.7% coverage; python-reviewer x2 and `/code-review` findings fixed)
+Status: **done and merged 2026-10-02** (PR #2, merge commit b0913fc; 2 sessions; `data/views.py`, `report/metrics.py`, shared `_validate.py`; 281 unit tests, 99.7% coverage; python-reviewer x2 and `/code-review` findings fixed; typing follow-up merged as PR #3, merge commit 5114847)
 
 **Context.** `fx_t = S_t / S_{t-1} - 1` with `S` = CAD per USD. Unhedged CAD
 return of a USD asset: `r_cad = (1 + r_usd)(1 + fx) - 1` (USD up → CAD investor
@@ -193,7 +193,7 @@ days since the previous trading day (amended 2026-10-02 by the owner; v2 had
 ---
 
 ## Step 3: Covariance + portfolio construction  *(strongest model)*
-Status: not started
+Status: **done 2026-10-06, pending PR** (4 sessions; plan `plans/step-3-plan.md`; `construct/covariance.py`, `weights.py`, `strategy.py`; 663 unit tests, 99.8% coverage; python-reviewer and `/code-review` findings fixed)
 
 **Context.** Long-only portfolios over N industry assets, estimated on a
 trailing window (default 252 days), using only data up to the estimation date.
@@ -201,7 +201,7 @@ trailing window (default 252 days), using only data up to the estimation date.
 **Tasks**
 - `construct/covariance.py`: sample; **Ledoit-Wolf** shrinkage to (a) scaled identity (Ledoit & Wolf 2004, *J. Multivariate Analysis*) and (b) constant correlation (Ledoit & Wolf 2004, *J. Portfolio Management*); intensity clipped to [0, 1]; optional EWMA (cut-able).
 - `construct/weights.py`: equal weight; minimum variance (long-only, sum 1, max-weight cap, `scipy.optimize` SLSQP with analytic gradient); **equal risk contribution** (convex log-barrier formulation, then normalize); tilts: momentum (12-1 = cumulative return from t−252 to t−21 trading days, own lookback) and low-volatility, applied to a base portfolio with a tilt strength.
-- Interface: `weights(returns_window, **params) -> pd.Series` (≥ 0, sums to 1).
+- Interface: ~~`weights(returns_window, **params) -> pd.Series`~~ superseded (2026-10-02, owner decision 1 of the step-3 plan) by `Strategy(name, lookback, rule)` in `construct/strategy.py`: `strategy.weights(history)` reads only the last `lookback` rows of the history ending at t and returns a long-only portfolio (≥ 0, sums to 1) labeled by its columns.
 
 **Verify (tests first)**
 - LW identity target matches scikit-learn's `LedoitWolf` (test-only dev dependency; same 1/n normalization) to 1e-10; constant-correlation target matches a hand-built 3-asset example; intensity in [0, 1]; condition number improves.
@@ -223,7 +223,7 @@ weights drift with returns until the next trade.
 trade day after that day's return.
 
 **Tasks**
-- `backtest/engine.py`: `run(strategy, returns, start, end=DEV_END, window=252, rebalance="M", cost_bps=5, view="usd")` → daily gross/net returns, weights history, turnover, costs. Inherits the data-layer guard.
+- `backtest/engine.py`: `run(strategy, returns, start, end=DEV_END, rebalance="M", cost_bps=5, view="usd")` → daily gross/net returns, weights history, turnover, costs. Inherits the data-layer guard. No `window` argument (amended 2026-10-06): each `Strategy` declares its `lookback`; the engine passes `strategy.weights` the history ending at close t, and the first rebalance waits until `lookback` rows exist. Comparisons across strategies need one common first rebalance date (1/N has lookback 1).
 - Benchmarks: equal weight, market (Mkt-RF + RF).
 - `Result.summary()` using step-2 metrics.
 
@@ -358,6 +358,7 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 
 ## Change log
 
+- 2026-10-06: step 3 done (4 sessions, plan `plans/step-3-plan.md`, details in NOTES.md). **Interface change:** the strategy contract `Strategy(name, lookback, rule)` replaces `weights(returns_window, **params)`, and Step 4's `run(...)` drops `window` (strategies declare their lookback; a tilt's lookback covers its base: momentum on a 126-day minimum variance looks back 252). Owner decisions (2026-10-02): minimum-variance cap default none (DeMiguel et al.'s shortsale-constrained portfolio), capped variants a 7a choice; PyPortfolioOpt's constant-correlation code vendored into `tests/` as an independent check. Conventions: covariances divide by T (scikit-learn's); SLSQP's active set is polished to the exact optimum (kept only if it passes KKT); minimum variance rejects singular matrices (use shrinkage); ERC runs Spinu's Newton method on the correlation matrix; the tilt's z-score uses the population sd; estimators are named by `ESTIMATORS` keys; 1/N has lookback 1. Dev data (12 industries, weights only): minimum variance is mostly Utilities (100% in 59 of 559 months with the sample matrix); 12 strategies take 15 s over 559 rebalances. Reviews fixed: tilt overflow at strength ~1e308, constructor inputs checked up front, names keep every digit, read-only `ESTIMATORS`.
 - 2026-10-02: tooling: `mypy` + `pandas-stubs` in the dev group, `[tool.mypy]` config, mypy step in CI after ruff (pandas types were `Any` under the old ad hoc `uvx mypy`). 32 errors fixed by narrowing, no ignores (`check_dates` returns the `DatetimeIndex`; `point_in_time_daily` now requires one). `metrics.py` overloads restored (Series -> float, DataFrame -> Series). `py.typed` added so importers get the types.
 - 2026-10-02: step 2 done. Metrics: `periods_per_year` required; zero-risk ratios (Sharpe, Sortino, IR, Calmar) are NaN, never inf, so they cannot rank first; drawdowns within 1e-12 of the peak count as 0; returns must be finite, >= -100%, in date order with unique dates. CAD views end 7 days after the last FX/rate observation (a lagged source shortens them, a trailing holiday is carried). Hypothesis runs without a deadline. Follow-up: pandas-stubs + mypy in CI.
 - 2026-10-02: step 2 session 1. Owner chose the rolling-bill rate conversion `(1 + y·91/365)^(d/91) - 1` over v2's `(1 + y)^(d/365) - 1` (T-bills are quoted as simple act/365 yields; v2 understated CAD rf by ~24 bp/yr on average, ~160 bp/yr at 1981 rates). Carried FX/rate levels older than 7 calendar days raise.

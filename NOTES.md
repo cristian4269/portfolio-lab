@@ -2,6 +2,220 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-06: step 3, session 4 of 4 (review)
+
+- python-reviewer: no critical or high findings. It re-derived the Ledoit-Wolf algebra, the ERC
+  Newton steps and the KKT test, and ran ERC on 200 random problems (risk contributions equal to
+  1e-6). `/code-review` (high) and the reviewer agreed on two real defects, both fixed test-first
+  (RED bd7d0e4, GREEN a0d4d78, 19 new tests):
+  - `tilt` returned all-NaN weights when `strength * z` overflowed (12 assets, strength 1e308:
+    inf - inf). The z-scores are now shifted before scaling, so every exponent is <= 0 and a
+    -inf exponent is a weight of 0.
+  - Constructors accepted a cap outside (0, 1], a non-finite strength or a one-day window, and
+    failed only at the first rebalance. They now check when the strategy is built.
+  - Also fixed: names use every digit of their parameters (`:g` gave 0.1234567 and 0.1234568
+    the same name, and names will key results); `ESTIMATORS` is read-only.
+- Left as is, for the owner:
+  - The z-score's "constant signal" threshold is relative (sd <= 1e-12 max|s|). Signals near 0
+    with float noise can still tilt, but an absolute floor would break the scale invariance
+    the tests pin (1e-20-sized signals tilt). Real 12-1 spreads are ~1e-2.
+  - When polishing fails, `min_variance` returns SLSQP's clipped weights without a warning.
+    There were 0 fallbacks in 5031 dev-data calls; recheck on 49 industries / 126 days (7b).
+  - The window is validated several times per rebalance. That is minor next to SLSQP; revisit
+    only if Step 4 needs speed.
+- Verification: 663 passed, 99.82% coverage; ruff, format and mypy clean; `uv build` and
+  `uv lock --check` fine; invariants 1-6 hold (no data files, no tiingo or sibling-repo
+  references, no secrets, `allow_holdout=True` only in prose).
+- Blueprint: Step 3 status, the interface superseded by `Strategy`, Step 4's `run(...)` without
+  `window`, change log.
+
+## 2026-10-05: step 3, session 3 of 4 (signals, tilts, strategies)
+
+- `construct/weights.py` adds `momentum_12_1(returns)` (rows [-252, -21) of the history: close
+  of t - 252 to close of t - 21, 231 returns; only the last 252 rows are read),
+  `low_volatility(returns)` (minus the volatility, demeaned, divided by T) and
+  `tilt(signal, *, strength, base=None)`: w_i proportional to b_i exp(strength z_i), with z the
+  cross-sectional z-score. `strength` is required and keyword-only; the base defaults to 1/N.
+- **Conventions to carry into 7a (the strength is pre-registered there):**
+  - z uses the population sd across the N assets (divides by N). Centering z is cosmetic: it
+    multiplies every weight by the same factor (the mutation run confirms it is equivalent).
+  - Signals equal up to rounding (sd <= 1e-12 x max |s|) give the base, so float noise never
+    tilts. A negative strength tilts away from the signal. An asset with base weight 0 stays
+    at 0.
+  - Exponents are shifted so the largest among the assets held is 0: no overflow at any
+    strength (tested up to 1e6).
+- `construct/strategy.py`: `Strategy(name, lookback, rule)`. `weights(history)` checks that the
+  whole history is in date order and that the last `lookback` rows are complete; rows before
+  them may have gaps and are never read (this matters for the 49 industries in 7b). It passes
+  those rows to the rule and checks the result: a Series labeled by the history's columns, in
+  order, finite, >= 0, summing to 1 within 1e-9. Constructors: `equal_weight()` (lookback 1),
+  `min_variance(estimator, *, window=252, cap=1.0)`, `erc(estimator, *, window=252)`,
+  `momentum_tilt(*, strength, base=None)` and `low_volatility_tilt(*, strength, window=252,
+  base=None)`. A tilt's base is any strategy, and its lookback is max(signal, base): momentum
+  on a 126-day minimum variance looks back 252 days (owner decision 1, now tested).
+- **Choices made here (for the owner at review):**
+  - Estimators are named by a key of `ESTIMATORS` (`sample`, `lw_identity`,
+    `lw_constant_correlation`, `ewma`), not passed as functions. This keeps strategy names
+    readable for 7a and the dashboard ("min variance (lw_identity, 252d)"), and it is still
+    explicit with no default.
+  - 1/N has lookback 1, so on its own it could start trading earlier than the others. The
+    Step 4 / 7a comparison needs one common start date.
+  - Windows are checked up front in every constructor: a tilt's lookback also covers its base,
+    so a bad window would not show in the lookback.
+- Shared checks in `_validate.py`: `last_rows` (the window of a history) and
+  `portfolio_values` (a long-only portfolio over given assets), used by the tilt's base and by
+  every strategy's output.
+- Dev data (12 industries, USD, 559 month-end dates 1964-06 to 2010-12, 252-day windows;
+  weights and estimator diagnostics only, never performance):
+  - **Minimum variance is concentrated in Utilities.** Average weight 0.61 (sample matrix) and
+    0.57 (LW identity). It is the largest weight in 73% of months, then NoDur (21%). The
+    portfolio is 100% Utilities in 59 of 559 months with the sample matrix and 15 with LW
+    identity. Median 3-4 assets held, effective N (1 / sum w^2) about 1.7-1.9. A 0.25 cap
+    gives a median of 6 held and effective N 4.6. Capped variants are a 7a pre-registration
+    choice (owner decision 2).
+  - **Polish: 0 fallbacks in 5031 calls**, worst KKT gap 7e-16. An independent KKT check on
+    the returned weights agrees (<= 7.2e-16 for every estimator).
+  - ERC is close to 1/sigma: half the L1 distance has a median of 0.03-0.05 and a max of 0.09
+    (EWMA 0.21). Risk contributions are equal to 9e-16. The largest ERC weight is 0.21 (EWMA
+    0.31).
+  - Correlation-matrix condition numbers, median / max: sample 138 / 756, LW identity 100 /
+    256, LW constant correlation 87 / 195, EWMA 235 / 3521 (1987-10-30; EWMA's effective
+    sample is about 32 days). All far from the 1e10 singularity threshold.
+  - Tilts of 1/N, effective N (median [5%]): strength 0.5 gives 9.4 [7.7] for momentum and
+    9.8 [8.0] for low vol; strength 1 gives 5.5 [2.6] and 6.3 [3.1], max weight up to 0.70;
+    strength 2 gives about 2.5, close to a single asset. With N = 12, |z| <= sqrt(11), so
+    strengths above 1 concentrate quickly. Context for 7a.
+  - Time through `Strategy.weights` (the engine's path), per call: 1/N 0.3 ms, minimum
+    variance 3.2-3.8 ms, ERC 1.0-1.7 ms, tilts of 1/N 1.2-1.3 ms, momentum on a 126-day
+    minimum variance 5.3 ms. **12 strategies over 559 dates: 15.1 s.** Step 4's budget is
+    30 s for everything. If 7a adds capped or 126-day variants, minimum variance dominates;
+    warm-starting SLSQP from the previous weights is the first speed-up to try.
+- Mutation run: 40 planted errors in the new code (momentum window ends, skip length,
+  compounding, the -100% check; low-vol sign and divisor; z-score sd, threshold and centering;
+  tilt shift, base and sign; every input check; the strategy lookbacks, window slicing,
+  output check and estimator registry). 39 caught. The survivor (z-score without centering)
+  is equivalent, as noted above.
+- TDD evidence: RED `90ecdb7` (46 signal tests fail with AttributeError; the strategy tests
+  fail at collection: `cannot import name 'strategy'`), GREEN `c639fe2` (164 new tests). One
+  test tolerance went from 1e-16 to 1e-15 (a 1-ulp difference at 1/3). Suite: 644 passed,
+  99.82% coverage; ruff, ruff format, mypy clean.
+
+## 2026-10-04: step 3, session 2 of 4 (weight rules)
+
+- `construct/weights.py`: `equal_weight(assets)`, `min_variance(cov, *, cap=1.0)`,
+  `equal_risk_contribution(cov)`. Each returns a Series labeled by the assets, >= 0, summing
+  to 1. Both covariance rules check the matrix (square, same assets in the same order on both
+  axes, finite, symmetric to 1e-12, positive variances) and require its correlation matrix to be
+  numerically positive definite (smallest eigenvalue > 1e-10 x largest).
+- **Two additions to the approved plan**, both behind the same interface:
+  - *Polish after SLSQP.* SLSQP alone stopped up to 6.6e-8 from the exact weights (300 random
+    small cases). It does find the active set (assets
+    at 0 and at the cap). With those fixed, the free assets solve the equality-constrained
+    problem exactly, a linear system. The result is kept only if it is feasible and passes the
+    KKT check (every asset that could be sold has a marginal variance no higher than every asset
+    that could be bought), otherwise SLSQP's weights are returned. Result: within 2e-15 of an
+    exhaustive 3^N search, with no fallback in 400 random cases. Dropped assets get exactly 0
+    and capped ones exactly the cap, so the engine trades no dust.
+  - *Minimum variance also rejects singular matrices* (the plan said this for ERC only). This
+    keeps the optimum unique and the polish's linear system solvable. A T < N sample matrix raises
+    with "use a shrinkage estimator", and the identity-target Ledoit-Wolf estimate of the same
+    window works (tested).
+- **Scaling matters, as the plan's risk table said.** On the raw daily matrix (variances ~1e-4)
+  SLSQP's absolute tolerance stops it early: at N = 49 the weights were off by 3.4e-4. The
+  matrix is divided by its mean variance first; without that, the KKT property test fails. Time per call at `ftol` 1e-12 (synthetic): N = 12 about 3-5 ms, N = 49 about 30-40 ms.
+- **ERC** follows Spinu (2013) as described by Griveau-Billion, Richard and Roncalli (2013):
+  Newton on f(y) = y'Cy / 2 - sum ln y_i with C the correlation matrix, then w proportional to
+  y_i / sigma_i. Budgets b_i = 1 instead of Spinu's sum-to-1 give the same weights and make f
+  standard self-concordant. Damped steps run while the decrement is >= 0.95 (3 - sqrt 5) / 2,
+  starting from the best multiple of equal weights; it takes 10-20 iterations on realistic
+  matrices. Rounding sets a floor on the Newton decrement (about 1e-12 at condition number
+  1e8), so a fixed 1e-12 stop could loop forever. Instead: once the decrement is below 1e-8,
+  one more full step (which squares it) and stop. Risk contributions are equal to 1e-10 on
+  random matrices and to 1e-8 at condition 1e8.
+- Hand examples (module docstring, exact fractions in the tests): 2 assets 8/11; the corner
+  (1, 0) where the closed form says 7/6; a 3-asset case where an asset with unconstrained weight
+  -1/5 gets exactly 0; inverse variance (36, 9, 4)/49 and, capped at 1/2, (1/2, 9/26, 4/26); ERC
+  (1/2, 1/3, 1/6) for sd 1, 2, 4% with correlations 1/2, 1/2, -1/16 (every risk contribution
+  7/12); ERC proportional to 1/sigma for uncorrelated and for equally correlated assets
+  (Maillard et al. 2010); 2-asset ERC = sigma2 / (sigma1 + sigma2) for any correlation. Weights
+  are the same for the sample matrix divided by T or by T - 1 (tested for both rules).
+- Mutation run: 21 planted errors. The first run let 2 survive, and both were test gaps:
+  - `_ACTIVE` = 1e-12 survived because SLSQP usually lands exactly on a bound, so the polish had
+    never been fed an asset slightly off one. Tests were added for that.
+  - The cap * N = 1 equal-weight shortcut turned out to be redundant: SLSQP plus the polish
+    return exactly 1/N even when the caps fall short of 1 by rounding (49 * (1/49) =
+    0.9999999999999999). It was removed and that case is now tested.
+
+  All 21 are caught now.
+- TDD evidence: RED `3971e7f` (collection fails: `cannot import name 'weights'`), GREEN
+  `22c8012` (105 weight tests), mutation fixes `ca219eb`. Suite: 480 passed, 99.79% coverage;
+  ruff, ruff format, mypy clean.
+- For session 3's dev-data checks: count polish fallbacks (expected 0) and time per call on
+  the 12 industries.
+
+## 2026-10-02: step 3, session 1 of 4 (covariance estimators)
+
+- Plan approved and saved as `plans/step-3-plan.md`. Owner decisions: strategies declare
+  their `lookback` (momentum gets its 252 days even with a 126-day covariance window; `window`
+  moves from Step 4's engine into the strategy); minimum variance has no cap by default (the
+  shortsale-constrained portfolio of DeMiguel et al.); PyPortfolioOpt's implementation is the
+  independent check for the constant-correlation estimator. scikit-learn 1.9.1 is a dev
+  dependency (test oracle only).
+- `construct/covariance.py`: `sample_cov`, `ledoit_wolf_identity`,
+  `ledoit_wolf_constant_correlation`, `ewma_cov` (decay 0.94, zero mean), `Shrunk(cov, target,
+  intensity)`. One convention: demeaned, divided by T (scikit-learn's), so intensity 0 returns
+  the sample matrix exactly. A target within float noise of the sample
+  matrix (1e-12 relative) gets intensity 0; an asset with no variance raises for the
+  constant-correlation target (its correlations are undefined). `_validate.window_values` checks
+  every window: a DataFrame, complete, finite, unique sorted dates, unique assets.
+- Constant correlation has no library oracle, so it is checked five ways: the docstring hand
+  example redone in exact fractions (kappa = 651/88; delta = 1 at T = 4, 651/704 at T = 8); a
+  loop-by-loop transcription of the paper's appendix; PyPortfolioOpt 1.6.0's function, vendored
+  from the PyPI wheel (SHA-256 checked, MIT notice kept) and given its own sample matrix
+  (divided by T - 1), matching to 1e-12; properties; and a mutation run. The identity target
+  matches scikit-learn to 1e-10, incl. T < N and T = 2, and scikit-learn reproduces the hand
+  value 177/352.
+- Mutation run: 8 planted errors, all caught (rho's sqrt ratio swapped; rho's mirror term
+  dropped; a theta sign; kappa / (T - 1); rbar averaging the diagonal; pi without s^2; the
+  identity's b^2 divided by T instead of T^2; EWMA weighting the oldest period most). Each of
+  the six constant-correlation mutations failed the hand example, the paper transcription and
+  the PyPortfolioOpt match at once. On Windows, `Path.write_text` writes CRLF: a mutation script
+  must restore files byte for byte (`read_bytes`/`write_bytes`) or with `git checkout --`.
+- TDD evidence: RED `d0224bf` (collection fails: `cannot import name 'covariance'`), GREEN
+  `0104255` (84 covariance tests). Suite 366 passed, 99.75% coverage; ruff and mypy clean.
+- Dev-data diagnostics (12 industries, USD, 559 month-end windows of 252 days, 1964-06 to
+  2010-12; estimates only, no performance):
+
+  | | LW identity | LW constant correlation |
+  |---|---|---|
+  | Intensity 5% / median / 95% | 0.013 / 0.023 / 0.058 | 0.077 / 0.184 / 1.000 |
+  | Median condition number (sample 167) | 113 | 121 |
+  | Time per call | 0.5 ms | 1.3 ms |
+
+  Constant correlation shrinks fully in 29 windows (1964, and 24 in 1987-90): the October
+  1987 crash inflates pi-hat through fourth moments. Full shrinkage happens where the target
+  is already close to the sample matrix (median ||F - S|| / ||S|| = 7%, vs 18% otherwise), and
+  PyPortfolioOpt also gives delta = 1 on the same window, so this is the estimator, not a bug.
+  The sample matrix's worst condition number is 749 (1988-09-30).
+- Fresh-eyes review (2026-10-04; a separate agent working from the papers: both Ledoit-Wolf PDFs
+  and RiskMetrics 1996 chapter 5). No formula errors: it re-derived every hand-example number
+  in fractions and matched both estimators to 1e-14 on about 300 random cases each. Fixed:
+  - Doc error: the docstring said the divisor (T vs T - 1) can't change a strategy. That holds
+    for the sample matrix only; inside the shrinkage formulas T - 1 lowers the intensity by
+    about 2/T in relative terms (checked: -0.8% at T = 252, -8% at T = 24). "Both Ledoit-Wolf
+    papers divide by T" was overstated (2004a divides by T for zero-mean data; 1/T is
+    scikit-learn's convention); the identity's scale is m (mu is the population value); EWMA
+    is zero-mean, not demeaned.
+  - Test gaps: kappa < 0 and the identity's clip at d^2 were reached only by chance (random
+    Hypothesis draws), and nothing pinned the float-noise threshold. New tests: 7 integer days
+    with kappa = -0.44 (intensity 0, not -0.06); 5 integer days with b-bar^2 = 38204/9375 >
+    d^2 = 9068/5625 (intensity exactly 1, as in scikit-learn); correlations 1e-9 apart, a matrix
+    1e-9 from the identity, an asset moving 1e-11 around 10%. Each fails under its mutation
+    (dropped clip at 0, dropped clip at d^2, `_NOISE` = 1e-9 or 1e-6); the `_NOISE` mutations
+    passed every earlier test.
+  - EWMA decay stays 0.94 (owner, 2026-10-04): RiskMetrics' factor for 1-day forecasts; its
+    1-month factor is 0.97. Revisit at 7a only if EWMA becomes a strategy variant.
+
 ## 2026-10-02: mypy with real pandas types (after step 2)
 
 - mypy had been run ad hoc via `uvx` in an env without pandas, so every pandas
