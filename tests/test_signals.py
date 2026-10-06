@@ -198,6 +198,15 @@ def test_a_huge_strength_puts_everything_on_the_best_signal_without_overflow():
         close(wt.tilt(SIGNAL, strength=-1e6), [1, 0, 0], atol=0)
 
 
+@pytest.mark.parametrize("strength", [1e308, np.finfo(float).max, -1e308])
+def test_the_largest_finite_strengths_do_not_overflow(strength):
+    # z reaches sqrt(11) with 12 assets: strength * z alone overflows, and inf - inf is NaN.
+    signal = series([0.0] * 11 + [1.0], names="abcdefghijkl")
+    expected = [0.0] * 11 + [1.0] if strength > 0 else [1 / 11] * 11 + [0.0]
+    with np.errstate(over="raise", invalid="raise", divide="raise"):
+        close(wt.tilt(signal, strength=strength), expected, atol=1e-16)
+
+
 def test_an_asset_outside_the_base_stays_out():
     base = series([0.5, 0.5, 0.0])
     with np.errstate(over="raise", invalid="raise", divide="raise"):

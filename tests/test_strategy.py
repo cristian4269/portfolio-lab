@@ -216,6 +216,18 @@ def test_names_say_what_the_strategy_does(make, name):
     assert make().name == name
 
 
+def test_names_keep_every_digit_of_the_parameters():
+    # Names will key results: nearby parameters must not share one.
+    assert sg.momentum_tilt(strength=0.1234567).name == "momentum tilt (strength 0.1234567) on 1/N"
+    assert sg.momentum_tilt(strength=0.1234568).name == "momentum tilt (strength 0.1234568) on 1/N"
+    assert sg.min_variance("sample", cap=0.1234567).name == (
+        "min variance (sample, 252d, cap 0.1234567)"
+    )
+    assert sg.low_volatility_tilt(strength=-1e-7).name == (
+        "low-vol tilt (strength -1e-07, 252d) on 1/N"
+    )
+
+
 # --- Constructor inputs ---
 
 
@@ -239,6 +251,41 @@ def test_the_window_must_be_a_positive_integer(make, window):
     # Checked up front: a tilt's lookback also covers its base, so it can hide a bad window.
     with pytest.raises(ValueError, match="window must be a positive integer"):
         make(window)
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda: sg.min_variance("sample", window=1),
+        lambda: sg.erc("sample", window=1),
+        lambda: sg.low_volatility_tilt(strength=1.0, window=1),
+    ],
+    ids=["min_variance", "erc", "low_volatility_tilt"],
+)
+def test_a_one_day_window_raises_up_front(make):
+    # A covariance or a volatility needs 2 periods; the first rebalance would be too late.
+    with pytest.raises(ValueError, match="window must be at least 2"):
+        make()
+
+
+@pytest.mark.parametrize("cap", [0.0, -0.1, 1.5, float("nan"), float("inf")])
+def test_a_cap_outside_0_1_raises_up_front(cap):
+    with pytest.raises(ValueError, match=r"cap must be in \(0, 1\]"):
+        sg.min_variance("sample", cap=cap)
+
+
+@pytest.mark.parametrize("strength", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize(
+    "make", [sg.momentum_tilt, sg.low_volatility_tilt], ids=["momentum", "low_volatility"]
+)
+def test_a_strength_that_is_not_finite_raises_up_front(make, strength):
+    with pytest.raises(ValueError, match="strength must be finite"):
+        make(strength=strength)
+
+
+def test_the_estimator_registry_is_read_only():
+    with pytest.raises(TypeError):
+        sg.ESTIMATORS["sample"] = cv.ewma_cov  # type: ignore[index]
 
 
 @pytest.mark.parametrize(
