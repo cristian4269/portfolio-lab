@@ -193,7 +193,7 @@ days since the previous trading day (amended 2026-10-02 by the owner; v2 had
 ---
 
 ## Step 3: Covariance + portfolio construction  *(strongest model)*
-Status: **done 2026-10-06, pending PR** (4 sessions; plan `plans/step-3-plan.md`; `construct/covariance.py`, `weights.py`, `strategy.py`; 663 unit tests, 99.8% coverage; python-reviewer and `/code-review` findings fixed)
+Status: **done and merged 2026-10-06** (PR #4, merge commit cf6d45e; 4 sessions; plan `plans/step-3-plan.md`; `construct/covariance.py`, `weights.py`, `strategy.py`; 663 unit tests, 99.8% coverage; python-reviewer and `/code-review` findings fixed)
 
 **Context.** Long-only portfolios over N industry assets, estimated on a
 trailing window (default 252 days), using only data up to the estimation date.
