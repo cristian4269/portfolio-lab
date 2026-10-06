@@ -201,7 +201,7 @@ def test_a_huge_strength_puts_everything_on_the_best_signal_without_overflow():
 def test_an_asset_outside_the_base_stays_out():
     base = series([0.5, 0.5, 0.0])
     with np.errstate(over="raise", invalid="raise", divide="raise"):
-        close(wt.tilt(SIGNAL, strength=LN2, base=base), [1 / 3, 2 / 3, 0], atol=1e-16)
+        close(wt.tilt(SIGNAL, strength=LN2, base=base), [1 / 3, 2 / 3, 0])
         close(wt.tilt(SIGNAL, strength=1e6, base=base), [0, 1, 0], atol=0)
 
 

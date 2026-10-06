@@ -225,6 +225,22 @@ def test_an_unknown_estimator_raises(make):
         make("ledoit")
 
 
+@pytest.mark.parametrize("window", [0, -5, 2.5, True])
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda window: sg.min_variance("sample", window=window),
+        lambda window: sg.erc("sample", window=window),
+        lambda window: sg.low_volatility_tilt(strength=1.0, window=window),
+    ],
+    ids=["min_variance", "erc", "low_volatility_tilt"],
+)
+def test_the_window_must_be_a_positive_integer(make, window):
+    # Checked up front: a tilt's lookback also covers its base, so it can hide a bad window.
+    with pytest.raises(ValueError, match="window must be a positive integer"):
+        make(window)
+
+
 @pytest.mark.parametrize(
     "make",
     [sg.min_variance, sg.erc, sg.momentum_tilt, sg.low_volatility_tilt],

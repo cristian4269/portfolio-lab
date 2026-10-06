@@ -1,7 +1,10 @@
-"""Index checks shared by the views and the metrics: one rule for order and alignment."""
+"""Checks shared across the library: one rule for order, alignment, windows and portfolios."""
 
 import numpy as np
 import pandas as pd
+
+# A portfolio's weights must sum to 1 within this (a rule's own rounding is far smaller).
+_BUDGET = 1e-9
 
 
 def check_order(index: pd.Index, what: str) -> None:
@@ -44,11 +47,7 @@ def window_values(returns: pd.DataFrame, what: str, *, min_rows: int) -> np.ndar
     Every value must be present and finite (an estimator can't guess what a gap means), with
     unique asset names, unique sorted dates and at least `min_rows` rows.
     """
-    if not isinstance(returns, pd.DataFrame):
-        raise TypeError(
-            f"{what} must be a DataFrame (rows = periods, columns = assets), "
-            f"got {type(returns).__name__}"
-        )
+    _check_frame(returns, what)
     if returns.shape[1] == 0:
         raise ValueError(f"{what} have no assets")
     if not returns.columns.is_unique:
@@ -64,3 +63,43 @@ def window_values(returns: pd.DataFrame, what: str, *, min_rows: int) -> np.ndar
     if not np.isfinite(values).all():
         raise ValueError(f"{what} must be finite")
     return values
+
+
+def last_rows(history: pd.DataFrame, what: str, rows: int) -> tuple[pd.DataFrame, np.ndarray]:
+    """The last `rows` rows of a history (the window) and their values, checked.
+
+    The whole history must be in date order (otherwise its last rows are not the latest); only
+    the window must be complete, as in `window_values`. Older rows are never read.
+    """
+    _check_frame(history, what)
+    if len(history) < rows:
+        raise ValueError(f"{what} need at least {rows} periods, got {len(history)}")
+    check_order(history.index, what)
+    window = history.iloc[len(history) - rows :]
+    return window, window_values(window, what, min_rows=rows)
+
+
+def portfolio_values(w: pd.Series, assets: pd.Index, what: str, other: str) -> np.ndarray:
+    """Long-only weights as floats: a Series labeled by exactly `assets` (in their order, like
+    `other`), finite, >= 0 and summing to 1 within _BUDGET."""
+    if not isinstance(w, pd.Series):
+        raise TypeError(f"{what} must be a Series labeled by the assets, got {type(w).__name__}")
+    if not w.index.equals(assets):
+        raise ValueError(f"{what} must have the same assets, in the same order, as {other}")
+    x = as_floats(w, what)
+    if not np.isfinite(x).all():
+        raise ValueError(f"{what} must be finite")
+    if (x < 0).any():
+        asset = assets[int(np.argmax(x < 0))]
+        raise ValueError(f"{what} must be >= 0 (negative weight for {asset})")
+    if abs(x.sum() - 1) > _BUDGET:
+        raise ValueError(f"{what} must sum to 1, got {x.sum():.12g}")
+    return x
+
+
+def _check_frame(returns: pd.DataFrame, what: str) -> None:
+    if not isinstance(returns, pd.DataFrame):
+        raise TypeError(
+            f"{what} must be a DataFrame (rows = periods, columns = assets), "
+            f"got {type(returns).__name__}"
+        )

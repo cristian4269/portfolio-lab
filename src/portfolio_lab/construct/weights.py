@@ -1,4 +1,5 @@
-"""Long-only weight rules (pure functions): equal weight, minimum variance, equal risk contribution.
+"""Long-only weight rules (pure functions): equal weight, minimum variance, equal risk
+contribution, and tilts of a base portfolio toward momentum or low-volatility signals.
 
 Each rule returns weights as a Series labeled by the assets, >= 0 and summing to 1. The two
 covariance rules take a covariance matrix from any estimator; only its shape matters, not its
@@ -25,6 +26,20 @@ self-concordant.) Newton's method for self-concordant functions (Nesterov 2004, 
 runs it: from the best multiple of equal weights, damped steps (Newton step) / (1 + lambda),
 lambda the Newton decrement, while lambda >= 0.95 (3 - sqrt 5) / 2; full steps after.
 
+Signals (one value per asset, higher = more weight under a positive tilt strength):
+- Momentum 12-1: the cumulative return from the close of t - 252 to the close of t - 21, t the
+  last row of the history: rows [-252, -21), 231 returns. The last month is skipped (short-term
+  reversal; Jegadeesh and Titman 1993). Only the last 252 rows are read.
+- Low volatility: minus each asset's volatility over the window (demeaned, divided by T, as
+  `sample_cov`).
+
+Tilt: w_i proportional to b_i exp(strength z_i), with b the base portfolio (default 1/N) and
+z_i = (s_i - mean(s)) / sd(s) the signal's cross-sectional z-score (sd over the N assets,
+divided by N). The z-score makes the tilt ignore the signal's location and scale, so one
+strength means the same for momentum and for low volatility. Strength 0, or signals equal up to
+rounding, return the base; a negative strength tilts away from the signal; an asset outside the
+base stays out. log(w_i / b_i) - strength z_i is the same for every asset held.
+
 Hand examples (percent units, as in the tests):
 - 2 assets, sd 2% and 3%, covariance 1: w1 = (s2^2 - s12) / (s1^2 + s2^2 - 2 s12) = 8/11.
 - Uncorrelated, variances 1, 4, 9: minimum variance is proportional to 1/sigma^2, (36, 9, 4) /
@@ -32,6 +47,9 @@ Hand examples (percent units, as in the tests):
   18/13 for the free ones. ERC is proportional to 1/sigma: (6, 3, 2) / 11.
 - sd 1%, 2%, 4%, correlations 1/2 (a with b and with c) and -1/16 (b with c): ERC weights
   (1/2, 1/3, 1/6), with Sw = (7/6, 7/4, 7/2) and every risk contribution 7/12.
+- Tilt: the signal (1, 2, 3) has z = (-sqrt(3/2), 0, sqrt(3/2)); at strength ln(2) sqrt(2/3),
+  exp(strength z) = (1/2, 1, 2), so 1/N tilts to (1/7, 2/7, 4/7) and the base (1/2, 1/4, 1/4)
+  to (1/4, 1/4, 1/2).
 """
 
 import math
@@ -41,12 +59,25 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
-from portfolio_lab._validate import as_floats
+from portfolio_lab._validate import as_floats, last_rows, portfolio_values, window_values
 
-__all__ = ["equal_risk_contribution", "equal_weight", "min_variance"]
+__all__ = [
+    "MOMENTUM_LOOKBACK",
+    "MOMENTUM_SKIP",
+    "equal_risk_contribution",
+    "equal_weight",
+    "low_volatility",
+    "min_variance",
+    "momentum_12_1",
+    "tilt",
+]
+
+MOMENTUM_LOOKBACK = 252  # momentum 12-1 runs from the close of t - 252 trading days...
+MOMENTUM_SKIP = 21  # ...to the close of t - 21: the most recent month is skipped
 
 # Rounding: N caps may fall short of 1 by this much (49 * (1/49) < 1); polished weights may miss
-# their bounds and their sum by this much; cov and cov' may differ by this much (relative).
+# their bounds and their sum by this much; cov and cov' may differ by this much (relative); a
+# signal whose standard deviation is this small relative to its values is constant.
 _ROUNDING = 1e-12
 # A correlation matrix whose smallest eigenvalue is below this fraction of its largest is
 # singular for our purposes: the weights would be dominated by rounding.
@@ -118,6 +149,42 @@ def equal_risk_contribution(cov: pd.DataFrame) -> pd.Series:
     return pd.Series(w / w.sum(), index=cov.index)
 
 
+def momentum_12_1(returns: pd.DataFrame) -> pd.Series:
+    """Cumulative return from the close of t - 252 to the close of t - 21 (rows [-252, -21))."""
+    _, r = last_rows(returns, "returns", MOMENTUM_LOOKBACK)
+    if (r < -1).any():
+        row, col = (int(k) for k in np.argwhere(r < -1)[0])
+        day = returns.index[len(returns) - MOMENTUM_LOOKBACK + row]
+        raise ValueError(f"returns can't be below -100% ({returns.columns[col]} on {day})")
+    return pd.Series(np.prod(1 + r[:-MOMENTUM_SKIP], axis=0) - 1, index=returns.columns)
+
+
+def low_volatility(returns: pd.DataFrame) -> pd.Series:
+    """Minus each asset's volatility over the window (demeaned, divided by T)."""
+    r = window_values(returns, "returns", min_rows=2)
+    return pd.Series(-r.std(axis=0), index=returns.columns)
+
+
+def tilt(signal: pd.Series, *, strength: float, base: pd.Series | None = None) -> pd.Series:
+    """Weights proportional to base_i * exp(strength * z_i), z the signal's z-score across assets.
+
+    `base` defaults to equal weight; it must be a long-only portfolio over the signal's assets.
+    """
+    s = _signal(signal)
+    if not math.isfinite(strength):
+        raise ValueError(f"strength must be finite, got {strength}")
+    if base is None:
+        b = np.full(len(s), 1 / len(s))
+    else:
+        b = portfolio_values(base, signal.index, "base", "the signal")
+    exponent = strength * _zscore(s)
+    held = b > 0
+    # Shifted so the largest exponent among the assets held is 0: no overflow at any strength.
+    w = np.zeros(len(b))
+    w[held] = b[held] * np.exp(exponent[held] - exponent[held].max())
+    return pd.Series(w / w.sum(), index=signal.index)
+
+
 def _objective(w: np.ndarray, a: np.ndarray) -> float:
     return 0.5 * float(w @ a @ w)
 
@@ -151,6 +218,31 @@ def _polish(a: np.ndarray, w: np.ndarray, cap: float) -> np.ndarray:
         return np.clip(x, 0.0, cap)
     w = np.clip(w, 0.0, cap)
     return w / w.sum()
+
+
+def _signal(signal: pd.Series) -> np.ndarray:
+    """The signal as floats: a Series with one finite value per (unique) asset."""
+    if not isinstance(signal, pd.Series):
+        raise TypeError(
+            f"signal must be a Series labeled by the assets, got {type(signal).__name__}"
+        )
+    if len(signal) == 0:
+        raise ValueError("signal has no assets")
+    if not signal.index.is_unique:
+        raise ValueError("signal needs unique asset names")
+    s = as_floats(signal, "signal")
+    if not np.isfinite(s).all():
+        raise ValueError("signal must be finite")
+    return s
+
+
+def _zscore(s: np.ndarray) -> np.ndarray:
+    """(s - mean) / sd across assets, sd divided by N; zeros when the values are equal up to
+    rounding (an sd that small relative to the values is float noise, not information)."""
+    sd = s.std()
+    if sd <= _ROUNDING * np.abs(s).max():
+        return np.zeros(len(s))
+    return (s - s.mean()) / sd
 
 
 def _covariance(cov: pd.DataFrame) -> np.ndarray:
