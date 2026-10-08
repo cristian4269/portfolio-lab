@@ -2,6 +2,72 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-08: step 4, session 3 of 4 (dev data: timing and sanity checks)
+
+- The 12 strategies of Step 3's timing check go through `compare` on the dev views:
+  - 1/N
+  - minimum variance and ERC, each with the sample, LW identity, LW constant-correlation and
+    EWMA estimators (252 d)
+  - momentum and low-vol tilts (strength 1) on 1/N
+  - momentum tilt on a 126-day LW-identity minimum variance
+- The views are built from `load_*` and `make_views`, with assets from 1963-07-01. Asset and
+  FF5 days match exactly: 11,959 days, no gaps.
+  - USD: 558 trades, first 1964-07-01, last day 2010-12-31. Every strategy has the same first
+    trade.
+  - CAD: 468 trades from 1972-01-03.
+  - Per decision 6, no strategy-vs-strategy performance table; the comparison waits for 7a's
+    PLAN.md.
+- **Exit met: under 30 s per view.**
+  - USD 16.6-20.6 s and CAD 13.6-19.8 s over four runs each; this machine's timings vary
+    with load.
+  - Estimation dominates: `targets` for minimum variance and LW constant-correlation ERC
+    takes 3-6 s each.
+  - `simulate` takes 0.1-0.5 s per strategy.
+  - Both views together take about 35 s, so a combined budget would need the SLSQP warm start
+    (kept for 7a).
+- Sanity checks, all passing:
+  - **Monthly 1/N vs Step 2's daily-rebalanced 1/N** (same days):
+
+    | | USD gross | USD net | USD daily | CAD gross | CAD net | CAD daily |
+    |---|---|---|---|---|---|---|
+    | CAGR | 10.58% | 10.56% | 10.49% | 11.03% | 11.01% | 10.95% |
+    | Sharpe | 0.391 | 0.390 | 0.386 | 0.310 | 0.309 | 0.305 |
+
+    The tracking error between monthly gross and daily is 0.17-0.18% a year.
+  - **Costs:**
+    - net ≤ gross on every day.
+    - Net differs from gross on every trade day with nonzero turnover.
+    - Minimum variance (sample, USD) had 53 of 557 trades with zero turnover: months held at
+      100% in one asset, consistent with Step 3's Utilities finding.
+    - The CAGR drag is about 1.1 x annual cost (cost x (1 + R), compounded).
+  - **Turnover per month** (one-way, USD; CAD within 10%):
+
+    | Strategy | Turnover / month | Turnover / year |
+    |---|---|---|
+    | 1/N | 1.1% | 0.13x |
+    | ERC (sample, LW identity, LW constant correlation) | 1.5% | |
+    | low-vol tilt | 3.2% | |
+    | minimum variance (sample, LW identity, LW constant correlation) | 5.3-5.6% | 0.6-0.7x |
+    | ERC (EWMA) | 6.4% | |
+    | momentum tilt | 14-15% | 1.7-1.9x |
+    | minimum variance (EWMA) | **28.7%** | 3.4x |
+
+    For 7a: EWMA minimum variance costs 0.34% a year at 5 bp and about 1.4% at 20 bp.
+  - **Traded weights** equal `strategy.weights(history through t)` exactly at the first,
+    middle and last trade of every strategy in both views.
+  - **Real-data reference loop** (USD, 11,706 days): the plain daily loop matches the engine to
+    2.7e-16 per day, and wealth agrees to 8e-15, for 1/N and minimum variance.
+  - **Real-data perturbation:** USD returns after 1990-06-15 were scaled by -1.3. The 312
+    targets and every net return through the cut are identical, and later targets change.
+  - **The CAD view estimates on CAD returns:** the CAD target equals `weights(CAD history)`, and
+    it differs from the USD target on the same day by up to 0.061.
+  - `summary(benchmark=market)` gives tracking error and IR. Final weights sum to 1 within
+    2e-16.
+- Mutation runs: 31 planted bugs over sessions 1-2, all caught (see those entries). The plan's
+  "charge the cost before the return" is an equivalent mutant: a cost taken as a fraction of
+  NAV multiplies the same either way. Trading at the open of t + 1 (the trade day earned by the
+  new weights) was planted and caught.
+
 ## 2026-10-08: step 4, session 2 of 4 (strategies in the loop, guard, benchmarks)
 
 - `backtest/engine.py` adds the following.

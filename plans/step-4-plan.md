@@ -163,6 +163,9 @@ benchmarks and the guard.
 - Mutation run on the engine: shift t by one row, earn τ with the new weights, drop the drift,
   charge the cost before the return, use `≤ t + 1` in the history slice, and so on.
 - NOTES.md entry.
+- As built (2026-10-08, see NOTES.md): the exit is met, USD 16.6-20.6 s and CAD 13.6-19.8 s.
+  Every sanity check passes, including the real-data loop and perturbation. The mutation runs
+  were done in sessions 1-2. EWMA minimum variance turns over 29% a month (for 7a).
 
 **Session 4 (extra effort): review and merge.**
 - python-reviewer → `/code-review` → verification-loop, then fix the findings.
