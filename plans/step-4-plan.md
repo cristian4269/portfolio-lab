@@ -119,6 +119,12 @@ Branch `step-4-backtest`.
     the jump; trading at t would capture it.
   - Hypothesis: the plain loop and the vectorized engine agree on random returns and targets
 - RED and GREEN commits.
+- As built (2026-10-08, see NOTES.md):
+  - `rebalance_dates` returns a Series from estimation date to trade date.
+  - `simulate` returns a `Ledger`, and net = gross − c(1 + gross), so zero cost gives gross
+    exactly.
+  - A portfolio worth 0 raises.
+  - The mutation run caught all 15 planted bugs.
 
 **Session 2 (max effort): strategies in the loop.** `targets`, `run`, `Result`, `compare`,
 benchmarks and the guard.

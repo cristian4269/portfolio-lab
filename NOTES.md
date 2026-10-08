@@ -2,6 +2,46 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-08: step 4, session 1 of 4 (plan, calendar, accounting)
+
+- Plan `plans/step-4-plan.md` approved as drafted. The six owner decisions:
+  - `run` takes a step-2 `View`, monthly only.
+  - The backtest starts invested, with no opening cost.
+  - Start dates fail closed, and `compare` gives every strategy one common start.
+  - The market benchmark is Mkt-RF + RF as an index.
+  - Estimation (`targets`) is split from accounting (`simulate`); no SLSQP warm start.
+  - Step 4 uses dev performance only for sanity checks.
+- `backtest/engine.py`:
+  - `rebalance_dates(days, *, start=None)` returns a Series from estimation date t (index
+    "estimated") to trade date (the next day). The last day never estimates.
+  - `simulate(targets, returns, *, cost_bps)` returns a `Ledger`: `gross`, `net`, `weights`,
+    `turnover`, `cost` and `final_weights`.
+  - Each holding period is priced from `w * cumprod(1 + r)`, and the daily return is
+    holdings at the previous close times r, over their sum. A target summing to 1 ± 1e-9 is
+    held as is.
+  - Net is computed as `gross - c (1 + gross)`, the blueprint's (1 + R)(1 - c) - 1 rearranged
+    so that zero cost gives gross exactly. Written as (1 + R)(1 - c) - 1, a 0.1 return came
+    back as 0.10000000000000009.
+  - Returns up to and including the first trade day are never read (the tests put NaN there).
+  - A portfolio worth 0 raises; a single asset may lose 100%.
+- `_validate.check_frame` is now shared (it was `_check_frame`).
+- Tests:
+  - Hand examples in exact fractions: the 3-day drift, turnover from drifted weights, t+1
+    execution.
+  - Zero cost = gross exactly; cost linear in bps.
+  - A plain daily loop agrees to 1e-12 on random cases, with NaN before the first trade.
+  - Buy and hold = sum w prod(1 + r).
+  - RED `1763660` (fails at import), GREEN `d0d33c1`. 713 passed, 99.84% coverage; ruff, format,
+    mypy clean.
+- Mutation run (15 planted bugs, all caught): drift from end-of-day holdings, cost not scaled by
+  1 + R, cost a day early, no drift, turnover not halved, trade date = estimation date, strict
+  start, -100% rejected, wipeout missed, bps / 1e3, the new weights earning the trade day, final
+  weights not drifted, net inexact at zero cost, month boundary shifted, first trade day's
+  return read.
+- Gotcha: `Path.write_text` on Windows writes CRLF. A script that rewrites a source file must
+  restore it with `newline="\n"` (or `write_bytes`); otherwise git shows a whitespace-only change
+  (`.gitattributes` is `eol=lf`).
+
 ## 2026-10-06: step 3, session 4 of 4 (review)
 
 - python-reviewer: no critical or high findings. It re-derived the Ledoit-Wolf algebra, the ERC
