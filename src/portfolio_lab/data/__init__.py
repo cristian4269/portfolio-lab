@@ -28,6 +28,7 @@ __all__ = [
     "load_fx",
     "load_rates",
     "point_in_time_daily",
+    "resolve_end",
 ]
 
 type End = str | pd.Timestamp | None
@@ -37,7 +38,11 @@ class HoldoutError(ValueError):
     """Raised when data after DEV_END is requested without allow_holdout."""
 
 
-def _resolve_end(end: End, allow_holdout: bool) -> pd.Timestamp | None:
+def resolve_end(end: End, allow_holdout: bool) -> pd.Timestamp | None:
+    """The last date to keep (None = all), by the one holdout rule (the engine uses it too).
+
+    Only a real date <= DEV_END passes without `allow_holdout`; with it, any date or None.
+    """
     end_ts = None if end is None else pd.Timestamp(end)
     if end_ts is not None and pd.isna(end_ts):
         # "", "NaT" and NaN all become NaT, and `.loc[:NaT]` would return everything.
@@ -61,7 +66,7 @@ def load_assets(
     universe: int = 12, *, end: End = DEV_END, allow_holdout: bool = False, refresh: bool = False
 ) -> pd.DataFrame:
     """Daily value-weighted returns of the 12 (or 49) French industry portfolios."""
-    end_ts = _resolve_end(end, allow_holdout)
+    end_ts = resolve_end(end, allow_holdout)
     return _truncate(french.industry_returns(universe, refresh=refresh), end_ts)
 
 
@@ -69,13 +74,13 @@ def load_factors(
     *, end: End = DEV_END, allow_holdout: bool = False, refresh: bool = False
 ) -> pd.DataFrame:
     """Daily FF5 + momentum factor returns and the US risk-free rate RF."""
-    end_ts = _resolve_end(end, allow_holdout)
+    end_ts = resolve_end(end, allow_holdout)
     return _truncate(french.factors(refresh=refresh), end_ts)
 
 
 def load_fx(*, end: End = DEV_END, allow_holdout: bool = False, refresh: bool = False) -> pd.Series:
     """Daily USD/CAD, CAD per 1 USD (noon New York; NaN on US holidays)."""
-    end_ts = _resolve_end(end, allow_holdout)
+    end_ts = resolve_end(end, allow_holdout)
     return _truncate(fred.usdcad(refresh=refresh), end_ts)
 
 
@@ -88,7 +93,7 @@ def load_rates(
     calendar the business day after they are observed. CA_GOVT_10Y is the daily
     Valet benchmark close, on its own day, NaN before 2001.
     """
-    end_ts = _resolve_end(end, allow_holdout)
+    end_ts = resolve_end(end, allow_holdout)
     monthly = {
         "CA_TBILL_3M": statcan.fetch_vector("v122531", refresh=refresh),
         "CA_GOVT_LONG": statcan.fetch_vector("v122487", refresh=refresh),

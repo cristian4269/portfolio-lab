@@ -345,6 +345,12 @@ def test_a_benchmark_missing_a_day_raises():
         r.summary(benchmark=pd.Series(0.0, index=HAND_INDEX.delete(5)))
 
 
+def test_a_benchmark_must_be_a_series():
+    frame = pd.DataFrame({"Market": 0.0}, index=HAND_INDEX)
+    with pytest.raises(TypeError, match="Series"):
+        hand_result().summary(benchmark=frame)
+
+
 def test_without_a_second_trade_turnover_per_rebalance_is_nan_and_the_annual_rows_zero():
     r = hand_result(turnover=(), cost=())
     table = r.summary()
