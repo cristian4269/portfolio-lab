@@ -49,7 +49,7 @@ def window_values(returns: pd.DataFrame, what: str, *, min_rows: int) -> np.ndar
     Every value must be present and finite (an estimator can't guess what a gap means), with
     unique asset names, unique sorted dates and at least `min_rows` rows.
     """
-    _check_frame(returns, what)
+    check_frame(returns, what)
     if returns.shape[1] == 0:
         raise ValueError(f"{what} have no assets")
     if not returns.columns.is_unique:
@@ -73,7 +73,7 @@ def last_rows(history: pd.DataFrame, what: str, rows: int) -> tuple[pd.DataFrame
     The whole history must be in date order (otherwise its last rows are not the latest); only
     the window must be complete, as in `window_values`. Older rows are never read.
     """
-    _check_frame(history, what)
+    check_frame(history, what)
     if len(history) < rows:
         raise ValueError(f"{what} need at least {rows} periods, got {len(history)}")
     check_order(history.index, what)
@@ -110,7 +110,7 @@ def check_finite(x: float, what: str) -> None:
         raise ValueError(f"{what} must be finite, got {x}")
 
 
-def _check_frame(returns: pd.DataFrame, what: str) -> None:
+def check_frame(returns: pd.DataFrame, what: str) -> None:
     if not isinstance(returns, pd.DataFrame):
         raise TypeError(
             f"{what} must be a DataFrame (rows = periods, columns = assets), "
