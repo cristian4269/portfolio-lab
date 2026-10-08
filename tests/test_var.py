@@ -20,6 +20,10 @@ Z95 = -1.6448536269514722  # Phi^-1(0.05)
 
 samples = st.lists(st.floats(-0.5, 0.5, allow_nan=False), min_size=1, max_size=80)
 levels = st.floats(0.51, 0.999)
+# Far from subnormals, where halving a number drops bits (returns are never 1e-300).
+normal_samples = st.lists(
+    st.floats(-0.5, 0.5).filter(lambda f: f == 0 or abs(f) > 1e-300), min_size=1, max_size=80
+)
 
 
 def phi(z):
@@ -103,14 +107,21 @@ def test_historical_tail_survives_values_one_ulp_apart():
         assert risk.es >= -b
 
 
+def test_historical_es_never_rounds_below_var():
+    # The sum of 7 copies divided by 7 lands 1 ulp above the value itself.
+    c = 0.045899312196799685
+    assert sum([c] * 7) / 7 > c
+    risk = v.var_es([c] * 7, 0.95)
+    assert risk.es == risk.var == -c
+
+
 @given(samples, levels)
 def test_historical_es_at_least_var_and_at_most_the_worst_loss(x, level):
     risk = v.var_es(x, level)
     worst = -min(x)
-    tol = 1e-15 * max(1.0, abs(worst))
-    assert risk.es >= risk.var - tol
-    assert risk.es <= worst + tol
-    assert risk.var <= worst + tol
+    assert risk.es >= risk.var  # exactly
+    assert risk.var <= worst  # exactly: interpolation stays between neighbours
+    assert risk.es <= worst + 1e-15 * max(1.0, abs(worst))  # a mean can round past its min
 
 
 @given(samples)
@@ -120,7 +131,7 @@ def test_historical_higher_level_never_lowers_var_or_es(x):
     assert high.es >= low.es - 1e-15
 
 
-@given(samples, levels, st.integers(-8, 8))
+@given(normal_samples, levels, st.integers(-8, 8))
 def test_historical_power_of_two_scale_is_exact(x, level, k):
     # FHS rests on VaR(c x) = c VaR(x) for c > 0; a power of 2 makes it exact in floats.
     c = 2.0**k
@@ -349,7 +360,7 @@ def test_ewma_vol_is_causal(seed, k, shock):
     bumped.iloc[k] += shock
     moved = v.ewma_vol(bumped, seed_var=1e-4)
     assert moved.iloc[: k + 1].equals(base.iloc[: k + 1])
-    if k + 1 < 40 and shock != 0:
+    if k + 1 < 40 and abs(shock) > 1e-6:  # a 1e-300 shock leaves r(k) unchanged in floats
         assert moved.iloc[k + 1] != base.iloc[k + 1]
 
 
@@ -391,6 +402,8 @@ def test_ewma_vol_rejects_bad_returns():
         v.ewma_vol(good.to_frame(), seed_var=1e-4)
     with pytest.raises(ValueError, match="at least 1"):
         v.ewma_vol(good.iloc[:0], seed_var=1e-4)
+    with pytest.raises(ValueError, match="-100%"):
+        v.ewma_vol(good.where(good != 0.02, -1.5), seed_var=1e-4)
 
 
 # --- horizon scaling --------------------------------------------------------------------------
