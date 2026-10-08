@@ -212,7 +212,7 @@ trailing window (default 252 days), using only data up to the estimation date.
 ---
 
 ## Step 4: Walk-forward backtest engine  *(strongest model)*
-Status: **done 2026-10-08, pending PR** (4 sessions; plan `plans/step-4-plan.md`; `backtest/engine.py`, `benchmarks.py`; 790 unit tests, 99.85% coverage; exit met: 12 strategies in 13.6-20.6 s per view; python-reviewer and `/code-review` findings fixed)
+Status: **done and merged 2026-10-08** (PR #5, merge commit ad76e79; 4 sessions; plan `plans/step-4-plan.md`; `backtest/engine.py`, `benchmarks.py`; 790 unit tests, 99.85% coverage; exit met: 12 strategies in 13.6-20.6 s per view; python-reviewer and `/code-review` findings fixed)
 
 **Context.** Monthly rebalance on daily data. At the last trading day t of
 each month: estimate on the window ending at close t, trade at close t+1, then
