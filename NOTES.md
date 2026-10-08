@@ -2,6 +2,58 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-08: step 4, session 2 of 4 (strategies in the loop, guard, benchmarks)
+
+- `backtest/engine.py` adds the following.
+  - `targets(strategy, returns, *, start=None)`: at each estimation date t, the strategy gets
+    `returns.iloc[: pos(t) + 1]`, every row through t and none after. The result is indexed by
+    trade date ("traded").
+    - Without `start`, the first t is the first month end with `lookback` rows. A `start` that
+      would estimate earlier raises, naming the earliest date. Nothing is estimated before the
+      check.
+    - Rows are aligned by asset label, so a duck-typed strategy with wrong labels is caught by
+      `simulate`.
+  - `run(strategy, view, *, start, end=DEV_END, allow_holdout=False, cost_bps=5.0)`:
+    - It checks `cost_bps` first, then drops rows after `end` by the loaders' rule.
+      `data._resolve_end` is now the public `data.resolve_end`, one function for the holdout.
+    - A non-`View` raises TypeError (the blueprint's old `returns` + `view="usd"` form).
+  - `compare(strategies, view, ...)`: one common first rebalance, the first month end where
+    the longest lookback is met (on the truncated view), and results keyed by name. It needs
+    at least one strategy, with unique names.
+  - `Result(Ledger)`: adds `name` and `rf`, the view's risk-free rate on the same days (checked
+    aligned). `summary(benchmark=None)` gives:
+    - `metrics.summary` of gross and net, one column each, daily (252)
+    - `mean_turnover` per rebalance (NaN without a second trade), `annual_turnover` and
+      `annual_cost` (sums per 252 days). These describe the trades, so both columns show them.
+    - With a benchmark (cut to the result's days, which it must cover), tracking error and IR.
+- `backtest/benchmarks.py`:
+  - `market(factors)` = Mkt-RF + RF, named "Market".
+  - `market_views(factors, usdcad, ca_tbill)` runs `make_views` on the one-column market
+    frame, so the CAD and hedged markets use exactly the assets' conversion and calendar.
+- No look-ahead, tested four ways:
+  - A spy strategy sees every history end at its estimation date, with the trade the next row.
+  - Hypothesis perturbation: new returns after day k change no target estimated by k and no
+    gross, net or turnover through k. Run on a rule that reads its whole window (100 examples)
+    and on minimum variance (25).
+  - A +90% shock on every trade day leaves every target unchanged.
+- Guard tests:
+  - DEV_END is the last day by default, and the last estimate is 2010-11-30.
+  - `end` past DEV_END, or `end=None`, raises `HoldoutError` before anything is estimated.
+  - `allow_holdout` opens the later rows.
+  - An earlier `end` truncates returns and rf.
+- RED `a0397d6` (collection fails: no `Result`, `benchmarks`), GREEN `ffa1d01`. 752 passed,
+  99.85% coverage, the backtest package 100%; ruff, format, mypy clean.
+- Mutation run (16 planted bugs, all caught):
+  - history through t + 1 (look-ahead), history to t - 1, lookback off by one
+  - too-early start allowed, end day dropped, end ignored, holdout check bypassed
+  - compare: shortest lookback, cost ignored, end ignored
+  - start=None not lookback-aware, annualized by 365
+  - benchmark ignored, benchmark gap not named, market without RF, cost checked late
+- The full suite with coverage took 122-158 s on this machine (55 s once in session 1); the
+  engine's three test files take about 25 s.
+- For 7b's cost grid: `simulate(result.weights, returns, cost_bps=...)` re-prices the same
+  targets, given the same truncated returns, without estimating again.
+
 ## 2026-10-08: step 4, session 1 of 4 (plan, calendar, accounting)
 
 - Plan `plans/step-4-plan.md` approved as drafted. The six owner decisions:

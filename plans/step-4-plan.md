@@ -145,6 +145,11 @@ benchmarks and the guard.
   - market = Mkt-RF + RF, by hand
   - the CAD market equals `to_cad_unhedged` of the USD market
 - `summary` rows by hand on a short series.
+- As built (2026-10-08, see NOTES.md):
+  - `data.resolve_end` is public; `Result` subclasses `Ledger`.
+  - `summary`'s trade rows are the same in both columns.
+  - Look-ahead is also tested with a +90% shock on every trade day.
+  - The mutation run caught all 16 planted bugs.
 
 **Session 3 (extra effort): dev data, timing, sanity.**
 - The 12 strategies of Step 3's timing check on the USD view (1963-07 on) and the CAD view
