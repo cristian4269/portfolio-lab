@@ -1,5 +1,6 @@
 """Checks shared across the library: one rule for order, alignment, windows and portfolios."""
 
+import datetime as dt
 import math
 
 import numpy as np
@@ -15,6 +16,23 @@ def check_order(index: pd.Index, what: str) -> None:
         raise ValueError(f"{what} must be sorted by date")
     if not index.is_unique:
         raise ValueError(f"{what} must have unique dates")
+
+
+def as_date(value: object, what: str) -> pd.Timestamp:
+    """A calendar date given as a str, a date or datetime, or a numpy datetime64.
+
+    Raises unless it parses to a real, tz-naive timestamp. "", "NaT" and NaN would become NaT
+    (and `.loc[:NaT]` keeps everything); numbers are refused because pandas reads them as
+    nanoseconds since 1970; a time zone can't compare with a calendar of dates.
+    """
+    if not isinstance(value, str | dt.date | np.datetime64):
+        raise ValueError(f"{what}={value!r} is not a date")
+    ts = pd.Timestamp(value)
+    if pd.isna(ts):
+        raise ValueError(f"{what}={value!r} is not a date")
+    if ts.tz is not None:
+        raise ValueError(f"{what}={value!r} is not a date: it has a time zone")
+    return ts
 
 
 def check_dates(index: pd.Index, what: str) -> pd.DatetimeIndex:

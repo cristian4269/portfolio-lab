@@ -23,10 +23,14 @@ Strategies (`targets`, `run`, `compare`): at each estimation date the strategy g
 of returns up to and including t, never a later one. Its first rebalance waits for `lookback`
 rows; a `start` that would estimate earlier raises instead of moving. `run` backtests one
 strategy on one currency view, so a CAD view estimates on CAD returns; rows after `end` are
-dropped first by the loaders' holdout rule. `compare` starts every strategy on one date.
+dropped first by the loaders' holdout rule. `compare` starts every strategy on one date, and
+`reprice` prices a result's targets at another cost without estimating again.
+
+`run`, `compare` and `reprice` apply the holdout rule. `rebalance_dates`, `simulate` and
+`targets` are pure functions of the frames they are given, like `data.views`: their inputs
+must already come from the guarded loaders.
 """
 
-import math
 from collections.abc import Iterable
 from dataclasses import dataclass, fields
 
@@ -34,8 +38,10 @@ import numpy as np
 import pandas as pd
 
 from portfolio_lab._validate import (
+    as_date,
     check_aligned,
     check_dates,
+    check_finite,
     check_frame,
     portfolio_values,
     window_values,
@@ -51,12 +57,16 @@ __all__ = [
     "Result",
     "compare",
     "rebalance_dates",
+    "reprice",
     "run",
     "simulate",
     "targets",
 ]
 
 type Date = str | pd.Timestamp | None
+
+# A full switch trades 2 units (sell 1, buy 1): at 5000 bp the cost would be the whole NAV.
+_MAX_COST_BPS = 5000
 
 
 @dataclass(frozen=True, eq=False)  # pandas fields: no value equality or hashing
@@ -86,15 +96,18 @@ class Result(Ledger):
     rf: pd.Series
 
     def __post_init__(self) -> None:
+        check_aligned(self.net, self.gross, "gross and net dates")
         check_aligned(self.net, self.rf, "rf and returns dates")
+        check_aligned(self.turnover, self.cost, "turnover and cost trade dates")
 
     def summary(self, benchmark: pd.Series | None = None) -> pd.DataFrame:
         """The step-2 metrics of the daily gross and net returns, one column each, plus the trades.
 
-        Trade rows (the same in both columns, since they describe the trades): `mean_turnover`
-        per rebalance after the first (NaN if none), `annual_turnover` and `annual_cost` (sums
-        per 252 days). A benchmark adds tracking error and information ratio; it may cover more
-        days than the result but must cover all of them.
+        Trade rows: `mean_turnover` per rebalance after the first (NaN if none) and
+        `annual_turnover` (per 252 days) are the same in both columns, since both follow the
+        same trades; `annual_cost` is 0 for gross, which pays none by definition. A benchmark
+        adds tracking error and information ratio; it may cover more days than the result but
+        must cover all of them.
         """
         days = check_dates(self.net.index, "returns")
         bench = None if benchmark is None else _on_days(benchmark, days)
@@ -105,7 +118,7 @@ class Result(Ledger):
         years = len(days) / metrics.TRADING_DAYS
         table.loc["mean_turnover"] = self.turnover.mean()
         table.loc["annual_turnover"] = self.turnover.sum() / years
-        table.loc["annual_cost"] = self.cost.sum() / years
+        table.loc["annual_cost"] = [0.0, self.cost.sum() / years]  # gross, net
         return table
 
 
@@ -119,10 +132,7 @@ def rebalance_dates(days: pd.Index, *, start: Date = None) -> pd.Series:
     months = d.to_period("M")
     last = np.flatnonzero(months[1:] != months[:-1])  # positions whose next day is a new month
     if start is not None:
-        start_ts = pd.Timestamp(start)
-        if pd.isna(start_ts):
-            raise ValueError(f"start={start!r} is not a date")
-        last = last[d[last] >= start_ts]
+        last = last[d[last] >= as_date(start, "start")]
     estimated = d[last].rename("estimated")
     return pd.Series(d[last + 1].to_numpy(), index=estimated, name="traded")
 
@@ -212,19 +222,13 @@ def targets(strategy: Strategy, returns: pd.DataFrame, *, start: Date = None) ->
     """
     check_frame(returns, "returns")
     days = check_dates(returns.index, "returns")
-    earliest = _earliest(days, strategy.lookback)
-    schedule = rebalance_dates(days, start=earliest if start is None else start)
-    if schedule.empty:
-        raise ValueError(f"no month end on or after start={start!r} has a day after it to trade")
-    if schedule.index[0] < earliest:
-        raise ValueError(
-            f"{strategy.name!r} needs {strategy.lookback} days of history: its first rebalance "
-            f"can be {earliest.date()}, not {schedule.index[0].date()} (start={start!r})"
-        )
+    schedule = _schedule(days, strategy.lookback, start, strategy.name)
     pos = days.get_indexer(schedule.index)
     rows = [strategy.weights(returns.iloc[: p + 1]) for p in pos]
-    # Rows are aligned by asset label: `simulate` rejects any that don't match the returns.
-    return pd.DataFrame(rows, index=pd.DatetimeIndex(schedule.to_numpy(), name="traded"))
+    # Put in the returns' column order by asset label: a missing asset becomes NaN and an
+    # unknown one is dropped, so `simulate` rejects either (not finite, or not summing to 1).
+    traded = pd.DatetimeIndex(schedule.to_numpy(), name="traded")
+    return pd.DataFrame(rows, index=traded, columns=returns.columns)
 
 
 def run(
@@ -245,8 +249,28 @@ def run(
     _cost_rate(cost_bps)  # fail before estimating
     returns, rf = _until(view, end, allow_holdout)
     ledger = simulate(targets(strategy, returns, start=start), returns, cost_bps=cost_bps)
-    parts = {f.name: getattr(ledger, f.name) for f in fields(Ledger)}
-    return Result(**parts, name=strategy.name, rf=rf.loc[ledger.net.index])
+    return _result(ledger, strategy.name, rf)
+
+
+def reprice(result: Result, view: View, *, cost_bps: float, allow_holdout: bool = False) -> Result:
+    """`result`'s targets at another cost, without estimating again (Step 7b's cost grid).
+
+    `view` must be the one the result was run on. Its rows are cut at the result's last day by
+    the holdout rule (a result that ends past DEV_END needs `allow_holdout` again), and it must
+    still hold every day of the result.
+    """
+    if not isinstance(result, Result):
+        raise TypeError(f"result must be a Result from run or compare, got {type(result).__name__}")
+    _cost_rate(cost_bps)
+    days = result.net.index
+    returns, rf = _until(view, days[-1], allow_holdout)
+    ledger = simulate(result.weights, returns, cost_bps=cost_bps)
+    if not ledger.net.index.equals(days):
+        raise ValueError(
+            f"the view does not hold the days {result.name!r} was run on "
+            f"({days[0].date()} to {days[-1].date()}): pass the view it was run on"
+        )
+    return _result(ledger, result.name, rf)
 
 
 def compare(
@@ -271,14 +295,37 @@ def compare(
     repeated = sorted({name for name in names if names.count(name) > 1})
     if repeated:
         raise ValueError(f"strategy names must be unique (results are keyed by name): {repeated}")
-    if start is None:
-        returns, _ = _until(view, end, allow_holdout)
-        days = check_dates(returns.index, "returns")
-        start = _earliest(days, max(s.lookback for s in group))
+    # Check the start against the longest lookback before estimating anything.
+    returns, _ = _until(view, end, allow_holdout)
+    days = check_dates(returns.index, "returns")
+    longest = max(group, key=lambda s: s.lookback)
+    start = _schedule(days, longest.lookback, start, longest.name).index[0]
     return {
         s.name: run(s, view, start=start, end=end, allow_holdout=allow_holdout, cost_bps=cost_bps)
         for s in group
     }
+
+
+def _result(ledger: Ledger, name: str, rf: pd.Series) -> Result:
+    parts = {f.name: getattr(ledger, f.name) for f in fields(Ledger)}
+    return Result(**parts, name=name, rf=rf.loc[ledger.net.index])
+
+
+def _schedule(days: pd.DatetimeIndex, lookback: int, start: Date, name: str) -> pd.Series:
+    """The rebalance dates from `start`, by default the first month end with `lookback` rows.
+
+    Raises if `start` would estimate on fewer rows, or leaves no month end to trade after.
+    """
+    earliest = _earliest(days, lookback)
+    schedule = rebalance_dates(days, start=earliest if start is None else start)
+    if schedule.empty:
+        raise ValueError(f"no month end on or after start={start!r} has a day after it to trade")
+    if schedule.index[0] < earliest:
+        raise ValueError(
+            f"{name!r} needs {lookback} days of history: its first rebalance can be "
+            f"{earliest.date()}, not {schedule.index[0].date()} (start={start!r})"
+        )
+    return schedule
 
 
 def _earliest(days: pd.DatetimeIndex, lookback: int) -> pd.Timestamp:
@@ -318,7 +365,11 @@ def _on_days(benchmark: pd.Series, days: pd.DatetimeIndex) -> pd.Series:
 
 
 def _cost_rate(cost_bps: float) -> float:
-    """The cost per unit traded, from basis points; must be finite and >= 0."""
-    if not (math.isfinite(cost_bps) and cost_bps >= 0):
-        raise ValueError(f"cost_bps must be finite and >= 0, got {cost_bps}")
+    """The cost per unit traded, from basis points in [0, 5000)."""
+    check_finite(cost_bps, "cost_bps")
+    if not 0 <= cost_bps < _MAX_COST_BPS:
+        raise ValueError(
+            f"cost_bps must be in [0, {_MAX_COST_BPS}), got {cost_bps}: a full switch trades 2 "
+            "units, so 5000 bp would cost the whole NAV"
+        )
     return cost_bps / 1e4

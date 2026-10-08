@@ -18,6 +18,7 @@ daily rates in step 2).
 
 import pandas as pd
 
+from portfolio_lab._validate import as_date
 from portfolio_lab.config import DEV_END
 from portfolio_lab.data import boc, fred, french, statcan
 
@@ -42,11 +43,9 @@ def resolve_end(end: End, allow_holdout: bool) -> pd.Timestamp | None:
     """The last date to keep (None = all), by the one holdout rule (the engine uses it too).
 
     Only a real date <= DEV_END passes without `allow_holdout`; with it, any date or None.
+    Anything else that is not a tz-naive date raises (`as_date`).
     """
-    end_ts = None if end is None else pd.Timestamp(end)
-    if end_ts is not None and pd.isna(end_ts):
-        # "", "NaT" and NaN all become NaT, and `.loc[:NaT]` would return everything.
-        raise ValueError(f"end={end!r} is not a date")
+    end_ts = None if end is None else as_date(end, "end")
     within_dev = end_ts is not None and end_ts <= pd.Timestamp(DEV_END)
     if not allow_holdout and not within_dev:  # fails closed: only a real date <= DEV_END passes
         raise HoldoutError(
