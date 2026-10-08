@@ -172,6 +172,9 @@ benchmarks and the guard.
 - Check invariants 1-6. Update the blueprint status and change log (incl. the signature
   change), then `/save-session`.
 - Ask the owner before pushing and opening the PR.
+- As built (2026-10-08, see NOTES.md): the review added `reprice` (7b's cost grid, guarded)
+  and the shared date check `as_date`. `compare` checks `start` up front, and `cost_bps` is
+  bounded below 5000. 790 tests pass.
 
 ## Checks every session
 

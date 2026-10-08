@@ -2,6 +2,52 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-08: step 4, session 4 of 4 (review)
+
+- python-reviewer: no critical or high findings. It ran its own differential fuzz (300
+  random calendars with gaps vs a brute-force schedule and a daily loop, 0 mismatches to
+  1e-13) and checked the guard on real dev data. `/code-review` (high) found 9 items, all
+  low to medium.
+- Fixed test-first (RED `c6d5b6f`, 34 failing; GREEN `0948748`):
+  - **`reprice(result, view, *, cost_bps, allow_holdout=False)`** (the reviewer's medium):
+    - The session-2 recipe for 7b's cost grid, `simulate(result.weights, returns)`, had no
+      guard; on a view that runs past DEV_END it extended the ledger into the holdout.
+    - `reprice` cuts the view at the result's last day by the holdout rule (a result ending
+      past DEV_END needs the flag again) and requires exactly the result's days.
+    - At 0/5/20 bp it equals `run` at that cost.
+  - **`compare` checks an explicit `start` before anything runs.** It used to estimate the
+    first strategies before failing on the long lookback. The check is shared with `targets`
+    as `_schedule`.
+  - **Dates:** `_validate.as_date` takes a str, date/datetime or datetime64, tz-naive and
+    real. `rebalance_dates` and `data.resolve_end` use it.
+    - An int `start=2001` was read as nanoseconds since 1970, which meant "from the
+      beginning".
+    - `end=20101231` truncated everything (it failed closed).
+    - A tz-aware date raised a raw pandas TypeError.
+  - **`cost_bps` in [0, 5000)**: at 10,000 bp a full switch gave a net return of -200%.
+  - **`targets` puts the weights in the returns' column order by label.** Before, the first
+    row's order decided.
+  - **`summary`'s gross column now shows an annual cost of 0**; turnover stays the same in
+    both columns.
+  - **`Result` checks** that gross matches net's dates, and turnover matches cost's.
+  - **New tests:**
+    - a hand example of trades on consecutive days
+    - a cost just under 5000 bp
+    - a NaN benchmark
+    - a note on why the trade-day shock test holds (a 10-day window)
+- Left as is (for the owner):
+  - `simulate` and `targets` stay unguarded pure functions, like `data.views`. `run`,
+    `compare` and `reprice` apply the rule, and the inputs come from guarded loaders.
+  - `summary` on fewer than 4 days fails with metrics' own "need at least 4 periods".
+  - Targets are validated row by row (fast enough: `simulate` takes 0.1-0.5 s).
+  - The NaN policy for 7b's 49 industries: `start=None` waits for `lookback` rows, not
+    complete ones, and `simulate` rejects NaN even for zero-weight assets.
+- Verification: 790 passed, 99.85% coverage; ruff, format and mypy clean; `uv build` and
+  `uv lock --check` fine.
+- Invariants 1-6 hold. Invariant 3's literal check (`git grep -il` of the personal-use data
+  vendor's name outside `plans/`) had been failing since Step 3's NOTES entry, which named
+  the vendor while saying it was absent. That line is reworded.
+
 ## 2026-10-08: step 4, session 3 of 4 (dev data: timing and sanity checks)
 
 - The 12 strategies of Step 3's timing check go through `compare` on the dev views:
@@ -182,8 +228,8 @@ Running log of decisions, data quirks and findings. Newest first.
   - The window is validated several times per rebalance. That is minor next to SLSQP; revisit
     only if Step 4 needs speed.
 - Verification: 663 passed, 99.82% coverage; ruff, format and mypy clean; `uv build` and
-  `uv lock --check` fine; invariants 1-6 hold (no data files, no tiingo or sibling-repo
-  references, no secrets, `allow_holdout=True` only in prose).
+  `uv lock --check` fine; invariants 1-6 hold (no data files, no personal-use-data or
+  sibling-repo references, no secrets, `allow_holdout=True` only in prose).
 - Blueprint: Step 3 status, the interface superseded by `Strategy`, Step 4's `run(...)` without
   `window`, change log.
 
