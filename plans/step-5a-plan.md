@@ -154,6 +154,12 @@ Branch `step-5a-var`.
   - causal: σ(s) is unchanged when r(s) changes
 - `scale_horizon(x, days=10)`: √10.
 - RED and GREEN commits.
+- As built (2026-10-08, see NOTES.md):
+  - Every function returns a `VarEs(var, es)` NamedTuple, and the filter's seed argument is
+    `seed_var` (a variance).
+  - Each formula lives in a private array core, so session 2 can reuse it.
+  - ES is clamped to ≥ VaR, because a tail mean can round 1 ulp past q.
+  - 88 tests; the mutation run caught all 13 planted bugs.
 
 **Session 2 (max effort): rolling forecasts and backtests.**
 - `forecast(returns, *, method, level, window=500)` returns a DataFrame with `var` and `es`,

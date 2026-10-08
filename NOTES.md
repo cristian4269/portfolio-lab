@@ -2,6 +2,59 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-08: step 5a, session 1 of 3 (plan, point estimators)
+
+- Plan `plans/step-5a-plan.md` approved as drafted. The seven owner decisions:
+  - Input: any daily simple-return Series; the dev checks use total net returns (`Result.net`).
+  - One `window` parameter, default 500 days; 250 and 1000 only as dev sensitivity.
+  - Historical VaR uses numpy's linear quantile; ES is the mean of the returns at or below
+    −VaR. Parametric ES uses closed forms.
+  - FHS: zero-mean EWMA (λ = 0.94) in one causal pass, seeded with the first window's mean
+    square; the residuals are rescaled by σ(t+1).
+  - Basel zones only at 99% over exactly 250 days.
+  - The risk functions are pure and unguarded, like `simulate`.
+  - Vectorized windows, checked against a loop.
+- `risk/var.py`:
+  - `var_es(sample, level)`, `normal_var_es(mu, sigma, level)`,
+    `cornish_fisher_var_es(mu, sigma, skew, exkurt, level)`,
+    `ewma_vol(returns, *, seed_var, decay=EWMA_DECAY)`, `scale_horizon(x, days=10)`, `LEVELS`.
+  - All return a `VarEs(var, es)` NamedTuple of positive losses.
+  - The formulas live in private array cores (`_historical` on a 2-D array of windows,
+    `_normal`, `_cornish_fisher`, `_ewma_var`) for session 2's rolling forecasts.
+  - CF ES is the exact tail mean of the CF quantile:
+    −μ + σ (φ(z)/p) [1 + zS/6 + (z² − 1)K/24 − (2z² − 1)S²/36], from E[Zᵏ | Z < z].
+    Numerical integration agrees to 1e-9 (1e-11 in the plan's check).
+    - It is not monotone for S = 1, K = 0 at 99%: VaR 1.215σ but ES 0.905σ. A test pins this
+      as documented behaviour.
+    - Also documented: excess kurtosis lowers the CF 95% VaR, because (z³ − 3z) > 0 at
+      z = −1.645.
+  - `ewma_vol` is `scipy.signal.lfilter` with initial state λ·seed, indexed by the day being
+    forecast (σ(s) uses returns through s − 1). The forecast after the last day stays in
+    `_ewma_var`'s extra element.
+- Float details:
+  - **The tail mean can round above q:** 7 copies of 0.045899312196799685 average 1 ulp above
+    the value itself. ES = −min(tail mean, q) keeps ES ≥ VaR exact, and a test pins that
+    sample.
+  - **numpy's linear interpolation never rounds below its lower neighbour,** so the tail is
+    never empty. A `max(q, min)` guard was dead code (the mutation run showed it) and was
+    removed.
+  - **Exact power-of-2 scaling fails for subnormals** (around 1e-311): halving drops bits. The
+    property test keeps magnitudes above 1e-300.
+- Tests:
+  - RED `b9243a7` (fails at import), GREEN `082de7f`. 88 tests in `tests/test_var.py`.
+  - Full suite 877 passed, 99.86% coverage; ruff, format and mypy clean.
+- Mutation run: 13 of 13 planted bugs caught:
+  - the quantile method
+  - `<` instead of `≤` in the tail
+  - no ES clamp
+  - each of the three CF coefficients
+  - the normal ES's `/ p`
+  - the EWMA's (1 − λ) and seed state
+  - a one-day look-ahead in `ewma_vol`
+  - the level bound
+  - √ in the horizon
+  - p = level instead of 1 − level
+
 ## 2026-10-08: step 4, session 4 of 4 (review)
 
 - python-reviewer: no critical or high findings. It ran its own differential fuzz (300
