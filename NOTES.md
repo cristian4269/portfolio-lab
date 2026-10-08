@@ -2,6 +2,210 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-08: step 4, session 4 of 4 (review)
+
+- python-reviewer: no critical or high findings. It ran its own differential fuzz (300
+  random calendars with gaps vs a brute-force schedule and a daily loop, 0 mismatches to
+  1e-13) and checked the guard on real dev data. `/code-review` (high) found 9 items, all
+  low to medium.
+- Fixed test-first (RED `c6d5b6f`, 34 failing; GREEN `0948748`):
+  - **`reprice(result, view, *, cost_bps, allow_holdout=False)`** (the reviewer's medium):
+    - The session-2 recipe for 7b's cost grid, `simulate(result.weights, returns)`, had no
+      guard; on a view that runs past DEV_END it extended the ledger into the holdout.
+    - `reprice` cuts the view at the result's last day by the holdout rule (a result ending
+      past DEV_END needs the flag again) and requires exactly the result's days.
+    - At 0/5/20 bp it equals `run` at that cost.
+  - **`compare` checks an explicit `start` before anything runs.** It used to estimate the
+    first strategies before failing on the long lookback. The check is shared with `targets`
+    as `_schedule`.
+  - **Dates:** `_validate.as_date` takes a str, date/datetime or datetime64, tz-naive and
+    real. `rebalance_dates` and `data.resolve_end` use it.
+    - An int `start=2001` was read as nanoseconds since 1970, which meant "from the
+      beginning".
+    - `end=20101231` truncated everything (it failed closed).
+    - A tz-aware date raised a raw pandas TypeError.
+  - **`cost_bps` in [0, 5000)**: at 10,000 bp a full switch gave a net return of -200%.
+  - **`targets` puts the weights in the returns' column order by label.** Before, the first
+    row's order decided.
+  - **`summary`'s gross column now shows an annual cost of 0**; turnover stays the same in
+    both columns.
+  - **`Result` checks** that gross matches net's dates, and turnover matches cost's.
+  - **New tests:**
+    - a hand example of trades on consecutive days
+    - a cost just under 5000 bp
+    - a NaN benchmark
+    - a note on why the trade-day shock test holds (a 10-day window)
+- Left as is (for the owner):
+  - `simulate` and `targets` stay unguarded pure functions, like `data.views`. `run`,
+    `compare` and `reprice` apply the rule, and the inputs come from guarded loaders.
+  - `summary` on fewer than 4 days fails with metrics' own "need at least 4 periods".
+  - Targets are validated row by row (fast enough: `simulate` takes 0.1-0.5 s).
+  - The NaN policy for 7b's 49 industries: `start=None` waits for `lookback` rows, not
+    complete ones, and `simulate` rejects NaN even for zero-weight assets.
+- Verification: 790 passed, 99.85% coverage; ruff, format and mypy clean; `uv build` and
+  `uv lock --check` fine.
+- Invariants 1-6 hold. Invariant 3's literal check (`git grep -il` of the personal-use data
+  vendor's name outside `plans/`) had been failing since Step 3's NOTES entry, which named
+  the vendor while saying it was absent. That line is reworded.
+
+## 2026-10-08: step 4, session 3 of 4 (dev data: timing and sanity checks)
+
+- The 12 strategies of Step 3's timing check go through `compare` on the dev views:
+  - 1/N
+  - minimum variance and ERC, each with the sample, LW identity, LW constant-correlation and
+    EWMA estimators (252 d)
+  - momentum and low-vol tilts (strength 1) on 1/N
+  - momentum tilt on a 126-day LW-identity minimum variance
+- The views are built from `load_*` and `make_views`, with assets from 1963-07-01. Asset and
+  FF5 days match exactly: 11,959 days, no gaps.
+  - USD: 558 trades, first 1964-07-01, last day 2010-12-31. Every strategy has the same first
+    trade.
+  - CAD: 468 trades from 1972-01-03.
+  - Per decision 6, no strategy-vs-strategy performance table; the comparison waits for 7a's
+    PLAN.md.
+- **Exit met: under 30 s per view.**
+  - USD 16.6-20.6 s and CAD 13.6-19.8 s over four runs each; this machine's timings vary
+    with load.
+  - Estimation dominates: `targets` for minimum variance and LW constant-correlation ERC
+    takes 3-6 s each.
+  - `simulate` takes 0.1-0.5 s per strategy.
+  - Both views together take about 35 s, so a combined budget would need the SLSQP warm start
+    (kept for 7a).
+- Sanity checks, all passing:
+  - **Monthly 1/N vs Step 2's daily-rebalanced 1/N** (same days):
+
+    | | USD gross | USD net | USD daily | CAD gross | CAD net | CAD daily |
+    |---|---|---|---|---|---|---|
+    | CAGR | 10.58% | 10.56% | 10.49% | 11.03% | 11.01% | 10.95% |
+    | Sharpe | 0.391 | 0.390 | 0.386 | 0.310 | 0.309 | 0.305 |
+
+    The tracking error between monthly gross and daily is 0.17-0.18% a year.
+  - **Costs:**
+    - net ≤ gross on every day.
+    - Net differs from gross on every trade day with nonzero turnover.
+    - Minimum variance (sample, USD) had 53 of 557 trades with zero turnover: months held at
+      100% in one asset, consistent with Step 3's Utilities finding.
+    - The CAGR drag is about 1.1 x annual cost (cost x (1 + R), compounded).
+  - **Turnover per month** (one-way, USD; CAD within 10%):
+
+    | Strategy | Turnover / month | Turnover / year |
+    |---|---|---|
+    | 1/N | 1.1% | 0.13x |
+    | ERC (sample, LW identity, LW constant correlation) | 1.5% | |
+    | low-vol tilt | 3.2% | |
+    | minimum variance (sample, LW identity, LW constant correlation) | 5.3-5.6% | 0.6-0.7x |
+    | ERC (EWMA) | 6.4% | |
+    | momentum tilt | 14-15% | 1.7-1.9x |
+    | minimum variance (EWMA) | **28.7%** | 3.4x |
+
+    For 7a: EWMA minimum variance costs 0.34% a year at 5 bp and about 1.4% at 20 bp.
+  - **Traded weights** equal `strategy.weights(history through t)` exactly at the first,
+    middle and last trade of every strategy in both views.
+  - **Real-data reference loop** (USD, 11,706 days): the plain daily loop matches the engine to
+    2.7e-16 per day, and wealth agrees to 8e-15, for 1/N and minimum variance.
+  - **Real-data perturbation:** USD returns after 1990-06-15 were scaled by -1.3. The 312
+    targets and every net return through the cut are identical, and later targets change.
+  - **The CAD view estimates on CAD returns:** the CAD target equals `weights(CAD history)`, and
+    it differs from the USD target on the same day by up to 0.061.
+  - `summary(benchmark=market)` gives tracking error and IR. Final weights sum to 1 within
+    2e-16.
+- Mutation runs: 31 planted bugs over sessions 1-2, all caught (see those entries). The plan's
+  "charge the cost before the return" is an equivalent mutant: a cost taken as a fraction of
+  NAV multiplies the same either way. Trading at the open of t + 1 (the trade day earned by the
+  new weights) was planted and caught.
+
+## 2026-10-08: step 4, session 2 of 4 (strategies in the loop, guard, benchmarks)
+
+- `backtest/engine.py` adds the following.
+  - `targets(strategy, returns, *, start=None)`: at each estimation date t, the strategy gets
+    `returns.iloc[: pos(t) + 1]`, every row through t and none after. The result is indexed by
+    trade date ("traded").
+    - Without `start`, the first t is the first month end with `lookback` rows. A `start` that
+      would estimate earlier raises, naming the earliest date. Nothing is estimated before the
+      check.
+    - Rows are aligned by asset label, so a duck-typed strategy with wrong labels is caught by
+      `simulate`.
+  - `run(strategy, view, *, start, end=DEV_END, allow_holdout=False, cost_bps=5.0)`:
+    - It checks `cost_bps` first, then drops rows after `end` by the loaders' rule.
+      `data._resolve_end` is now the public `data.resolve_end`, one function for the holdout.
+    - A non-`View` raises TypeError (the blueprint's old `returns` + `view="usd"` form).
+  - `compare(strategies, view, ...)`: one common first rebalance, the first month end where
+    the longest lookback is met (on the truncated view), and results keyed by name. It needs
+    at least one strategy, with unique names.
+  - `Result(Ledger)`: adds `name` and `rf`, the view's risk-free rate on the same days (checked
+    aligned). `summary(benchmark=None)` gives:
+    - `metrics.summary` of gross and net, one column each, daily (252)
+    - `mean_turnover` per rebalance (NaN without a second trade), `annual_turnover` and
+      `annual_cost` (sums per 252 days). These describe the trades, so both columns show them.
+    - With a benchmark (cut to the result's days, which it must cover), tracking error and IR.
+- `backtest/benchmarks.py`:
+  - `market(factors)` = Mkt-RF + RF, named "Market".
+  - `market_views(factors, usdcad, ca_tbill)` runs `make_views` on the one-column market
+    frame, so the CAD and hedged markets use exactly the assets' conversion and calendar.
+- No look-ahead, tested four ways:
+  - A spy strategy sees every history end at its estimation date, with the trade the next row.
+  - Hypothesis perturbation: new returns after day k change no target estimated by k and no
+    gross, net or turnover through k. Run on a rule that reads its whole window (100 examples)
+    and on minimum variance (25).
+  - A +90% shock on every trade day leaves every target unchanged.
+- Guard tests:
+  - DEV_END is the last day by default, and the last estimate is 2010-11-30.
+  - `end` past DEV_END, or `end=None`, raises `HoldoutError` before anything is estimated.
+  - `allow_holdout` opens the later rows.
+  - An earlier `end` truncates returns and rf.
+- RED `a0397d6` (collection fails: no `Result`, `benchmarks`), GREEN `ffa1d01`. 752 passed,
+  99.85% coverage, the backtest package 100%; ruff, format, mypy clean.
+- Mutation run (16 planted bugs, all caught):
+  - history through t + 1 (look-ahead), history to t - 1, lookback off by one
+  - too-early start allowed, end day dropped, end ignored, holdout check bypassed
+  - compare: shortest lookback, cost ignored, end ignored
+  - start=None not lookback-aware, annualized by 365
+  - benchmark ignored, benchmark gap not named, market without RF, cost checked late
+- The full suite with coverage took 122-158 s on this machine (55 s once in session 1); the
+  engine's three test files take about 25 s.
+- For 7b's cost grid: `simulate(result.weights, returns, cost_bps=...)` re-prices the same
+  targets, given the same truncated returns, without estimating again.
+
+## 2026-10-08: step 4, session 1 of 4 (plan, calendar, accounting)
+
+- Plan `plans/step-4-plan.md` approved as drafted. The six owner decisions:
+  - `run` takes a step-2 `View`, monthly only.
+  - The backtest starts invested, with no opening cost.
+  - Start dates fail closed, and `compare` gives every strategy one common start.
+  - The market benchmark is Mkt-RF + RF as an index.
+  - Estimation (`targets`) is split from accounting (`simulate`); no SLSQP warm start.
+  - Step 4 uses dev performance only for sanity checks.
+- `backtest/engine.py`:
+  - `rebalance_dates(days, *, start=None)` returns a Series from estimation date t (index
+    "estimated") to trade date (the next day). The last day never estimates.
+  - `simulate(targets, returns, *, cost_bps)` returns a `Ledger`: `gross`, `net`, `weights`,
+    `turnover`, `cost` and `final_weights`.
+  - Each holding period is priced from `w * cumprod(1 + r)`, and the daily return is
+    holdings at the previous close times r, over their sum. A target summing to 1 ± 1e-9 is
+    held as is.
+  - Net is computed as `gross - c (1 + gross)`, the blueprint's (1 + R)(1 - c) - 1 rearranged
+    so that zero cost gives gross exactly. Written as (1 + R)(1 - c) - 1, a 0.1 return came
+    back as 0.10000000000000009.
+  - Returns up to and including the first trade day are never read (the tests put NaN there).
+  - A portfolio worth 0 raises; a single asset may lose 100%.
+- `_validate.check_frame` is now shared (it was `_check_frame`).
+- Tests:
+  - Hand examples in exact fractions: the 3-day drift, turnover from drifted weights, t+1
+    execution.
+  - Zero cost = gross exactly; cost linear in bps.
+  - A plain daily loop agrees to 1e-12 on random cases, with NaN before the first trade.
+  - Buy and hold = sum w prod(1 + r).
+  - RED `1763660` (fails at import), GREEN `d0d33c1`. 713 passed, 99.84% coverage; ruff, format,
+    mypy clean.
+- Mutation run (15 planted bugs, all caught): drift from end-of-day holdings, cost not scaled by
+  1 + R, cost a day early, no drift, turnover not halved, trade date = estimation date, strict
+  start, -100% rejected, wipeout missed, bps / 1e3, the new weights earning the trade day, final
+  weights not drifted, net inexact at zero cost, month boundary shifted, first trade day's
+  return read.
+- Gotcha: `Path.write_text` on Windows writes CRLF. A script that rewrites a source file must
+  restore it with `newline="\n"` (or `write_bytes`); otherwise git shows a whitespace-only change
+  (`.gitattributes` is `eol=lf`).
+
 ## 2026-10-06: step 3, session 4 of 4 (review)
 
 - python-reviewer: no critical or high findings. It re-derived the Ledoit-Wolf algebra, the ERC
@@ -24,8 +228,8 @@ Running log of decisions, data quirks and findings. Newest first.
   - The window is validated several times per rebalance. That is minor next to SLSQP; revisit
     only if Step 4 needs speed.
 - Verification: 663 passed, 99.82% coverage; ruff, format and mypy clean; `uv build` and
-  `uv lock --check` fine; invariants 1-6 hold (no data files, no tiingo or sibling-repo
-  references, no secrets, `allow_holdout=True` only in prose).
+  `uv lock --check` fine; invariants 1-6 hold (no data files, no personal-use-data or
+  sibling-repo references, no secrets, `allow_holdout=True` only in prose).
 - Blueprint: Step 3 status, the interface superseded by `Strategy`, Step 4's `run(...)` without
   `window`, change log.
 
