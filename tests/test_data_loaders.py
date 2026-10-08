@@ -80,9 +80,13 @@ def test_holdout_needs_the_flag(sources, loader, end):
 
 @pytest.mark.parametrize("loader", LOADERS)
 @pytest.mark.parametrize("allow", [False, True])
-@pytest.mark.parametrize("end", ["", "NaT", pd.NaT, float("nan")])
+@pytest.mark.parametrize(
+    "end",
+    ["", "NaT", pd.NaT, float("nan"), 20101231, pd.Timestamp("2010-12-01", tz="UTC")],
+)
 def test_not_a_date_end_is_refused(sources, loader, allow, end):
-    # Regression: these all became NaT, and `.loc[:NaT]` returns the whole series.
+    # Regression: the first four all became NaT, and `.loc[:NaT]` returns the whole series.
+    # An int is read as nanoseconds since 1970; a time zone can't compare with the calendar.
     with pytest.raises(ValueError, match="not a date"):
         loader(end=end, allow_holdout=allow)
     assert sources == []  # refused before any download

@@ -115,6 +115,20 @@ def test_a_start_too_early_for_the_lookback_raises_and_names_the_earliest_date()
     assert spy.histories == []  # failed before estimating anything
 
 
+def test_targets_align_weights_to_the_return_columns_by_label():
+    class Reversed(Spy):
+        """Weights 1, 2, 3 (over 6) for x0, x1, x2, returned in reverse label order."""
+
+        def weights(self, history: pd.DataFrame) -> pd.Series:
+            w = pd.Series([1.0, 2.0, 3.0], index=history.columns) / 6
+            return w.iloc[::-1]
+
+    tg = bt.targets(Reversed(5), HALF_YEAR)
+    assert tg.columns.equals(HALF_YEAR.columns)
+    assert tg.iloc[0].tolist() == pytest.approx([1 / 6, 2 / 6, 3 / 6], rel=1e-15)
+    bt.simulate(tg, HALF_YEAR, cost_bps=5)  # accepted as is
+
+
 def test_a_later_start_is_kept():
     spy = Spy(30)
     bt.targets(spy, HALF_YEAR, start="2001-03-15")
@@ -171,7 +185,11 @@ def test_later_returns_change_nothing_through_any_day_for_min_variance(seed, cut
 
 
 def test_the_estimate_ignores_the_trade_day_return():
-    """A huge return on a trade day t + 1 can't change the target traded at its close."""
+    """A huge return on a trade day t + 1 can't change the target traded at its close.
+
+    The 10-day window is shorter than a month, so no later window holds an earlier shocked
+    trade day either: every target must be unchanged. (With a lookback of a month or more,
+    later targets would rightly change: those rows are history by then.)"""
     returns = returns_frame(9, 130)
     tg = bt.targets(whole_window(10), returns)
     shocked = returns.copy()
@@ -242,7 +260,7 @@ def test_an_earlier_end_truncates():
     assert result.rf.index[-1] == pd.Timestamp("2010-06-30")
 
 
-@pytest.mark.parametrize("end", ["", "NaT", pd.NaT])
+@pytest.mark.parametrize("end", ["", "NaT", pd.NaT, 20101231, pd.Timestamp("2010-06-30", tz="UTC")])
 def test_an_end_that_is_not_a_date_raises(end):
     with pytest.raises(ValueError, match="not a date"):
         bt.run(Spy(5), view_of(LONG), end=end)
@@ -271,6 +289,14 @@ def test_compare_with_a_start_too_early_for_one_strategy_raises():
         bt.compare(group, view, start="2001-01-31")
 
 
+def test_compare_checks_a_start_for_every_strategy_before_running_any():
+    spy = Spy(5, name="short lookback, listed first")
+    group = [spy, sg.min_variance("sample", window=60)]
+    with pytest.raises(ValueError, match="needs 60"):
+        bt.compare(group, view_of(returns_frame(6, 200, n=4)), start="2001-01-31")
+    assert spy.histories == []  # nothing estimated before the check
+
+
 def test_compare_needs_at_least_one_strategy_and_unique_names():
     view = view_of(HALF_YEAR)
     with pytest.raises(ValueError, match="at least one"):
@@ -287,6 +313,55 @@ def test_compare_passes_end_and_cost_through():
         pd.testing.assert_series_equal(result.net, result.gross, check_names=False)
     with pytest.raises(HoldoutError):
         bt.compare(group, view_of(LONG), end="2011-03-31")
+
+
+# --- reprice: the same targets at another cost, on the same days ---
+
+
+def test_reprice_is_run_at_another_cost_without_estimating_again():
+    view = view_of(returns_frame(5, 300, n=4))
+    s = sg.min_variance("sample", window=60)
+    base = bt.run(s, view, cost_bps=5)
+    for bps in (0.0, 5.0, 20.0):
+        again, ref = bt.reprice(base, view, cost_bps=bps), bt.run(s, view, cost_bps=bps)
+        for field in ("gross", "net", "turnover", "cost", "final_weights", "rf"):
+            pd.testing.assert_series_equal(getattr(again, field), getattr(ref, field))
+        pd.testing.assert_frame_equal(again.weights, ref.weights)
+        assert again.name == base.name
+
+
+def test_reprice_stops_where_the_result_stops():
+    view = view_of(LONG)  # runs on past DEV_END
+    base = bt.run(sg.equal_weight(), view, end="2010-06-30")
+    again = bt.reprice(base, view, cost_bps=10)
+    assert again.net.index.equals(base.net.index)
+
+
+def test_reprice_into_the_holdout_needs_the_flag():
+    view = view_of(LONG)
+    base = bt.run(sg.equal_weight(), view, end=None, allow_holdout=True)
+    with pytest.raises(HoldoutError):
+        bt.reprice(base, view, cost_bps=10)
+    again = bt.reprice(base, view, cost_bps=10, allow_holdout=True)
+    assert again.net.index.equals(base.net.index)
+
+
+def test_reprice_needs_every_day_the_result_was_run_on():
+    base = bt.run(sg.equal_weight(), view_of(LONG), end="2010-06-30")
+    gappy = view_of(LONG.drop(pd.Timestamp("2010-03-10")))  # a mid-month day
+    with pytest.raises(ValueError, match="days"):
+        bt.reprice(base, gappy, cost_bps=10)
+
+
+def test_reprice_checks_cost_bps_and_its_inputs():
+    view = view_of(HALF_YEAR)
+    base = bt.run(sg.equal_weight(), view)
+    with pytest.raises(ValueError, match="cost_bps"):
+        bt.reprice(base, view, cost_bps=-1)
+    with pytest.raises(TypeError, match="Result"):
+        bt.reprice(base.net, view, cost_bps=5)
+    with pytest.raises(TypeError, match="View"):
+        bt.reprice(base, HALF_YEAR, cost_bps=5)
 
 
 # --- Result: summary on the step-2 metrics, plus the trades ---
@@ -314,7 +389,8 @@ def hand_result(turnover=(0.1, 0.3), cost=(1e-4, 3e-4)) -> bt.Result:
 
 def test_summary_is_the_step_2_metrics_of_gross_and_net_plus_the_trades():
     """126 days are half a year (252 a year): two trades with turnover 0.1 and 0.3 and costs
-    1e-4 and 3e-4 give 0.2 per rebalance, 0.8 a year, and 8e-4 a year of cost."""
+    1e-4 and 3e-4 give 0.2 per rebalance, 0.8 a year, and 8e-4 a year of cost. Gross pays no
+    cost by definition: its annual cost is 0, its turnover the same."""
     r = hand_result()
     table = r.summary()
     frame = pd.DataFrame({"gross": r.gross, "net": r.net})
@@ -323,7 +399,7 @@ def test_summary_is_the_step_2_metrics_of_gross_and_net_plus_the_trades():
     assert list(table.columns) == ["gross", "net"]
     assert table.loc["mean_turnover"].tolist() == pytest.approx([0.2, 0.2], rel=1e-15)
     assert table.loc["annual_turnover"].tolist() == pytest.approx([0.8, 0.8], rel=1e-15)
-    assert table.loc["annual_cost"].tolist() == pytest.approx([8e-4, 8e-4], rel=1e-15)
+    assert table.loc["annual_cost"].tolist() == pytest.approx([0.0, 8e-4], rel=1e-15)
 
 
 def test_summary_cuts_a_longer_benchmark_to_the_result_days():
@@ -345,6 +421,11 @@ def test_a_benchmark_missing_a_day_raises():
         r.summary(benchmark=pd.Series(0.0, index=HAND_INDEX.delete(5)))
 
 
+def test_a_benchmark_with_a_missing_value_raises():
+    with pytest.raises(ValueError, match="benchmark is missing"):
+        hand_result().summary(benchmark=pd.Series(np.nan, index=HAND_INDEX))
+
+
 def test_a_benchmark_must_be_a_series():
     frame = pd.DataFrame({"Market": 0.0}, index=HAND_INDEX)
     with pytest.raises(TypeError, match="Series"):
@@ -362,3 +443,15 @@ def test_result_rf_must_align_with_its_returns():
     r = hand_result()
     with pytest.raises(ValueError, match="rf"):
         bt.Result(**{**vars(r), "rf": r.rf.iloc[1:]})
+
+
+def test_result_gross_must_align_with_net():
+    r = hand_result()
+    with pytest.raises(ValueError, match="gross"):
+        bt.Result(**{**vars(r), "gross": r.gross.iloc[1:]})
+
+
+def test_result_turnover_and_cost_must_share_trade_dates():
+    r = hand_result()
+    with pytest.raises(ValueError, match="cost"):
+        bt.Result(**{**vars(r), "cost": r.cost.iloc[:1]})

@@ -7,6 +7,7 @@ the NAV. Hand examples are worked in exact fractions; a plain day-by-day loop, w
 independently of the engine, is the reference on random cases.
 """
 
+import datetime as dt
 from fractions import Fraction as F
 
 import numpy as np
@@ -118,6 +119,8 @@ def test_the_last_day_never_estimates_since_nothing_trades_after_it():
         ("2001-01-31", "2001-01-31"),  # a month end itself is on or after
         ("2001-02-01", "2001-02-28"),
         (pd.Timestamp("2001-02-28"), "2001-02-28"),
+        (dt.date(2001, 2, 1), "2001-02-28"),
+        (np.datetime64("2001-02-01"), "2001-02-28"),
     ],
 )
 def test_start_keeps_the_estimation_dates_on_or_after_it(start, first):
@@ -135,7 +138,19 @@ def test_too_few_days_have_no_rebalance(n):
     assert bt.rebalance_dates(pd.bdate_range("2001-01-31", periods=n)).empty
 
 
-@pytest.mark.parametrize("start", ["", "NaT", pd.NaT, float("nan")])
+@pytest.mark.parametrize(
+    "start",
+    [
+        "",
+        "NaT",
+        pd.NaT,
+        float("nan"),
+        2001,  # pandas reads an int as nanoseconds since 1970: "from the beginning"
+        20010301,
+        True,
+        pd.Timestamp("2001-02-01", tz="UTC"),  # can't compare with a calendar of dates
+    ],
+)
 def test_a_start_that_is_not_a_date_raises(start):
     d = pd.bdate_range("2001-01-29", "2001-03-02")
     with pytest.raises(ValueError, match="start"):
@@ -231,6 +246,22 @@ def test_the_trade_day_return_is_earned_by_the_old_weights():
     approx(got.gross, [F(0), F(0), F(1, 10)])
     approx(got.turnover, [F(1)])
     approx(got.net, [F(0), -F(10, 10_000), F(1, 10)])
+
+
+def test_trades_on_consecutive_days():
+    """Trades at the closes of days 0, 1 and 2. Day 1: (+10%, -10%) moves (1/2, 1/2) to
+    (0.55, 0.45), R = 0; selling 0.45 of B for A: sum |delta| = 0.9. Day 2: A flat, R = 0, still
+    (1, 0); switching to (0, 1): sum |delta| = 2. Day 3: B flat, R = 0."""
+    tg = targets({"2001-01-31": [0.5, 0.5], "2001-02-01": [1.0, 0.0], "2001-02-02": [0.0, 1.0]})
+    r = pd.DataFrame(
+        [[np.nan, np.nan], [0.1, -0.1], [0.0, 0.3], [0.2, 0.0]], index=HAND_DAYS, columns=ASSETS
+    )
+    got = bt.simulate(tg, r, cost_bps=5)
+    approx(got.gross, [F(0), F(0), F(0)])
+    approx(got.turnover, [F(9, 20), F(1)])
+    approx(got.cost, [F(45, 100_000), F(1, 1000)])
+    approx(got.net, [-F(45, 100_000), -F(1, 1000), F(0)])
+    approx(got.final_weights, [F(0), F(1)])
 
 
 def test_zero_cost_net_is_exactly_gross_and_costs_never_change_gross_or_turnover():
@@ -383,7 +414,17 @@ def test_returns_must_be_in_date_order():
         bt.simulate(GOOD, HAND_RETURNS.iloc[[0, 2, 1, 3]], cost_bps=5)
 
 
-@pytest.mark.parametrize("cost_bps", [-1.0, np.nan, np.inf])
-def test_cost_bps_must_be_finite_and_not_negative(cost_bps):
+@pytest.mark.parametrize("cost_bps", [-1.0, np.nan, np.inf, 5000.0, 1e9])
+def test_cost_bps_must_be_finite_not_negative_and_below_5000(cost_bps):
+    """A full switch trades 2 units, so 5000 bp would cost the whole NAV."""
     with pytest.raises(ValueError, match="cost_bps"):
         bt.simulate(GOOD, HAND_RETURNS, cost_bps=cost_bps)
+
+
+def test_just_under_5000_bp_a_full_switch_leaves_something():
+    r = pd.DataFrame(
+        [[np.nan, np.nan], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]], index=HAND_DAYS, columns=ASSETS
+    )
+    tg = targets({"2001-01-31": [0.0, 1.0], "2001-02-02": [1.0, 0.0]})
+    got = bt.simulate(tg, r, cost_bps=4999)
+    approx(got.net, [F(0), -F(9998, 10_000), F(0)])
