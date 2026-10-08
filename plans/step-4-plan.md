@@ -1,6 +1,7 @@
 # Step 4 plan: walk-forward backtest engine
 
-DRAFT for the owner (2026-10-06, session 1 of 4). Read with the blueprint's Step 4 section.
+Approved by the owner as drafted on 2026-10-08 (session 1 of 4). Read with the blueprint's Step 4
+section.
 Branch `step-4-backtest`.
 
 ## What gets built
