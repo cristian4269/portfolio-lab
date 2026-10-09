@@ -1,14 +1,25 @@
-"""Factor regressions with Newey-West (HAC) errors (blueprint Step 5b).
+"""Factor and macro regressions with Newey-West (HAC) errors (blueprint Step 5b).
 
 Model: OLS of excess returns on factor returns, with an intercept `alpha` per period (daily
 or weekly, not annualized).
-- USD view: excess returns (over French RF) on FF5 + momentum (`FACTORS`).
-- CAD view (unhedged): excess returns (over the Canadian T-bill) on the same factors plus the
-  USD/CAD return fx = S_t / S_{t-1} - 1, S = CAD per USD (Step 2's `fx_returns`). A positive
-  fx beta means the CAD investor gains when the USD strengthens; unhedged USD assets have a
-  beta near 1. The CAD alpha also absorbs the US-Canada rate gap (CAD excess = USD excess +
-  fx + r_usd fx + rf_usd - rf_cad), so compare alphas within a view, not across views.
+- USD view (`factor_betas`): excess returns (over French RF) on FF5 + momentum (`FACTORS`).
+- CAD view (unhedged, `factor_betas(..., fx=)`): excess returns (over the Canadian T-bill) on
+  the same factors plus the USD/CAD return fx = S_t / S_{t-1} - 1, S = CAD per USD (Step 2's
+  `fx_returns`). A positive fx beta means the CAD investor gains when the USD strengthens;
+  unhedged USD assets have a beta near 1. The CAD alpha also absorbs the US-Canada rate gap
+  (CAD excess = USD excess + fx + r_usd fx + rf_usd - rf_cad), so compare alphas within a
+  view, not across views. For a stress, "CAD +10%" (the CAD appreciates) is fx = 1/1.10 - 1.
 - The CAD-hedged view needs no model of its own: its excess return is the USD one (Step 2, CIP).
+- Macro (`macro_betas`): the CAD model plus dy, the daily change in the Canadian 10-year yield
+  (`views.yield_changes`, in yield units: a +200 bp shock moves P&L by 0.02 times the dy
+  beta). Every beta is partial, with the other regressors held fixed, which is how Step 6
+  applies its shocks. Without the factors, the yield beta measures the stock-bond correlation,
+  not rate risk: on dev data (2001-2010) yields rose on good equity days, and the 1/N yield
+  beta was +8.5 alone against -0.03 with the factors held fixed. That correlation turned in
+  2022.
+- Rolling (`rolling_betas`): the daily model over a trailing window, each row indexed by the
+  window's last day. It describes the past (for the dashboard) and is no forecast, unlike
+  `var.forecast`, whose rows are indexed by the day they forecast. Point estimates only.
 
 Errors: Newey-West (HAC) with a Bartlett kernel and the lag floor(4 (T/100)^(2/9))
 (`nw_lags`), no small-sample correction, normal p-values (statsmodels' defaults):
@@ -19,7 +30,8 @@ Timing caveat: the daily USD/CAD rate is the noon New York fix, while US returns
 4 pm close. The fx move of the afternoon lands in the next day's fix, so a daily fx beta is
 blurred by that asynchrony. Hence weekly regressions too (`frequency="weekly"`):
 Wednesday-to-Wednesday weeks (a Wednesday is a market holiday far less often than a Friday),
-returns compounded over the trading days of the week, each week labelled by its Wednesday.
+returns compounded and yield changes summed over the trading days of the week, each week
+labelled by its Wednesday.
 
 Alignment: the inputs are cut to the dates they share, and within that span their dates must
 match exactly (a monthly series against daily factors raises). A block of missing values at
@@ -39,6 +51,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 from statsmodels.regression.linear_model import OLS
 
 from portfolio_lab._validate import as_floats, check_aligned, check_dates
@@ -132,20 +145,7 @@ def factor_betas(
     adj_r2, nobs, lags, start and end on every row of its block. An unnamed Series is labelled
     "returns".
     """
-    regressors = _factor_parts(factors, fx)
-    if isinstance(excess, pd.Series):
-        assets: dict[str, pd.Series] = {
-            _UNNAMED if excess.name is None else str(excess.name): excess
-        }
-    elif isinstance(excess, pd.DataFrame):
-        if not excess.columns.is_unique:
-            raise ValueError("excess returns need unique column names")
-        assets = {str(col): excess[col] for col in excess.columns}
-    else:
-        raise TypeError(f"excess must be a Series or a DataFrame, got {type(excess).__name__}")
-    _check_frequency(frequency)
-    fits = {name: _model(name, y, regressors, frequency) for name, y in assets.items()}
-    return _long_table(fits)
+    return _each_asset(excess, _factor_parts(factors, fx), frequency)
 
 
 def macro_betas(
@@ -156,7 +156,22 @@ def macro_betas(
     *,
     frequency: str = "daily",
 ) -> pd.DataFrame:
-    raise NotImplementedError
+    """Partial sensitivities to the Canadian 10-year yield and to USD/CAD, the inputs of
+    Step 6's hypothetical shocks: CAD excess returns on FF5 + momentum, `fx` and `d_cad10y`
+    (the daily yield change, as `views.yield_changes` gives it, named `dy` in the table).
+
+    The factors are held fixed (see the module doc for why). Days before the first yield
+    change (the daily 10-year starts in 2001) drop out, and the table reports the sample.
+    Weekly: yield changes are summed, returns compounded. Same table as `factor_betas`.
+    """
+    if not isinstance(fx, pd.Series):
+        raise TypeError(f"fx must be a Series of USD/CAD returns, got {type(fx).__name__}")
+    if not isinstance(d_cad10y, pd.Series):
+        raise TypeError(
+            f"d_cad10y must be a Series of yield changes, got {type(d_cad10y).__name__}"
+        )
+    regressors = [*_factor_parts(factors, fx), (DY, d_cad10y.rename(DY))]
+    return _each_asset(excess, regressors, frequency, summed={DY})
 
 
 def rolling_betas(
@@ -166,7 +181,44 @@ def rolling_betas(
     fx: pd.Series | None = None,
     window: int = ROLLING_WINDOW,
 ) -> pd.DataFrame:
-    raise NotImplementedError
+    """Daily `factor_betas` coefficients over each trailing `window` of days, one row per
+    window, indexed by its last day (a description, not a forecast). Point estimates only.
+
+    Same model and alignment as `factor_betas`; the first row is the `window`-th day of the
+    aligned sample. Raises naming the day if a window's regressors are collinear (a factor
+    flat over the whole window).
+    """
+    if not isinstance(excess, pd.Series):
+        raise TypeError(f"excess must be a Series of one portfolio, got {type(excess).__name__}")
+    name = _UNNAMED if excess.name is None else str(excess.name)
+    y, X = _sample((name, excess), _factor_parts(factors, fx))
+    _check_names(X)
+    k = X.shape[1] + 1
+    if (
+        isinstance(window, bool | np.bool_)
+        or not isinstance(window, numbers.Integral)
+        or not k < window <= len(y)
+    ):
+        raise ValueError(
+            f"window must be a whole number of days, more than the {k} parameters and at most "
+            f"the {len(y)} days of data, got {window!r}"
+        )
+    # Each window's normal equations, all at once: windows are strided views, never copies.
+    design = np.column_stack([np.ones(len(y)), as_floats(X, "regressors")])
+    xw = sliding_window_view(design, int(window), axis=0)  # (windows, k, window)
+    yw = sliding_window_view(as_floats(y, name), int(window))  # (windows, window)
+    xtx = np.einsum("nkw,nlw->nkl", xw, xw)
+    xty = np.einsum("nkw,nw->nk", xw, yw)
+    singular = np.linalg.matrix_rank(xtx) < k
+    if singular.any():
+        day = y.index[int(window) - 1 + int(np.argmax(singular))]
+        raise ValueError(
+            f"the regressors are collinear in the window ending {day.date()} "
+            "(a factor flat over the whole window?)"
+        )
+    betas = np.linalg.solve(xtx, xty[..., None])[..., 0]
+    terms = pd.Index([ALPHA, *X.columns], name="term")
+    return pd.DataFrame(betas, index=y.index[int(window) - 1 :], columns=terms)
 
 
 def to_weekly[T: (pd.Series, pd.DataFrame)](returns: T, *, how: str = "compound") -> T:
@@ -208,6 +260,26 @@ def _check_names(X: pd.DataFrame) -> None:
         raise ValueError("regressors need unique names")
     if ALPHA in X.columns:
         raise ValueError(f"{ALPHA!r} names the intercept; rename that regressor")
+
+
+def _each_asset(
+    excess: pd.Series | pd.DataFrame,
+    regressors: Sequence[_Part],
+    frequency: str,
+    summed: Collection[str] = (),
+) -> pd.DataFrame:
+    """One regression per column of `excess` (an unnamed Series is "returns"), as a long table."""
+    if isinstance(excess, pd.Series):
+        assets = {_UNNAMED if excess.name is None else str(excess.name): excess}
+    elif isinstance(excess, pd.DataFrame):
+        if not excess.columns.is_unique:
+            raise ValueError("excess returns need unique column names")
+        assets = {str(col): excess[col] for col in excess.columns}
+    else:
+        raise TypeError(f"excess must be a Series or a DataFrame, got {type(excess).__name__}")
+    _check_frequency(frequency)
+    fits = {name: _model(name, y, regressors, frequency, summed) for name, y in assets.items()}
+    return _long_table(fits)
 
 
 def _factor_parts(factors: pd.DataFrame, fx: pd.Series | None) -> list[_Part]:
