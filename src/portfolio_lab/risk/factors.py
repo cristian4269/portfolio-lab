@@ -45,13 +45,18 @@ from portfolio_lab._validate import as_floats, check_aligned, check_dates
 
 __all__ = [
     "ALPHA",
+    "DY",
     "FACTORS",
     "FREQUENCIES",
+    "FX",
+    "ROLLING_WINDOW",
     "WEEK",
     "Fit",
     "factor_betas",
+    "macro_betas",
     "nw_lags",
     "regress",
+    "rolling_betas",
     "to_weekly",
 ]
 
@@ -60,6 +65,8 @@ FREQUENCIES = ("daily", "weekly")
 WEEK = "W-WED"  # weeks ending on Wednesday, labelled by it
 ALPHA = "alpha"
 FX = "fx"
+DY = "dy"
+ROLLING_WINDOW = 252  # trading days (~1 year)
 _UNNAMED = "returns"  # the asset label of an unnamed Series
 
 type _Part = tuple[str, pd.Series | pd.DataFrame]
@@ -139,6 +146,27 @@ def factor_betas(
     _check_frequency(frequency)
     fits = {name: _model(name, y, regressors, frequency) for name, y in assets.items()}
     return _long_table(fits)
+
+
+def macro_betas(
+    excess: pd.Series | pd.DataFrame,
+    d_cad10y: pd.Series,
+    fx: pd.Series,
+    factors: pd.DataFrame,
+    *,
+    frequency: str = "daily",
+) -> pd.DataFrame:
+    raise NotImplementedError
+
+
+def rolling_betas(
+    excess: pd.Series,
+    factors: pd.DataFrame,
+    *,
+    fx: pd.Series | None = None,
+    window: int = ROLLING_WINDOW,
+) -> pd.DataFrame:
+    raise NotImplementedError
 
 
 def to_weekly[T: (pd.Series, pd.DataFrame)](returns: T, *, how: str = "compound") -> T:

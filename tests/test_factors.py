@@ -419,6 +419,162 @@ def test_factor_betas_input_types():
         fa.factor_betas(y.iloc[:0], f)
 
 
+# --- macro_betas (decision 6: partial betas) --------------------------------------------------
+
+
+def macro_problem(n=5000, seed=20):
+    """y = -7 dy + 1 fx + 0.8 MKT + noise, where the yield change co-moves with the market (as
+    on dev data, where yields rose on good equity days)."""
+    f = factor_frame(n, seed)
+    rng = np.random.default_rng(seed + 1)
+    fx = pd.Series(rng.normal(0, 0.006, n), index=f.index, name="usdcad")
+    dy = pd.Series(0.03 * f["Mkt-RF"] + rng.normal(0, 0.0004, n), index=f.index, name="y10")
+    y = (-7 * dy + 1.0 * fx + 0.8 * f["Mkt-RF"] + rng.normal(0, 0.004, n)).rename("p")
+    return f, fx, dy, y
+
+
+def test_macro_betas_are_partial_with_the_factors_held_fixed():
+    f, fx, dy, y = macro_problem()
+    table = fa.macro_betas(y, dy, fx, f)
+    assert list(table.loc["p"].index) == [*TERMS, fa.FX, fa.DY]
+    within(table, "p", {fa.DY: -7.0, fa.FX: 1.0, "Mkt-RF": 0.8})
+    assert table.loc[("p", fa.DY), "se"] < 0.5
+
+
+def test_without_the_factors_the_yield_beta_takes_the_market_s_sign():
+    # The omitted market adds 0.8 cov(MKT, dy) / var(dy) = 9.6 to the yield beta: a +200 bp
+    # shock would look like a gain. This is why macro_betas holds the factors fixed.
+    f, fx, dy, y = macro_problem()
+    total = fa.regress(y, pd.DataFrame({"dy": dy, "fx": fx}))
+    assert total.coef["dy"] > 0
+    assert total.coef["dy"] == pytest.approx(-7 + 9.6, abs=0.6)
+
+
+def test_macro_weekly_sums_yield_changes_and_compounds_returns():
+    f, fx, dy, y = macro_problem(n=3000)
+    table = fa.macro_betas(y, dy, fx, f, frequency="weekly")
+    X = pd.concat(
+        [
+            fa.to_weekly(f[list(fa.FACTORS)].assign(fx=fx)),
+            fa.to_weekly(dy.rename(fa.DY), how="sum"),
+        ],
+        axis=1,
+    )
+    fit = fa.regress(fa.to_weekly(y), X)
+    assert table.loc["p", "coef"].to_numpy() == pytest.approx(fit.coef.to_numpy(), rel=1e-12)
+    assert table.loc["p", "se"].to_numpy() == pytest.approx(fit.se.to_numpy(), rel=1e-12)
+
+
+def test_macro_sample_starts_with_the_first_yield_change():
+    # The daily 10-year starts in 2001: earlier days are NaN and drop out, reported.
+    f, fx, dy, y = macro_problem(n=1500)
+    dy.iloc[:300] = np.nan
+    table = fa.macro_betas(y, dy, fx, f)
+    assert table.loc[("p", fa.DY), "start"] == f.index[300]
+    assert table.loc[("p", fa.DY), "nobs"] == 1200
+
+
+def test_macro_betas_one_block_per_column():
+    f, fx, dy, y = macro_problem(n=1000)
+    excess = pd.DataFrame({"A": y, "B": 0.5 * y + 0.001})
+    table = fa.macro_betas(excess, dy, fx, f)
+    assert table.index.get_level_values("asset").unique().tolist() == ["A", "B"]
+    assert table.loc[("B", fa.DY), "coef"] == pytest.approx(
+        0.5 * table.loc[("A", fa.DY), "coef"], rel=1e-9
+    )
+
+
+def test_macro_betas_input_types():
+    f, fx, dy, y = macro_problem(n=300)
+    with pytest.raises(TypeError, match="fx must be a Series"):
+        fa.macro_betas(y, dy, None, f)
+    with pytest.raises(TypeError, match="d_cad10y must be a Series"):
+        fa.macro_betas(y, dy.to_frame(), fx, f)
+    with pytest.raises(ValueError, match="frequency"):
+        fa.macro_betas(y, dy, fx, f, frequency="monthly")
+
+
+# --- rolling_betas ----------------------------------------------------------------------------
+
+
+def rolling_loop(y, X, window):
+    """Each window's OLS by lstsq, one at a time: the reference for the vectorized version."""
+    design = np.column_stack([np.ones(len(y)), X.to_numpy()])
+    yv = y.to_numpy()
+    return np.array(
+        [
+            np.linalg.lstsq(design[i - window + 1 : i + 1], yv[i - window + 1 : i + 1], rcond=None)[
+                0
+            ]
+            for i in range(window - 1, len(y))
+        ]
+    )
+
+
+def rolling_problem(n=700, seed=30):
+    f = factor_frame(n, seed)
+    rng = np.random.default_rng(seed + 1)
+    fx = pd.Series(rng.normal(0, 0.006, n), index=f.index)
+    y = (0.7 * f["Mkt-RF"] + 0.9 * fx + rng.normal(0, 0.004, n)).rename("p")
+    return f, fx, y
+
+
+@pytest.mark.parametrize("window", [fa.ROLLING_WINDOW, 30])
+def test_rolling_betas_equal_a_per_window_loop(window):
+    f, fx, y = rolling_problem()
+    betas = fa.rolling_betas(y, f, fx=fx, window=window)
+    X = f[list(fa.FACTORS)].assign(fx=fx)
+    assert betas.to_numpy() == pytest.approx(rolling_loop(y, X, window), rel=1e-10, abs=1e-12)
+    assert betas.index.equals(f.index[window - 1 :])  # indexed by each window's last day
+    assert list(betas.columns) == [*TERMS, fa.FX]
+    assert betas.columns.name == "term"
+
+
+def test_rolling_betas_default_window_is_one_year():
+    f, fx, y = rolling_problem()
+    assert fa.ROLLING_WINDOW == 252
+    assert fa.rolling_betas(y, f).index[0] == f.index[251]
+
+
+def test_rolling_betas_have_no_look_ahead():
+    f, fx, y = rolling_problem()
+    k = 400
+    bumped = y.copy()
+    bumped.iloc[k] += 0.05
+    before, after = fa.rolling_betas(y, f, fx=fx), fa.rolling_betas(bumped, f, fx=fx)
+    earlier = before.index < f.index[k]
+    assert np.array_equal(before[earlier].to_numpy(), after[earlier].to_numpy())
+    assert not np.allclose(before.loc[f.index[k]], after.loc[f.index[k]])
+
+
+def test_rolling_betas_drop_the_nan_edges():
+    f, fx, y = rolling_problem()
+    y.iloc[:10] = np.nan
+    assert fa.rolling_betas(y, f).index[0] == f.index[10 + 251]
+
+
+@pytest.mark.parametrize("window", [7, 701, 25.0, True])
+def test_rolling_window_checks(window):
+    # 7 parameters (alpha + 6 factors): a window must have more rows than that, and fit the data.
+    f, fx, y = rolling_problem()
+    with pytest.raises(ValueError, match="window"):
+        fa.rolling_betas(y, f, window=window)
+    assert len(fa.rolling_betas(y, f, window=8)) == 700 - 7
+
+
+def test_a_singular_window_raises_naming_its_last_day():
+    f, fx, y = rolling_problem()
+    f.iloc[:300, f.columns.get_loc("SMB")] = 0.0  # SMB flat for the first 300 days
+    with pytest.raises(ValueError, match=rf"collinear.*{f.index[251].date()}"):
+        fa.rolling_betas(y, f)
+
+
+def test_rolling_betas_take_one_series():
+    f, fx, y = rolling_problem()
+    with pytest.raises(TypeError, match="Series"):
+        fa.rolling_betas(y.to_frame(), f)
+
+
 # --- to_weekly --------------------------------------------------------------------------------
 
 

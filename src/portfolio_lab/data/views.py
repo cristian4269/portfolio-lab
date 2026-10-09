@@ -39,6 +39,7 @@ __all__ = [
     "make_views",
     "to_cad_hedged",
     "to_cad_unhedged",
+    "yield_changes",
 ]
 
 MAX_AGE_DAYS = 7  # longest calendar gap a carried level may cover (holidays + weekend)
@@ -104,6 +105,12 @@ def fx_returns(
         raise ValueError(f"USD/CAD must be positive and finite, got {observed[bad][0]!r}")
     s = align_levels(usdcad, days, max_age_days=max_age_days)
     return (s / s.shift(1) - 1).rename("fx")
+
+
+def yield_changes(
+    levels: pd.Series, days: pd.DatetimeIndex, *, max_age_days: int = MAX_AGE_DAYS
+) -> pd.Series:
+    raise NotImplementedError
 
 
 def daily_rate(
