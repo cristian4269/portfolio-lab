@@ -7,7 +7,10 @@ confidence (0.95, 0.99), in (0.5, 1).
 Methods, as point estimates on one sample:
 - Historical (`var_es`): q = numpy's `quantile(..., method="linear")`, Hyndman-Fan type 7 (the
   numpy and pandas default). ES = minus the mean of the values at or below q (the tail mean,
-  Hull's definition): "at or below" keeps the tail non-empty, and ES >= VaR always.
+  Hull's definition): "at or below" keeps the tail non-empty, and ES >= VaR always. When the
+  index (n - 1) p is a whole number k (within 1e-9), q is the (k + 1)-th smallest value
+  exactly: 1 - 0.9 is 0.09999999999999998 in floats, which would put q a hair below that
+  value and drop it from the tail.
 - Normal (`normal_var_es`): with z = Phi^-1(p) < 0, VaR = -(mu + z sigma) and
   ES = -mu + sigma phi(z) / p.
 - Cornish-Fisher (`cornish_fisher_var_es`), with skew S and excess kurtosis K:
@@ -21,6 +24,7 @@ Methods, as point estimates on one sample:
   Step 3's `ewma_cov`): sigma^2(s + 1) = decay sigma^2(s) + (1 - decay) r(s)^2. The residuals
   r(s) / sigma(s) scaled by tomorrow's sigma are a sample for `var_es`; since sigma > 0, that
   is sigma times the residuals' VaR and ES.
+A result that isn't finite (moments that overflow) raises instead of returning inf or NaN.
 
 Rolling forecasts (`forecast`, `next_day`): the forecast for day t uses the `window` returns
 before it, t - window, ..., t - 1, and is indexed by t, the day it is tested against. Every
@@ -28,14 +32,17 @@ method sees the same window. Normal and CF use the window's mean, sample standar
 (ddof = 1) and Step 2's bias-corrected skew and excess kurtosis (`metrics.skew`,
 `metrics.excess_kurtosis`); a window with no variance raises. FHS runs one causal filter over
 the whole series, seeded with the mean square of the first window (so the seed uses only data
-the first forecast has seen), and rescales the window's residuals by sigma(t).
+the first forecast has seen), and rescales the window's residuals by sigma(t). `forecast`
+computes only the rows it returns, so a problem in the day-after-the-data row (`next_day`'s)
+can't stop it.
 
 `scale_horizon` turns a 1-day figure into a 10-day one by sqrt(10): an approximation that
 assumes independent, zero-mean daily returns.
 """
 
 import math
-from collections.abc import Callable, Iterable
+import numbers
+from collections.abc import Callable, Sequence
 from typing import NamedTuple
 
 import numpy as np
@@ -44,7 +51,7 @@ from numpy.lib.stride_tricks import sliding_window_view
 from scipy.signal import lfilter
 from scipy.special import ndtri
 
-from portfolio_lab._validate import check_finite, return_series, tail_prob
+from portfolio_lab._validate import check_decay, check_finite, return_series, tail_prob
 from portfolio_lab.construct.covariance import EWMA_DECAY
 
 __all__ = [
@@ -67,9 +74,13 @@ WINDOW = 500  # trading days (~2 years); 7a pre-registers the window it reports
 
 _SQRT_2PI = math.sqrt(2 * math.pi)
 _MIN_WINDOW = 4  # excess kurtosis needs 4 values; one rule for every method
-_BLOCK = 2048  # windows per block: bounds the copies np.quantile and the moments make
+# Values per block of windows (8 MB of floats): bounds the copies np.quantile and the moments
+# make, whatever the window length.
+_BLOCK_CELLS = 2**20
 # A window whose standard deviation is this small next to its largest return has no variance.
 _NOISE = 1e-12
+# An interpolation index this close to a whole number is that number (p's last bit is noise).
+_WHOLE = 1e-9
 
 type _Rows = tuple[np.ndarray, ...]
 
@@ -81,22 +92,21 @@ class VarEs(NamedTuple):
     es: float
 
 
-def var_es(sample: Iterable[float], level: float) -> VarEs:
+def var_es(sample: Sequence[float] | np.ndarray | pd.Series, level: float) -> VarEs:
     """Historical VaR and ES of one sample: returns, or FHS's rescaled residuals.
 
     The sample may be in any order; it must be one-dimensional, finite and non-empty.
     """
     p = tail_prob(level)
     var, es = _historical(_sample(sample)[None, :], p)
-    return VarEs(float(var[0]), float(es[0]))
+    return _point(var[0], es[0])
 
 
 def normal_var_es(mu: float, sigma: float, level: float) -> VarEs:
     """VaR and ES of a normal distribution with mean `mu` and standard deviation `sigma`."""
     p = tail_prob(level)
     _check_moments(mu, sigma)
-    var, es = _normal(mu, sigma, p)
-    return VarEs(float(var), float(es))
+    return _point(*_normal(mu, sigma, p))
 
 
 def cornish_fisher_var_es(
@@ -107,8 +117,7 @@ def cornish_fisher_var_es(
     _check_moments(mu, sigma)
     check_finite(skew, "skew")
     check_finite(exkurt, "exkurt")
-    var, es = _cornish_fisher(mu, sigma, skew, exkurt, p)
-    return VarEs(float(var), float(es))
+    return _point(*_cornish_fisher(mu, sigma, skew, exkurt, p))
 
 
 def ewma_vol(returns: pd.Series, *, seed_var: float, decay: float = EWMA_DECAY) -> pd.Series:
@@ -118,7 +127,7 @@ def ewma_vol(returns: pd.Series, *, seed_var: float, decay: float = EWMA_DECAY) 
     then sigma^2(s + 1) = decay sigma^2(s) + (1 - decay) r(s)^2.
     """
     r = return_series(returns, "returns")
-    _check_decay(decay)
+    check_decay(decay)
     if not (math.isfinite(seed_var) and seed_var > 0):
         raise ValueError(f"seed_var must be a positive, finite variance, got {seed_var}")
     var = _ewma_var(r, seed_var, decay)
@@ -137,13 +146,15 @@ def forecast(
 
     The first forecast is for the day after the first `window` returns; `decay` is FHS's.
     """
-    r, p = _rolling_inputs(returns, method, level, window, decay)
+    r, p, window = _rolling_inputs(returns, method, level, window, decay)
     if len(r) <= window:
         raise ValueError(
             f"returns need more than {window} days to forecast with window={window}, got {len(r)}"
         )
-    var, es = _rolling(r, returns.index, method, p, window, decay)
-    return pd.DataFrame({"var": var[:-1], "es": es[:-1]}, index=returns.index[window:])
+    # The rows for days window .. n - 1 are the "next day" rows of every shorter history:
+    # the last return is never in a window, so it is left out.
+    var, es = _rolling(r[:-1], returns.index, method, p, window, decay)
+    return pd.DataFrame({"var": var, "es": es}, index=returns.index[window:])
 
 
 def next_day(
@@ -155,16 +166,19 @@ def next_day(
     decay: float = EWMA_DECAY,
 ) -> VarEs:
     """The forecast for the day after the last return ("today's VaR"), by `forecast`'s rule."""
-    r, p = _rolling_inputs(returns, method, level, window, decay)
+    r, p, window = _rolling_inputs(returns, method, level, window, decay)
     if len(r) < window:
         raise ValueError(f"returns need at least {window} days for window={window}, got {len(r)}")
-    var, es = _rolling(r, returns.index, method, p, window, decay)
+    if method == "fhs":  # the filter needs the whole history
+        var, es = _rolling(r, returns.index, method, p, window, decay)
+    else:  # only the last window: an old problem can't stop today's VaR
+        var, es = _rolling(r[-window:], returns.index[-window:], method, p, window, decay)
     return VarEs(float(var[-1]), float(es[-1]))
 
 
-def scale_horizon[T: (float, pd.Series, pd.DataFrame)](x: T, days: int = 10) -> T:
+def scale_horizon[T: (float, np.ndarray, pd.Series, pd.DataFrame)](x: T, days: int = 10) -> T:
     """A 1-day VaR or ES scaled to `days` days by sqrt(days): an approximation (iid, zero mean)."""
-    if isinstance(days, bool) or not isinstance(days, int) or days < 1:
+    if not _whole(days) or days < 1:
         raise ValueError(f"days must be a whole number >= 1, got {days!r}")
     return x * math.sqrt(days)
 
@@ -175,30 +189,56 @@ def scale_horizon[T: (float, pd.Series, pd.DataFrame)](x: T, days: int = 10) -> 
 def _rolling(
     r: np.ndarray, days: pd.Index, method: str, p: float, window: int, decay: float
 ) -> tuple[np.ndarray, np.ndarray]:
-    """VaR and ES for days window + 1, ..., n + 1 (the last is the day after the data)."""
+    """VaR and ES for days window, ..., len(r) (0-based; the last is the day after `r`).
+
+    `days` is the calendar of the full series, used only to name a day in an error.
+    """
     windows = sliding_window_view(r, window)  # row i: days i .. i + window - 1, for day i + window
-    if method == "historical":
-        var, es = _by_block(lambda w: _historical(w, p), windows)
-        return var, es
-    if method == "fhs":
-        seed_var = float(np.mean(r[:window] ** 2))
-        if seed_var == 0:
-            raise ValueError("FHS needs a first window that moves: its returns are all 0")
-        sigma = np.sqrt(_ewma_var(r, seed_var, decay))  # days 1 .. n + 1
-        if not (sigma > 0).all():
-            day = _day(days, int(np.argmin(sigma > 0)))
-            raise ValueError(f"the EWMA volatility reached 0 by {day}: FHS can't standardize")
-        residuals = sliding_window_view(r / sigma[:-1], window)
-        var, es = _by_block(lambda w: _historical(w, p), residuals)
-        return sigma[window:] * var, sigma[window:] * es
-    var, es, flat = _by_block(lambda w: _parametric(w, p, method), windows)
-    if flat.any():
-        day = _day(days, window + int(np.argmax(flat)))
+    with np.errstate(over="ignore", invalid="ignore"):  # non-finite results raise below
+        if method == "historical":
+            var, es = _by_block(lambda w: _historical(w, p), windows)
+        elif method == "fhs":
+            var, es = _fhs(r, days, p, window, decay)
+        else:
+            var, es, flat = _by_block(lambda w: _parametric(w, p, method), windows)
+            if flat.any():
+                day = _day(days, window + int(np.argmax(flat)))
+                raise ValueError(
+                    f"returns have no variance in the {window} days before {day}: "
+                    f"the {method} method needs some"
+                )
+    bad = ~(np.isfinite(var) & np.isfinite(es))
+    if bad.any():
+        day = _day(days, window + int(np.argmax(bad)))
         raise ValueError(
-            f"returns have no variance in the {window} days before {day}: "
-            f"the {method} method needs some"
+            f"the {method} VaR/ES is not finite for {day}: a return in its window overflows"
         )
     return var, es
+
+
+def _fhs(
+    r: np.ndarray, days: pd.Index, p: float, window: int, decay: float
+) -> tuple[np.ndarray, np.ndarray]:
+    seed_var = float(np.mean(r[:window] ** 2))
+    if not (math.isfinite(seed_var) and seed_var > 0):
+        raise ValueError(
+            f"FHS needs a first window whose mean square is positive and finite, got {seed_var}"
+        )
+    sigma = np.sqrt(_ewma_var(r, seed_var, decay))  # days 1 .. len(r) + 1
+    # An overflowing r^2 makes lfilter return NaN (its padded 0 coefficient times inf).
+    usable = np.isfinite(sigma) & (sigma > 0)
+    if not usable.all():
+        pos = int(np.argmin(usable))
+        if sigma[pos] == 0:
+            raise ValueError(
+                f"the EWMA volatility reached 0 by {_day(days, pos)}: FHS can't standardize"
+            )
+        raise ValueError(
+            f"the fhs VaR/ES is not finite for {_day(days, pos)}: a return before it overflows"
+        )
+    residuals = sliding_window_view(r / sigma[:-1], window)
+    var, es = _by_block(lambda w: _historical(w, p), residuals)
+    return sigma[window:] * var, sigma[window:] * es
 
 
 def _parametric(w: np.ndarray, p: float, method: str) -> _Rows:
@@ -212,7 +252,8 @@ def _parametric(w: np.ndarray, p: float, method: str) -> _Rows:
     flat = sd <= _NOISE * np.abs(w).max(axis=1)
     if method == "normal":
         return (*_normal(mu, sd, p), flat)
-    # Step 2's bias-corrected G1 and G2 (pandas' formulas), from sums of powers of deviations.
+    # Step 2's bias-corrected G1 and G2 (pandas' formulas), from sums of powers of deviations;
+    # test_forecast_matches_a_plain_loop holds them equal to metrics.skew / excess_kurtosis.
     with np.errstate(divide="ignore", invalid="ignore"):  # flat rows raise in the caller
         skew = n * math.sqrt(n - 1) / (n - 2) * (dev2 * dev).sum(axis=1) / m2**1.5
         kurt = (n + 1) * n * (n - 1) * (dev2 * dev2).sum(axis=1) / (
@@ -223,7 +264,8 @@ def _parametric(w: np.ndarray, p: float, method: str) -> _Rows:
 
 def _by_block(func: Callable[[np.ndarray], _Rows], windows: np.ndarray) -> _Rows:
     """`func` on blocks of rows, joined: one array per output, one value per row."""
-    parts = [func(windows[i : i + _BLOCK]) for i in range(0, len(windows), _BLOCK)]
+    rows = max(1, _BLOCK_CELLS // windows.shape[1])
+    parts = [func(windows[i : i + rows]) for i in range(0, len(windows), rows)]
     return tuple(np.concatenate(column) for column in zip(*parts, strict=True))
 
 
@@ -239,8 +281,13 @@ def _day(days: pd.Index, position: int) -> str:
 
 def _historical(windows: np.ndarray, p: float) -> tuple[np.ndarray, np.ndarray]:
     """VaR and ES of each row of a 2-D array (one sample per row)."""
-    # Linear interpolation never rounds below the lower neighbour, so the tail is never empty.
-    q = np.quantile(windows, p, axis=1, method="linear")
+    h = (windows.shape[1] - 1) * p  # type 7's interpolation index
+    k = round(h)
+    if abs(h - k) < _WHOLE:
+        q = np.partition(windows, k, axis=1)[:, k]  # exactly the (k + 1)-th smallest
+    else:
+        # Linear interpolation never rounds below the lower neighbour: the tail is never empty.
+        q = np.quantile(windows, p, axis=1, method="linear")
     tail = windows <= q[:, None]
     tail_mean = np.where(tail, windows, 0.0).sum(axis=1) / tail.sum(axis=1)
     # A mean of values <= q is <= q, but its rounding is not (7 copies of 0.045899312196799685
@@ -273,21 +320,27 @@ def _pdf(z: float) -> float:
 # --- checks -----------------------------------------------------------------------------------
 
 
+def _point(var: float, es: float) -> VarEs:
+    if not (math.isfinite(var) and math.isfinite(es)):
+        raise ValueError(f"VaR/ES are not finite (VaR {var}, ES {es}): the inputs overflow")
+    return VarEs(float(var), float(es))
+
+
 def _rolling_inputs(
     returns: pd.Series, method: str, level: float, window: int, decay: float
-) -> tuple[np.ndarray, float]:
+) -> tuple[np.ndarray, float, int]:
     if method not in METHODS:
         raise ValueError(f"method must be one of {METHODS}, got {method!r}")
     p = tail_prob(level)
-    if isinstance(window, bool) or not isinstance(window, int) or window < _MIN_WINDOW:
+    if not _whole(window) or window < _MIN_WINDOW:
         raise ValueError(f"window must be a whole number of days >= {_MIN_WINDOW}, got {window!r}")
-    _check_decay(decay)
-    return return_series(returns, "returns"), p
+    check_decay(decay)
+    return return_series(returns, "returns"), p, int(window)
 
 
-def _check_decay(decay: float) -> None:
-    if not 0 < decay <= 1:
-        raise ValueError(f"decay must be in (0, 1], got {decay}")
+def _whole(x: object) -> bool:
+    """An int or numpy integer, not a bool."""
+    return isinstance(x, numbers.Integral) and not isinstance(x, bool | np.bool_)
 
 
 def _check_moments(mu: float, sigma: float) -> None:
@@ -296,11 +349,11 @@ def _check_moments(mu: float, sigma: float) -> None:
         raise ValueError(f"sigma must be positive and finite, got {sigma}")
 
 
-def _sample(sample: Iterable[float]) -> np.ndarray:
+def _sample(sample: Sequence[float] | np.ndarray | pd.Series) -> np.ndarray:
     try:
         x = np.asarray(sample, dtype=float)
     except (TypeError, ValueError) as err:
-        raise ValueError("the sample must be numeric") from err
+        raise ValueError("the sample must be numeric: numbers in a list, array or Series") from err
     if x.ndim != 1:
         raise ValueError(f"the sample must be one-dimensional, got {x.ndim} dimensions")
     if x.size < 1:

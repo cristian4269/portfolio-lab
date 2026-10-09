@@ -2,6 +2,7 @@
 
 import datetime as dt
 import math
+import numbers
 
 import numpy as np
 import pandas as pd
@@ -129,10 +130,22 @@ def check_finite(x: float, what: str) -> None:
 
 
 def tail_prob(level: float) -> float:
-    """p = 1 - level for a VaR confidence level in (0.5, 1): 0.99 gives 0.01."""
-    if isinstance(level, bool) or not isinstance(level, int | float) or not 0.5 < level < 1:
+    """p = 1 - level for a VaR confidence level in (0.5, 1): 0.99 gives 0.01.
+
+    Any real number counts (numpy's too), but not a bool."""
+    if (
+        isinstance(level, bool | np.bool_)
+        or not isinstance(level, numbers.Real)
+        or not 0.5 < level < 1
+    ):
         raise ValueError(f"level must be a confidence in (0.5, 1) such as 0.99, got {level!r}")
     return 1.0 - float(level)
+
+
+def check_decay(decay: float) -> None:
+    """An exponential decay per period must be in (0, 1] (1 = equal weights)."""
+    if not 0 < decay <= 1:
+        raise ValueError(f"decay must be in (0, 1], got {decay}")
 
 
 def return_series(returns: pd.Series, what: str) -> np.ndarray:

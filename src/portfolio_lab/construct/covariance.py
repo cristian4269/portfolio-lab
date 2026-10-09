@@ -50,7 +50,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from portfolio_lab._validate import window_values
+from portfolio_lab._validate import check_decay, window_values
 
 __all__ = [
     "EWMA_DECAY",
@@ -113,8 +113,7 @@ def ledoit_wolf_constant_correlation(returns: pd.DataFrame) -> Shrunk:
 
 def ewma_cov(returns: pd.DataFrame, *, decay: float = EWMA_DECAY) -> pd.DataFrame:
     """Exponentially weighted covariance with zero mean (RiskMetrics), weights summing to 1."""
-    if not 0 < decay <= 1:
-        raise ValueError(f"decay must be in (0, 1], got {decay}")
+    check_decay(decay)
     r = _window(returns)
     w = decay ** np.arange(len(r) - 1, -1, -1, dtype=float)  # age 0 = the latest period
     return _labeled(_symmetric((r * (w / w.sum())[:, None]).T @ r), returns)

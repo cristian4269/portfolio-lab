@@ -69,7 +69,8 @@ _COLUMNS = (
 
 class LikelihoodRatio(NamedTuple):
     """A likelihood-ratio test: statistic, chi-square p-value and degrees of freedom, and the
-    exceptions and days it was computed on."""
+    exceptions and days of the series tested. Independence and conditional coverage use the
+    series' T - 1 transitions between consecutive days; `days` is still T."""
 
     stat: float
     pvalue: float
@@ -160,6 +161,10 @@ def report(
     `basel` is the zone of the last 250 days at 99%, and None at other levels or with fewer
     days.
     """
+    if not levels:
+        raise ValueError("levels must name at least one confidence level")
+    if not methods:
+        raise ValueError("methods must name at least one method")
     keys, rows = [], []
     for level in levels:
         p = tail_prob(level)
