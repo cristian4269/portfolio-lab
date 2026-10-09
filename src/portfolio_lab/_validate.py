@@ -126,6 +126,11 @@ def check_cap(cap: float) -> None:
         raise ValueError(f"cap must be in (0, 1], got {cap}")
 
 
+def is_whole(x: object) -> bool:
+    """An int or numpy integer, not a bool (a count of days, lags or observations)."""
+    return isinstance(x, numbers.Integral) and not isinstance(x, bool | np.bool_)
+
+
 def check_finite(x: float, what: str) -> None:
     if not math.isfinite(x):
         raise ValueError(f"{what} must be finite, got {x}")

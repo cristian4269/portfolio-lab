@@ -39,13 +39,14 @@ the start or end (a portfolio listed later, a series that stops earlier) is drop
 between observed values raises, because HAC lags count rows and a gap would make days that
 are not adjacent look adjacent. Weeks are formed after that, so the returns and the
 regressors always cover the same days, partial weeks at either end included. Each fit reports
-its number of observations and its first and last dates (week labels for weekly fits).
+its number of observations (weeks, for a weekly fit) and the first and last days of the daily
+data it used: a week's Wednesday label can fall after the data (dev data ends on Friday
+2010-12-31, in the week labelled 2011-01-05).
 
 The functions are pure and unguarded, like `var`: they regress whatever they are given.
 """
 
 import math
-import numbers
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
@@ -54,7 +55,7 @@ import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
 from statsmodels.regression.linear_model import OLS
 
-from portfolio_lab._validate import as_floats, check_aligned, check_dates
+from portfolio_lab._validate import as_floats, check_aligned, check_dates, is_whole
 
 __all__ = [
     "ALPHA",
@@ -108,7 +109,7 @@ class Fit:
 def nw_lags(nobs: int) -> int:
     """Newey-West lag for T observations: floor(4 (T/100)^(2/9)), the whole number when the
     value is one (floats put 4 (512)^(2/9) a hair under 16)."""
-    if isinstance(nobs, bool | np.bool_) or not isinstance(nobs, numbers.Integral) or nobs < 1:
+    if not is_whole(nobs) or nobs < 1:
         raise ValueError(f"the number of observations must be a positive integer, got {nobs!r}")
     t = int(nobs)
     # The float value is off by far less than 1, so start just below it and step up exactly,
@@ -194,11 +195,7 @@ def rolling_betas(
     y, X = _sample((name, excess), _factor_parts(factors, fx))
     _check_names(X)
     k = X.shape[1] + 1
-    if (
-        isinstance(window, bool | np.bool_)
-        or not isinstance(window, numbers.Integral)
-        or not k < window <= len(y)
-    ):
+    if not is_whole(window) or not k < window <= len(y):
         raise ValueError(
             f"window must be a whole number of days, more than the {k} parameters and at most "
             f"the {len(y)} days of data, got {window!r}"
@@ -232,20 +229,38 @@ def to_weekly[T: (pd.Series, pd.DataFrame)](returns: T, *, how: str = "compound"
         raise ValueError(f'how must be "compound" or "sum", got {how!r}')
     if not isinstance(returns, pd.Series | pd.DataFrame):
         raise TypeError(f"returns must be a Series or a DataFrame, got {type(returns).__name__}")
-    check_dates(returns.index, "returns")
-    values = as_floats(returns, "returns").reshape(len(returns), -1)
+    days = check_dates(returns.index, "returns")
+    values = _matrix(returns, "returns")
     missing = np.isnan(values).any(axis=1)
     if missing.any():
-        day = returns.index[int(np.argmax(missing))]
+        day = days[int(np.argmax(missing))]
         raise ValueError(f"returns are missing on {day.date()}: drop or fill them first")
     if not np.isfinite(values).all():
         raise ValueError("returns must be finite")
-    weeks = returns.resample(WEEK)
-    out = (1 + returns).resample(WEEK).prod() - 1 if how == "compound" else weeks.sum()
-    return out[weeks.size().to_numpy() > 0]
+    if len(days) == 0:
+        return returns.copy()
+    # Each day belongs to the week of the Wednesday on or after it. The days are sorted, so a
+    # week's rows are contiguous: one reduceat per week, in numpy (pandas' resample is ~30
+    # times slower here).
+    labels = (days + pd.to_timedelta((2 - days.dayofweek) % 7, unit="D")).as_unit(days.unit)
+    starts = np.flatnonzero(np.r_[True, labels[1:] != labels[:-1]])
+    if how == "compound":
+        weekly = np.multiply.reduceat(1 + values, starts, axis=0) - 1
+    else:
+        weekly = np.add.reduceat(values, starts, axis=0)
+    index = pd.DatetimeIndex(labels[starts], name=days.name)
+    if isinstance(returns, pd.Series):
+        return pd.Series(weekly[:, 0], index=index, name=returns.name)
+    return pd.DataFrame(weekly, index=index, columns=returns.columns)
 
 
 # --- internals --------------------------------------------------------------------------------
+
+
+def _matrix(obj: pd.Series | pd.DataFrame, what: str) -> np.ndarray:
+    """The values as a 2-D float array, one column per series (also with no rows)."""
+    values = as_floats(obj, what)
+    return values.reshape(-1, 1) if values.ndim == 1 else values
 
 
 def _check_frequency(frequency: str) -> None:
@@ -272,9 +287,11 @@ def _each_asset(
     if isinstance(excess, pd.Series):
         assets = {_UNNAMED if excess.name is None else str(excess.name): excess}
     elif isinstance(excess, pd.DataFrame):
-        if not excess.columns.is_unique:
+        # Unique as text too: the table names assets by str(label), where 1 and "1" collide.
+        names = [str(col) for col in excess.columns]
+        if len(set(names)) != len(names):
             raise ValueError("excess returns need unique column names")
-        assets = {str(col): excess[col] for col in excess.columns}
+        assets = {name: excess[col] for name, col in zip(names, excess.columns, strict=True)}
     else:
         raise TypeError(f"excess must be a Series or a DataFrame, got {type(excess).__name__}")
     _check_frequency(frequency)
@@ -306,13 +323,14 @@ def _model(
     """Align, then (weekly) make weeks, then fit. `summed` columns are changes, not returns."""
     y, X = _sample((name, y), regressors)
     _check_names(X)
+    span = (y.index[0], y.index[-1])  # the days used, whatever the frequency
     if frequency == "weekly":
         y = to_weekly(y)
         X = pd.concat(
             [to_weekly(X[[c]], how="sum" if c in summed else "compound") for c in X.columns],
             axis=1,
         )
-    return _fit(y, X, None)
+    return _fit(y, X, None, span)
 
 
 def _sample(
@@ -340,7 +358,7 @@ def _sample(
     labels: list[str] = []
     blocks = []
     for what, obj in cut:
-        values = as_floats(obj, what).reshape(len(obj), -1)
+        values = _matrix(obj, what)
         cols = [what] if isinstance(obj, pd.Series) else [f"{what} {c}" for c in obj.columns]
         if np.isinf(values).any():
             raise ValueError(f"{what} must be finite")
@@ -363,7 +381,13 @@ def _sample(
     return y_cut.iloc[lo:hi], pd.concat([obj.iloc[lo:hi] for _, obj in cut[1:]], axis=1)
 
 
-def _fit(y: pd.Series, X: pd.DataFrame, lags: int | None) -> Fit:
+def _fit(
+    y: pd.Series,
+    X: pd.DataFrame,
+    lags: int | None,
+    span: tuple[pd.Timestamp, pd.Timestamp] | None = None,
+) -> Fit:
+    """OLS + HAC on aligned, complete data; `span` = the daily days used (default y's own)."""
     nobs, k = len(y), X.shape[1] + 1
     if nobs <= k:
         raise ValueError(
@@ -376,13 +400,14 @@ def _fit(y: pd.Series, X: pd.DataFrame, lags: int | None) -> Fit:
         )
     if lags is None:
         lags = nw_lags(nobs)
-    elif isinstance(lags, bool | np.bool_) or not isinstance(lags, numbers.Integral):
+    elif not is_whole(lags):
         raise ValueError(f"lags must be a whole number, got {lags!r}")
     elif not 0 <= lags < nobs:
         raise ValueError(f"lags must be in [0, {nobs}), got {lags}")
     res = OLS(as_floats(y, "y"), design).fit(cov_type="HAC", cov_kwds={"maxlags": int(lags)})
 
     terms = pd.Index([ALPHA, *X.columns], name="term")
+    start, end = span if span is not None else (y.index[0], y.index[-1])
     return Fit(
         coef=pd.Series(res.params, index=terms, name="coef"),
         se=pd.Series(res.bse, index=terms, name="se"),
@@ -392,8 +417,8 @@ def _fit(y: pd.Series, X: pd.DataFrame, lags: int | None) -> Fit:
         adj_r2=float(res.rsquared_adj),
         nobs=nobs,
         lags=int(lags),
-        start=y.index[0],
-        end=y.index[-1],
+        start=start,
+        end=end,
     )
 
 

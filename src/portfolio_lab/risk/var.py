@@ -41,7 +41,6 @@ assumes independent, zero-mean daily returns.
 """
 
 import math
-import numbers
 from collections.abc import Callable, Sequence
 from typing import NamedTuple
 
@@ -51,7 +50,13 @@ from numpy.lib.stride_tricks import sliding_window_view
 from scipy.signal import lfilter
 from scipy.special import ndtri
 
-from portfolio_lab._validate import check_decay, check_finite, return_series, tail_prob
+from portfolio_lab._validate import (
+    check_decay,
+    check_finite,
+    is_whole,
+    return_series,
+    tail_prob,
+)
 from portfolio_lab.construct.covariance import EWMA_DECAY
 
 __all__ = [
@@ -178,7 +183,7 @@ def next_day(
 
 def scale_horizon[T: (float, np.ndarray, pd.Series, pd.DataFrame)](x: T, days: int = 10) -> T:
     """A 1-day VaR or ES scaled to `days` days by sqrt(days): an approximation (iid, zero mean)."""
-    if not _whole(days) or days < 1:
+    if not is_whole(days) or days < 1:
         raise ValueError(f"days must be a whole number >= 1, got {days!r}")
     return x * math.sqrt(days)
 
@@ -332,15 +337,10 @@ def _rolling_inputs(
     if method not in METHODS:
         raise ValueError(f"method must be one of {METHODS}, got {method!r}")
     p = tail_prob(level)
-    if not _whole(window) or window < _MIN_WINDOW:
+    if not is_whole(window) or window < _MIN_WINDOW:
         raise ValueError(f"window must be a whole number of days >= {_MIN_WINDOW}, got {window!r}")
     check_decay(decay)
     return return_series(returns, "returns"), p, int(window)
-
-
-def _whole(x: object) -> bool:
-    """An int or numpy integer, not a bool."""
-    return isinstance(x, numbers.Integral) and not isinstance(x, bool | np.bool_)
 
 
 def _check_moments(mu: float, sigma: float) -> None:
