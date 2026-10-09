@@ -430,3 +430,43 @@ def test_scale_horizon_keeps_series_and_frames():
 def test_scale_horizon_needs_a_positive_whole_number_of_days(bad):
     with pytest.raises(ValueError, match="days"):
         v.scale_horizon(0.02, days=bad)
+
+
+# --- review fixes ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_historical_tail_keeps_the_order_statistic_at_a_whole_index(seed):
+    # n = 101 at 90%: the index (n - 1) p is exactly 10, so q is the 11th smallest value and
+    # the tail holds the 11 smallest. In floats 1 - 0.9 = 0.09999999999999998, which put q a
+    # hair below that value and silently dropped it from ES in ~40% of samples.
+    x = np.random.default_rng(seed).normal(0, 0.01, 101)
+    low = np.sort(x)
+    risk = v.var_es(x, 0.9)
+    assert risk.var == -low[10]
+    assert risk.es == pytest.approx(-low[:11].mean(), rel=1e-14)
+
+
+def test_numpy_numbers_are_accepted():
+    x = np.random.default_rng(0).normal(0, 0.01, 50)
+    assert v.var_es(x, np.float64(0.95)) == v.var_es(x, 0.95)
+    assert v.var_es(x, np.float32(0.95)) == v.var_es(x, float(np.float32(0.95)))
+    assert v.scale_horizon(0.02, days=np.int64(10)) == v.scale_horizon(0.02, days=10)
+    assert v.scale_horizon(np.array([0.01, 0.02]), days=4) == pytest.approx([0.02, 0.04])
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: v.cornish_fisher_var_es(0.0, 0.01, 1e200, 0.0, 0.99),
+        lambda: v.normal_var_es(0.0, 1e308, 0.99),
+    ],
+)
+def test_point_estimates_that_overflow_raise(call):
+    with pytest.raises(ValueError, match="not finite"):
+        call()
+
+
+def test_var_es_names_the_containers_it_takes():
+    with pytest.raises(ValueError, match="list, array or Series"):
+        v.var_es((x for x in [0.01, 0.02]), 0.95)

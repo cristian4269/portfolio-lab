@@ -24,8 +24,12 @@ def fat_tailed(seed, n, scale=0.01):
 def loop_forecast(returns, method, level, window):
     """One window at a time with the point functions: the reference for `forecast`."""
     r = returns.to_numpy()
-    seed_var = float(np.mean(r[:window] ** 2))
-    vol = v.ewma_vol(returns, seed_var=seed_var) if method == "fhs" else None
+    # FHS's filter by a plain recursion, independent of the code under test.
+    var, sigma = float(np.mean(r[:window] ** 2)), []
+    for x in r:
+        sigma.append(var**0.5)  # sigma[s]: the forecast for day s, from returns before it
+        var = EWMA_DECAY * var + (1 - EWMA_DECAY) * x * x
+    sigma = np.array(sigma)
     rows = []
     for t in range(window, len(r)):
         past = returns.iloc[t - window : t]
@@ -42,8 +46,8 @@ def loop_forecast(returns, method, level, window):
                 level,
             )
         else:  # fhs: residuals of the window, rescaled by the forecast vol for day t
-            residuals = past / vol.iloc[t - window : t]
-            risk = v.var_es(residuals * vol.iloc[t], level)
+            residuals = past.to_numpy() / sigma[t - window : t]
+            risk = v.var_es(residuals * sigma[t], level)
         rows.append(risk)
     return pd.DataFrame(rows, columns=["var", "es"], index=returns.index[window:])
 
@@ -117,18 +121,22 @@ def test_forecast_matches_a_plain_loop_on_random_cases(seed, n, window, method, 
     np.testing.assert_allclose(fc.to_numpy(), expected.to_numpy(), rtol=1e-12, atol=1e-15)
 
 
-def test_forecast_over_many_chunks_matches_the_loop():
-    # More windows than one processing block, so blocks must join without a seam.
-    r = fat_tailed(11, 5200, scale=0.005)
-    for method in ("historical", "normal", "cornish_fisher"):
-        fc = v.forecast(r, method=method, level=0.99, window=50)
-        expected = loop_forecast(r.iloc[-300:], method, 0.99, 50)
-        np.testing.assert_allclose(
-            fc.iloc[-250:].to_numpy(), expected.to_numpy(), rtol=1e-12, atol=1e-15
-        )
-    fhs = v.forecast(r, method="fhs", level=0.99, window=50)
-    full = loop_forecast(r, "fhs", 0.99, 50)
-    np.testing.assert_allclose(fhs.to_numpy(), full.to_numpy(), rtol=1e-12, atol=1e-15)
+@pytest.mark.parametrize("method", v.METHODS)
+def test_forecast_across_many_blocks_matches_the_loop(method, monkeypatch):
+    # Blocks of 3 windows (90 cells / window 30): dozens of seams, every row compared.
+    monkeypatch.setattr(v, "_BLOCK_CELLS", 90)
+    r = fat_tailed(11, 400)
+    fc = v.forecast(r, method=method, level=0.99, window=30)
+    expected = loop_forecast(r, method, 0.99, 30)
+    np.testing.assert_allclose(fc.to_numpy(), expected.to_numpy(), rtol=1e-12, atol=1e-15)
+
+
+def test_blocks_hold_at_least_one_window(monkeypatch):
+    monkeypatch.setattr(v, "_BLOCK_CELLS", 1)
+    r = fat_tailed(12, 60)
+    expected = loop_forecast(r, "historical", 0.95, 20)
+    fc = v.forecast(r, method="historical", level=0.95, window=20)
+    np.testing.assert_allclose(fc.to_numpy(), expected.to_numpy(), rtol=1e-12, atol=1e-15)
 
 
 # --- no look-ahead ------------------------------------------------------------------------------
@@ -276,3 +284,45 @@ def test_next_day_names_the_day_after_the_data_for_a_flat_last_window():
     r = pd.Series([0.02, -0.01] + [0.01] * 10, index=days(12))
     with pytest.raises(ValueError, match=f"no variance.*the day after {r.index[-1].date()}"):
         v.next_day(r, method="normal", level=0.99, window=10)
+
+
+# --- review fixes ---------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("method", ["normal", "cornish_fisher"])
+def test_forecast_ignores_a_problem_only_in_the_next_day_row(method):
+    # Days 0-19 move, days 20-29 are 0. The last forecast row (day 29) still sees day 19;
+    # only the day after the data would have a flat window, and forecast doesn't return it.
+    r = pd.concat([fat_tailed(13, 20), pd.Series(0.0, index=days(30)[20:])])
+    fc = v.forecast(r, method=method, level=0.99, window=10)
+    assert fc.index[-1] == r.index[-1]
+    assert np.isfinite(fc.to_numpy()).all()
+    with pytest.raises(ValueError, match="no variance.*the day after"):
+        v.next_day(r, method=method, level=0.99, window=10)
+
+
+def test_forecast_accepts_numpy_integers():
+    r = fat_tailed(14, 40)
+    assert v.forecast(r, method="historical", level=np.float64(0.99), window=np.int64(10)).equals(
+        v.forecast(r, method="historical", level=0.99, window=10)
+    )
+    assert v.next_day(r, method="normal", level=0.99, window=np.int32(10)) == v.next_day(
+        r, method="normal", level=0.99, window=10
+    )
+
+
+@pytest.mark.parametrize("method", ["normal", "cornish_fisher", "fhs"])
+def test_forecast_raises_on_results_that_overflow(method):
+    # A finite but absurd return (+1e200): its square overflows, and the forecasts that see it
+    # would be inf or NaN. NaN VaR would silently count as "no exception".
+    r = fat_tailed(15, 40)
+    r.iloc[25] = 1e200
+    with pytest.raises(ValueError, match=f"not finite.*{r.index[26].date()}"):
+        v.forecast(r, method=method, level=0.99, window=10)
+
+
+def test_fhs_rejects_a_first_window_that_overflows():
+    r = fat_tailed(16, 30)
+    r.iloc[3] = 1e200
+    with pytest.raises(ValueError, match="first window"):
+        v.forecast(r, method="fhs", level=0.99, window=10)

@@ -328,3 +328,11 @@ def test_report_has_no_basel_zone_with_less_than_a_year():
     table = bt.report(r, window=100, methods=("historical",), levels=(0.99,))
     assert table.loc[(0.99, "historical"), "basel"] is None
     assert table.loc[(0.99, "historical"), "days"] == 200
+
+
+def test_report_needs_levels_and_methods():
+    r = pd.Series(np.random.default_rng(8).normal(0, 0.01, 300), index=days(300))
+    with pytest.raises(ValueError, match="levels"):
+        bt.report(r, window=100, levels=())
+    with pytest.raises(ValueError, match="methods"):
+        bt.report(r, window=100, methods=[])
