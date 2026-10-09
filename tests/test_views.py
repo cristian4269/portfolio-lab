@@ -102,6 +102,46 @@ def test_fx_returns_rejects_impossible_levels(bad):
         views.fx_returns(series([1.0, bad, 1.0, 1.0, 1.0]), DAYS)
 
 
+# --- yield_changes --------------------------------------------------------------------------
+
+
+def test_yield_changes_hand_values_and_a_canadian_holiday():
+    # 3.50% -> 3.60% -> 3.55%, no Canadian close on 5 Jan (carried: change 0), then 3.40%.
+    y10 = series([0.0350, 0.0360, 0.0355, np.nan, 0.0340], name="CA_GOVT_10Y")
+    dy = views.yield_changes(y10, DAYS)
+    assert np.isnan(dy.iloc[0])
+    assert dy.iloc[1:].to_numpy() == pytest.approx([0.0010, -0.0005, 0.0, -0.0015], abs=1e-15)
+    assert dy.name == "CA_GOVT_10Y"
+    assert dy.index.equals(DAYS)
+
+
+def test_yield_changes_are_nan_before_the_first_level():
+    # The daily 10-year starts in 2001: earlier US days get NaN, not a change from 0.
+    y10 = series([0.05, 0.051], DAYS[2:4])
+    dy = views.yield_changes(y10, DAYS)
+    assert dy.iloc[:3].isna().all()
+    assert dy.iloc[3:].to_numpy() == pytest.approx([0.001, 0.0], abs=1e-15)
+
+
+def test_yield_changes_allow_negative_yields():
+    dy = views.yield_changes(series([-0.002, -0.001], DAYS[:2]), DAYS[:2])
+    assert dy.iloc[1] == pytest.approx(0.001, abs=1e-15)
+
+
+def test_yield_changes_reject_stale_and_non_finite_levels():
+    with pytest.raises(ValueError, match="stale"):
+        views.yield_changes(
+            series([0.05], DAYS[:1]), pd.DatetimeIndex(["2009-12-30", "2010-01-15"])
+        )
+    with pytest.raises(ValueError, match="finite"):
+        views.yield_changes(series([0.05, np.inf, 0.05, 0.05, 0.05]), DAYS)
+    # max_age_days reaches the carry: 4 Jan is 4 days after the 31 Dec close.
+    y10 = series([0.05, 0.05], DAYS[:2])
+    assert views.yield_changes(y10, DAYS[:3], max_age_days=4).iloc[2] == 0.0
+    with pytest.raises(ValueError, match="stale"):
+        views.yield_changes(y10, DAYS[:3], max_age_days=3)
+
+
 # --- to_cad_unhedged ------------------------------------------------------------------------
 
 

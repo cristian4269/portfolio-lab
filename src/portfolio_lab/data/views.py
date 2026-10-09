@@ -39,6 +39,7 @@ __all__ = [
     "make_views",
     "to_cad_hedged",
     "to_cad_unhedged",
+    "yield_changes",
 ]
 
 MAX_AGE_DAYS = 7  # longest calendar gap a carried level may cover (holidays + weekend)
@@ -104,6 +105,19 @@ def fx_returns(
         raise ValueError(f"USD/CAD must be positive and finite, got {observed[bad][0]!r}")
     s = align_levels(usdcad, days, max_age_days=max_age_days)
     return (s / s.shift(1) - 1).rename("fx")
+
+
+def yield_changes(
+    levels: pd.Series, days: pd.DatetimeIndex, *, max_age_days: int = MAX_AGE_DAYS
+) -> pd.Series:
+    """Daily change in a yield on `days`, in yield units (0.0001 = 1 bp), as `align_levels`
+    carries it: a day without a close (a Canadian holiday) is a change of 0, and the next
+    close takes the whole move. NaN on the first day and before the first level."""
+    observed = as_floats(levels.dropna(), "yields")
+    if not np.isfinite(observed).all():
+        raise ValueError("yields must be finite")
+    s = align_levels(levels, days, max_age_days=max_age_days)
+    return s - s.shift(1)
 
 
 def daily_rate(

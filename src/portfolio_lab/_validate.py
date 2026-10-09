@@ -46,7 +46,9 @@ def check_dates(index: pd.Index, what: str) -> pd.DatetimeIndex:
     return index
 
 
-def check_aligned(a: pd.Series | pd.DataFrame, b: pd.Series, what: str = "dates") -> None:
+def check_aligned(
+    a: pd.Series | pd.DataFrame, b: pd.Series | pd.DataFrame, what: str = "dates"
+) -> None:
     """`b` must have exactly `a`'s index, in the same order: no silent pandas alignment."""
     if not a.index.equals(b.index):
         diff = a.index.symmetric_difference(b.index)
@@ -122,6 +124,11 @@ def check_cap(cap: float) -> None:
     """A maximum weight per asset must be in (0, 1] (1 = no cap)."""
     if not 0 < cap <= 1:
         raise ValueError(f"cap must be in (0, 1], got {cap}")
+
+
+def is_whole(x: object) -> bool:
+    """An int or numpy integer, not a bool (a count of days, lags or observations)."""
+    return isinstance(x, numbers.Integral) and not isinstance(x, bool | np.bool_)
 
 
 def check_finite(x: float, what: str) -> None:
