@@ -33,6 +33,7 @@ __all__ = [
     "TBILL_TERM_DAYS",
     "View",
     "align_levels",
+    "check_view",
     "daily_rate",
     "excess",
     "fx_returns",
@@ -66,6 +67,15 @@ class View:
     @property
     def excess(self) -> pd.DataFrame:
         return excess(self.returns, self.rf)
+
+
+def check_view(view: object) -> None:
+    """Raises TypeError unless `view` is a View (the engine and the stress tests take one)."""
+    if not isinstance(view, View):
+        raise TypeError(
+            f"view must be a View (returns and their risk-free rate, from make_views), "
+            f"got {type(view).__name__}"
+        )
 
 
 def align_levels(

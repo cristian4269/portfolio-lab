@@ -426,3 +426,11 @@ def test_make_views_needs_some_cad_history(inputs):
     late_fx = series([1.0], ["1971-02-01"])
     with pytest.raises(ValueError, match="no day"):
         views.make_views(assets, rf_usd, late_fx, ca_tbill)
+
+
+def test_check_view_accepts_only_a_view():
+    v = views.View(pd.DataFrame({"A": [0.01]}, index=DAYS[:1]), pd.Series([0.0], index=DAYS[:1]))
+    views.check_view(v)
+    for bad in (v.returns, {"returns": v.returns}, None):
+        with pytest.raises(TypeError, match="must be a View"):
+            views.check_view(bad)

@@ -2,6 +2,106 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-09: step 6, session 2 of 2 (hypothetical shocks, dev check, review)
+
+- **Built** (RED `c15ff95`, GREEN `a8dfec5`), `stress/hypothetical.py`:
+  - `Shock` and the read-only `SHOCKS`: market (Mkt-RF −20%), momentum (Mom −35%), rates
+    (dy +0.02), cad_up (fx = 1/1.10 − 1) and cad_down (fx = 1/0.90 − 1).
+  - `cad_move(pct)` = 1/(1 + pct) − 1, for Step 2's CAD-per-USD fx.
+  - `portfolio_excess`: the constant mix of the current weights, Σ w_i (r_i − rf), with
+    zero-weight assets left out.
+  - `apply`: per (asset, shock), P&L = β × move and SE = |move| × the HAC SE, with the fit's
+    sample on every row.
+- **Mutation runs:** 10 of 10 caught first; 34 of 34 on the final code of both modules.
+- **Dev check** (model behaviour only, no ranking; DEV_END weights of 1/N and minimum
+  variance (sample)):
+  - **GFC replay** (63 days, 2008-09-02 → 2008-11-28; the whole table in 0.05 s):
+
+    | Weights | USD view | CAD view | CAD weights, hedged view |
+    |---|---|---|---|
+    | 1/N | −30.3% | −19.0% | −30.1% |
+    | Minimum variance | −20.2% | −7.3% | −20.0% |
+
+    - The USD rose 16.3% against the CAD over the window, so the CAD view loses about 11 pp
+      less. The hedged view is about the USD loss, as CIP implies.
+    - The strategies' realized 2008 paths: 1/N −30.4% (USD) and −19.1% (CAD), about the
+      replay since its weights barely move. Minimum variance −22.1% and −10.0%: its 2008
+      holdings were not its DEV_END ones.
+  - **Shocks** (weekly partial betas, 2001-01-03 → 2010-12-31, 523 weeks; P&L ± SE):
+
+    | Weights | Market −20% | Momentum −35% | 10-year +200 bp | CAD +10% | CAD −10% |
+    |---|---|---|---|---|---|
+    | 1/N, CAD | −19.9% ± 0.2 | +0.4% ± 0.3 | −0.2% ± 0.3 | −8.8% ± 0.1 | +10.8% ± 0.2 |
+    | Minimum variance, CAD | −15.0% ± 0.7 | −1.4% ± 0.8 | −3.0% ± 0.8 | −9.0% ± 0.3 | +11.0% ± 0.4 |
+    | 1/N, USD | −19.9% ± 0.2 | +0.4% ± 0.3 | | | |
+    | Minimum variance, USD | −14.4% ± 0.6 | −0.9% ± 0.9 | | | |
+
+    - **Natural hedge, in numbers:** the partial market shock holds fx at 0. In the 2008
+      window the market fell 30.6% in USD, but 1/N's CAD replay lost 19.0%.
+    - **Sample sensitivity (USD, 1963+ instead of 2001+):** minimum variance's market shock is
+      −17.5% instead of −14.4% (Mkt-RF 0.87 vs 0.72). 1/N's barely moves (−19.9%); its
+      momentum beta is −0.045 (SE 0.011) instead of −0.010.
+  - The shocks take 0.3 s in all.
+- **`/code-review` (high): 8 findings, all fixed** (RED `0e54c7a`, GREEN `9516f2b`):
+  - **Times of day:** 16:00 stamps shifted the window. The COVID window took in the peak day
+    and dropped the 23 March trough. Windows now compare calendar dates.
+  - **Weekend end:** it is reached on the Friday before (changed from session 1, which asked
+    for a later day). A weekday end, even a holiday, still needs that day.
+  - **Duplicates and mixed tables:** `table` refuses duplicate scenario names. `apply` checks
+    each asset's own terms; a mixed USD/CAD table gave a KeyError.
+  - **Shock moves:** `True` was accepted as a +100% move; a move must now be a real number.
+  - **Shared check:** `data.views.check_view` replaces three copies of the View check, the
+    engine's included.
+- **python-reviewer: no critical or high findings.** The 4 mediums and the useful lows were
+  fixed (RED `94e5a07`, GREEN `2b80a28`):
+  - **Holes:** a hole inside a window raises: no close for more than 7 calendar days from
+    the anchor to the last day. Three missing weeks were compounded over silently. The 9/11
+    closure (7 days) passes.
+  - **Zero weights:** `replay` skips assets at weight 0, like `portfolio_excess` (changed
+    from session 1). An industry not yet listed no longer blocks a replay; a held asset's gap
+    still raises.
+  - **`table`:** it is tested with the holdout flag on a synthetic 2020 window, its dtypes
+    are pinned, and a failing replay gets a note naming its row.
+  - **Scenarios:** they keep calendar dates and check their name.
+  - **`apply` and `Shock` checks:** `apply` refuses repeated rows, non-finite coef/se and a
+    negative SE. A return shock cannot be −100% or worse.
+- **Tests:** 1187 pass, 99.91% coverage (the stress modules 100%).
+- **For 7b:**
+  - Replay HOLDOUT_END weights through `table(..., allow_holdout=True)` from `reproduce`.
+  - The realized paths come from `window(result.net, scenario, allow_holdout=True)`.
+  - The 49-industry NaN policy now matters only for held assets.
+
+## 2026-10-09: step 6, session 1 of 2 (historical replay)
+
+- **Plan approved** (`3914321`): all eight decisions as recommended. The grounding numbers on
+  dev data are in `plans/step-6-plan.md`.
+- **Built** (RED `b0be0c2`, GREEN `cac9ef9`), `stress/historical.py`:
+  - `Scenario` and the read-only `SCENARIOS` (gfc, covid, rates), pinned to the blueprint's
+    dates by a test.
+  - `window`: the days in (start, end]. The holdout rule (`resolve_end`) runs before the
+    returns are read, so a 2020 or 2022 window raises `HoldoutError` even on synthetic data.
+  - `replay`: buy-and-hold through `engine.simulate` with one target and no cost.
+  - `outcome`: the P&L, the worst day and its date, the max drawdown (the anchor's value
+    counts as the first peak) and the days covered.
+  - `table`: one row per (scenario, view, portfolio). It checks every scenario against the
+    holdout rule before replaying anything.
+- **Conventions settled while building:**
+  - The data must reach both edges: a day on or before `start`, and one on or after `end`.
+    A weekend `end` therefore needs a later day, since data can't tell a weekend from a gap.
+  - A gap inside the window raises even at weight 0, as in the engine. The 49-industry NaN
+    policy is still 7b's.
+- **Tests:** 54, with 100% coverage of the module. The full suite passes (1140).
+- **Mutation run:** 12 of 12 planted bugs caught:
+  - [start, end] windows, an exclusive end
+  - the drawdown peak without the starting 1
+  - constant weights instead of drift
+  - the guard skipped, and the table's guard moved after the replays
+  - the anchor taken after `start`
+  - either coverage check skipped
+  - the P&L summed instead of compounded
+  - the worst date off by one
+  - an empty window allowed
+
 ## 2026-10-09: step 5b, session 2 of 2 (rolling and macro betas, dev check, review)
 
 - **Built** (RED `882c862`, GREEN `eb99c88`):
@@ -35,7 +135,7 @@ Running log of decisions, data quirks and findings. Newest first.
 
     | Portfolio | Alone | Partial daily (SE) | Partial weekly (SE) |
     |---|---|---|---|
-    | 1/N | +8.43 | −0.02 (0.07) | −0.09 (0.16) |
+    | 1/N | +8.43 | −0.02 (0.07) | −0.09 (0.15) |
     | Minimum variance | +4.76 | −0.63 (0.25) | −1.83 (0.39) |
     | Utils | +4.86 | −1.21 (0.47) | −3.14 (0.95) |
     | Money | +11.40 | −0.19 (0.31) | −0.22 (0.61) |
