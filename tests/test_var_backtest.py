@@ -297,6 +297,7 @@ def test_report_collects_every_test_for_every_method_and_level():
         "rate",
         "kupiec_stat",
         "kupiec_p",
+        "kupiec_exact_p",
         "independence_stat",
         "independence_p",
         "cc_stat",
@@ -315,6 +316,7 @@ def test_report_collects_every_test_for_every_method_and_level():
             assert row["expected"] == pytest.approx(600 * (1 - level))
             assert row["rate"] == pytest.approx(exc.mean())
             assert (row["kupiec_stat"], row["kupiec_p"]) == (uc.stat, uc.pvalue)
+            assert row["kupiec_exact_p"] == bt.kupiec_exact(exc, level)
             assert (row["independence_stat"], row["independence_p"]) == (ind.stat, ind.pvalue)
             assert (row["cc_stat"], row["cc_p"]) == (cc.stat, cc.pvalue)
             if level == 0.99:
@@ -336,3 +338,25 @@ def test_report_needs_levels_and_methods():
         bt.report(r, window=100, levels=())
     with pytest.raises(ValueError, match="methods"):
         bt.report(r, window=100, methods=[])
+
+
+# --- exact Kupiec -----------------------------------------------------------------------------
+
+
+def test_kupiec_exact_by_hand():
+    # T = 4, x = 0, p = 0.5: P(X = 0) = P(X = 4) = 1/16 are the outcomes as unlikely, so 2/16.
+    assert bt.kupiec_exact(hits([0, 0, 0, 0]), 0.5 + 1e-12) == pytest.approx(0.125, rel=1e-9)
+
+
+@pytest.mark.parametrize(("x", "t", "level"), [(8, 250, 0.99), (0, 250, 0.99), (40, 500, 0.95)])
+def test_kupiec_exact_is_the_two_sided_binomial_test(x, t, level):
+    exc = spread(x, t)
+    expected = stats.binomtest(x, t, 1 - level).pvalue
+    assert bt.kupiec_exact(exc, level) == pytest.approx(expected, rel=1e-12)
+
+
+def test_kupiec_exact_checks_its_inputs():
+    with pytest.raises(ValueError, match="level"):
+        bt.kupiec_exact(hits([0, 1]), 0.3)
+    with pytest.raises(TypeError, match="Series"):
+        bt.kupiec_exact([0, 1], 0.99)
