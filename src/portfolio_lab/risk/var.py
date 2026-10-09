@@ -206,17 +206,18 @@ def _parametric(w: np.ndarray, p: float, method: str) -> _Rows:
     n = w.shape[1]
     mu = w.mean(axis=1)
     dev = w - mu[:, None]
-    m2 = (dev**2).sum(axis=1)
+    dev2 = dev * dev  # products, not **: numpy's general power made CF 5x slower
+    m2 = dev2.sum(axis=1)
     sd = np.sqrt(m2 / (n - 1))
     flat = sd <= _NOISE * np.abs(w).max(axis=1)
     if method == "normal":
         return (*_normal(mu, sd, p), flat)
     # Step 2's bias-corrected G1 and G2 (pandas' formulas), from sums of powers of deviations.
     with np.errstate(divide="ignore", invalid="ignore"):  # flat rows raise in the caller
-        skew = n * math.sqrt(n - 1) / (n - 2) * (dev**3).sum(axis=1) / m2**1.5
-        kurt = (n + 1) * n * (n - 1) * (dev**4).sum(axis=1) / ((n - 2) * (n - 3) * m2**2) - 3 * (
-            n - 1
-        ) ** 2 / ((n - 2) * (n - 3))
+        skew = n * math.sqrt(n - 1) / (n - 2) * (dev2 * dev).sum(axis=1) / m2**1.5
+        kurt = (n + 1) * n * (n - 1) * (dev2 * dev2).sum(axis=1) / (
+            (n - 2) * (n - 3) * m2**2
+        ) - 3 * (n - 1) ** 2 / ((n - 2) * (n - 3))
         return (*_cornish_fisher(mu, sd, skew, kurt, p), flat)
 
 
