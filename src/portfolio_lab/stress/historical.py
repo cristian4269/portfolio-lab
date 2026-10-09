@@ -4,9 +4,10 @@ Window (`window`): a scenario covers the returns of the trading days d with star
 The portfolio is bought at the close of the last day on or before `start` (the anchor) and held
 to the close of the last day on or before `end`. For COVID that is peak to trough, from the
 close of 2020-02-19; when `start` or `end` falls on a holiday or a weekend it is the same as
-[start, end]. The returns must reach both edges, a day on or before `start` and a day on or
-after `end` (data can't tell a weekend from a missing day), so a window is never cut short
-silently.
+[start, end]. Days are compared as calendar dates, whatever time the stamps carry. The returns
+must reach both edges, a day on or before `start` and one on or after the last weekday on or
+before `end` (weekends are known to be closed; a holiday is not, so data ending before a
+weekday `end` is refused), so a window is never cut short silently.
 
 Replay (`replay`): buy and hold. The weights are bought at the anchor close and drift with the
 returns, with no trades and no costs: NAV_t = sum_i w_i prod_{s <= t} (1 + r_i,s), which is the
@@ -33,7 +34,7 @@ import pandas as pd
 from portfolio_lab._validate import as_date, check_dates, portfolio_values, return_series
 from portfolio_lab.backtest.engine import simulate
 from portfolio_lab.data import resolve_end
-from portfolio_lab.data.views import View
+from portfolio_lab.data.views import View, check_view
 from portfolio_lab.report import metrics
 
 __all__ = ["SCENARIOS", "Outcome", "Scenario", "outcome", "replay", "table", "window"]
@@ -127,11 +128,7 @@ def replay(
     The result is indexed by the window's days.
     """
     _check_scenario(scenario, allow_holdout)
-    if not isinstance(view, View):
-        raise TypeError(
-            f"view must be a View (returns and their risk-free rate, from make_views), "
-            f"got {type(view).__name__}"
-        )
+    check_view(view)
     returns = view.returns
     w = portfolio_values(weights, returns.columns, "weights", "the view's returns")
     first, stop = _span(check_dates(returns.index, "returns"), scenario)
@@ -142,8 +139,8 @@ def replay(
 
 def outcome(returns: pd.Series) -> Outcome:
     """P&L, worst day, max drawdown and days covered of one portfolio's daily returns."""
-    r = return_series(returns, "returns")
-    days = check_dates(returns.index, "returns")
+    r = return_series(returns, "returns")  # checks the dates too
+    days = pd.DatetimeIndex(returns.index)
     worst = int(np.argmin(r))
     return Outcome(
         pnl=float(np.prod(1 + r) - 1),
@@ -174,6 +171,9 @@ def table(
         raise ValueError("table needs at least one scenario")
     for s in chosen:
         _check_scenario(s, allow_holdout)
+    names = [s.name for s in chosen]
+    if len(set(names)) < len(names):
+        raise ValueError(f"scenario names must be unique (rows are keyed by them): {names}")
     missing = [name for name in weights if name not in views]
     if missing:
         raise ValueError(f"no view for the weights of {missing}: the views are {list(views)}")
@@ -201,22 +201,25 @@ def _check_scenario(scenario: object, allow_holdout: bool) -> None:
 def _span(days: pd.DatetimeIndex, scenario: Scenario) -> tuple[int, int]:
     """Positions of the window's first day and one past its last: the days in (start, end].
 
-    Raises unless `days` reach both edges (a day on or before `start` to buy at, one on or after
-    `end`) and hold at least one day inside.
+    Calendar dates are compared, not times of day (a 16:00 close is that day's). Raises unless
+    `days` reach both edges, a day on or before `start` to buy at and one on or after the last
+    weekday on or before `end` (a weekend is known to be closed, a holiday is not), and hold at
+    least one day inside.
     """
-    name, start, end = scenario.name, scenario.start, scenario.end
-    if len(days) == 0 or days[0] > start:
-        begins = "have no days" if len(days) == 0 else f"start on {days[0].date()}"
+    name, start, end = scenario.name, scenario.start.normalize(), scenario.end.normalize()
+    dates = days.normalize()
+    if len(dates) == 0 or dates[0] > start:
+        begins = "have no days" if len(dates) == 0 else f"start on {dates[0].date()}"
         raise ValueError(
             f"the returns {begins}, after {name}'s start ({start.date()}): no close to buy at"
         )
-    if days[-1] < end:
+    if dates[-1] < pd.offsets.BDay().rollback(end):
         raise ValueError(
-            f"the returns end on {days[-1].date()}, before {name}'s end ({end.date()}): "
+            f"the returns end on {dates[-1].date()}, before {name}'s end ({end.date()}): "
             "the window would be cut short"
         )
-    first = int(days.searchsorted(start, side="right"))
-    stop = int(days.searchsorted(end, side="right"))
+    first = int(dates.searchsorted(start, side="right"))
+    stop = int(dates.searchsorted(end, side="right"))
     if first == stop:
         raise ValueError(f"no day of the returns falls in {name} ({start.date()}, {end.date()}]")
     return first, stop

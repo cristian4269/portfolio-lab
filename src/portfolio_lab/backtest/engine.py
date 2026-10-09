@@ -49,7 +49,7 @@ from portfolio_lab._validate import (
 from portfolio_lab.config import DEV_END
 from portfolio_lab.construct.strategy import Strategy
 from portfolio_lab.data import resolve_end
-from portfolio_lab.data.views import View
+from portfolio_lab.data.views import View, check_view
 from portfolio_lab.report import metrics
 
 __all__ = [
@@ -342,11 +342,7 @@ def _earliest(days: pd.DatetimeIndex, lookback: int) -> pd.Timestamp:
 
 def _until(view: View, end: Date, allow_holdout: bool) -> tuple[pd.DataFrame, pd.Series]:
     """The view's returns and risk-free rate through `end`, by the loaders' holdout rule."""
-    if not isinstance(view, View):
-        raise TypeError(
-            f"view must be a View (returns and their risk-free rate, from make_views), "
-            f"got {type(view).__name__}"
-        )
+    check_view(view)
     end_ts = resolve_end(end, allow_holdout)
     if end_ts is None:
         return view.returns, view.rf

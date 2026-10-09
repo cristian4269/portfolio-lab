@@ -23,6 +23,7 @@ Caveats, stated rather than modelled:
   have no SE. Partial betas add, so single shocks can still be summed by hand.
 """
 
+import numbers
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -31,7 +32,7 @@ import numpy as np
 import pandas as pd
 
 from portfolio_lab._validate import check_finite, portfolio_values
-from portfolio_lab.data.views import View
+from portfolio_lab.data.views import View, check_view
 from portfolio_lab.risk.factors import DY, FACTORS, FX
 
 __all__ = ["SHOCKS", "TERMS", "Shock", "apply", "cad_move", "portfolio_excess"]
@@ -53,6 +54,10 @@ class Shock:
         if self.term not in TERMS:
             raise ValueError(
                 f"shock {self.name!r} moves {self.term!r}: a shock moves one of {list(TERMS)}"
+            )
+        if not isinstance(self.move, numbers.Real) or isinstance(self.move, bool | np.bool_):
+            raise TypeError(
+                f"the move of shock {self.name!r} must be a number, got {type(self.move).__name__}"
             )
         check_finite(self.move, f"the move of shock {self.name!r}")
         object.__setattr__(self, "move", float(self.move))
@@ -99,11 +104,7 @@ def portfolio_excess(weights: pd.Series, view: View) -> pd.Series:
     held asset stays NaN (5b's fits drop NaN only at the edges). The Series is named after
     `weights`, or "portfolio".
     """
-    if not isinstance(view, View):
-        raise TypeError(
-            f"view must be a View (returns and their risk-free rate, from make_views), "
-            f"got {type(view).__name__}"
-        )
+    check_view(view)
     w = portfolio_values(weights, view.returns.columns, "weights", "the view's returns")
     held = w > 0
     values = view.excess.to_numpy(dtype=float)[:, held] @ w[held]
@@ -130,16 +131,21 @@ def apply(betas: pd.DataFrame, shocks: Iterable[Shock]) -> pd.DataFrame:
     names = [s.name for s in chosen]
     if len(set(names)) < len(names):
         raise ValueError(f"shock names must be unique (rows are keyed by them): {names}")
-    terms = list(betas.index.unique(level="term"))
-    for s in chosen:
-        if s.term not in terms:
-            raise ValueError(f"shock {s.name!r} moves {s.term!r}, a term the betas lack: {terms}")
-
     moved = [s.term for s in chosen]
     moves = np.array([s.move for s in chosen])
+    fits = {asset: betas.xs(asset, level="asset") for asset in betas.index.unique(level="asset")}
+    for asset, fit in fits.items():  # each fit's own terms: a table may mix USD and CAD fits
+        terms = list(fit.index)
+        for s in chosen:
+            if s.term not in terms:
+                raise ValueError(
+                    f"shock {s.name!r} moves {s.term!r}, a term the betas of {asset!r} lack: "
+                    f"{terms}"
+                )
+
     blocks = []
-    for asset in betas.index.unique(level="asset"):
-        fit = betas.xs(asset, level="asset").loc[moved]  # one row per shock, in their order
+    for asset, all_terms in fits.items():
+        fit = all_terms.loc[moved]  # one row per shock, in their order
         beta, se = fit["coef"].to_numpy(dtype=float), fit["se"].to_numpy(dtype=float)
         index = pd.MultiIndex.from_product([[asset], names], names=["asset", "shock"])
         blocks.append(
