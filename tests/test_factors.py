@@ -404,6 +404,21 @@ def test_bad_frequency_and_unnamed_series():
     assert table.index.get_level_values("asset").unique().tolist() == ["returns"]
 
 
+def test_factor_betas_input_types():
+    f = factor_frame(300)
+    y = f["SMB"].rename("p")
+    with pytest.raises(TypeError, match="Series or a DataFrame"):
+        fa.factor_betas(y.to_numpy(), f)
+    with pytest.raises(ValueError, match="unique column names"):
+        fa.factor_betas(pd.concat([y, y], axis=1), f)
+    with pytest.raises(TypeError, match="factors must be a DataFrame"):
+        fa.factor_betas(y, f.to_numpy())
+    with pytest.raises(TypeError, match="fx must be a Series"):
+        fa.factor_betas(y, f, fx=f[["SMB"]])
+    with pytest.raises(ValueError, match="no rows"):
+        fa.factor_betas(y.iloc[:0], f)
+
+
 # --- to_weekly --------------------------------------------------------------------------------
 
 

@@ -46,7 +46,9 @@ def check_dates(index: pd.Index, what: str) -> pd.DatetimeIndex:
     return index
 
 
-def check_aligned(a: pd.Series | pd.DataFrame, b: pd.Series, what: str = "dates") -> None:
+def check_aligned(
+    a: pd.Series | pd.DataFrame, b: pd.Series | pd.DataFrame, what: str = "dates"
+) -> None:
     """`b` must have exactly `a`'s index, in the same order: no silent pandas alignment."""
     if not a.index.equals(b.index):
         diff = a.index.symmetric_difference(b.index)
