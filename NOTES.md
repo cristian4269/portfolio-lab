@@ -2,6 +2,66 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-09: step 5a, session 2 of 3 (rolling forecasts, backtests)
+
+- `risk/var.py`:
+  - `forecast(returns, *, method, level, window=WINDOW, decay=EWMA_DECAY)` returns
+    `var` and `es` columns indexed by the day forecast; the first row is day `window` + 1.
+  - `next_day(...)` gives today's VaR by the same rule: it equals the last row of
+    `forecast` on the series with any return appended.
+  - `METHODS = ("historical", "normal", "cornish_fisher", "fhs")`, `WINDOW = 500`.
+  - One minimum window for every method, 4 days (excess kurtosis needs 4).
+  - Rows are processed in blocks of 2048 windows (`sliding_window_view` builds no copy;
+    `np.quantile` and the moments copy one block at a time).
+  - Normal and CF compute each window's moments directly: the mean, sd with ddof = 1, and
+    pandas' G1/G2 formulas from sums of powers of deviations. Pandas' online rolling moments
+    aren't used.
+  - A window with sd ≤ 1e-12 × its largest |return| raises, naming the forecast day.
+  - FHS:
+    - The seed is the mean square of the first window; a first window of zeros raises.
+    - σ comes from `_ewma_var` (n + 1 values); a σ that underflows to 0 raises (decay 1e-10
+      and 30 zero days do it).
+- `risk/backtest.py`:
+  - `exceptions(returns, var)` is strict: r < −VaR. Every forecast day needs a return.
+  - `kupiec`, `transitions`, `christoffersen`, `conditional_coverage` return a
+    `LikelihoodRatio(stat, pvalue, df, exceptions, days)`.
+  - `basel_zone` takes exactly 250 days at 99%; `basel_zones` gives trailing 250-day windows.
+  - `report(returns, *, levels, methods, window, decay)` has one row per (level, method);
+    `basel` is the zone of the last 250 days at 99%, otherwise None.
+  - `xlogy` handles 0·ln 0, and a statistic that rounds below 0 is 0. With only the last day
+    an exception, π11 has no days behind it and drops out (LR_ind = 0 exactly).
+- `_validate.tail_prob` and `_validate.return_series` are shared by both modules (they were
+  private in var.py).
+- **The Kupiec test's true size differs from 5%:**
+  - From the exact binomial distribution, a 5% Kupiec test at 99% over 250 days rejects a
+    correct model **9.5%** of the time; at 95% over 500 days, 5.4%; over 1000 days, 5.1%.
+  - Zero exceptions in 250 days at 99% is itself rejected (LR = 5.03).
+  - The Monte Carlo test (4000 × 500 days, iid normal, true VaR) matches 5.39% within 4
+    standard errors. For 7a: report the exact size (or exact binomial p-values) next to the
+    chi-square ones for 99% over short windows.
+- Tests:
+  - RED `507b999` (fails at collection), GREEN `020c45c`. 73 new tests.
+  - Full suite 953 passed, 99.88% coverage, both risk modules at 100%; ruff, format and mypy
+    clean.
+  - The vectorized forecasts match a per-window loop of the point functions to 1e-12 (rtol),
+    including across processing blocks (5200 days).
+  - No look-ahead: perturbing returns from day k on never changes a forecast for a day ≤ k,
+    for all four methods (hypothesis). A −25% day changes the next forecast, not its own.
+- Test fixes in GREEN:
+  - The FHS hand case used a 2-day window, below the minimum; it was redone with 4 days. The
+    redone case also shows a 4% day lifting the next VaR from 2% to √1e-3 = 3.16%.
+  - The Monte Carlo test built 4000 date ranges (46 s); it now builds one (2 s).
+  - The "scale commutes" property hit a subnormal (5e-324 × 0.5 = 0 creates a tie); it now
+    avoids subnormals, like the power-of-2 property.
+- Mutation run: 22 of 22 planted bugs caught.
+  - Windows that include the forecast day; rows shifted by one; an FHS seed from the whole
+    series; residuals divided by the next day's σ; FHS scaled by the previous σ.
+  - sd with ddof = 0; the G1 and G2 constants; no flat-window check; the wrong day in the
+    message; an off-by-one length check; a block seam that drops rows.
+  - `≤` for an exception; the Kupiec MLE term; π over T instead of T − 1; π11 taking π01's
+    formula; df 1 for CC; the Basel 4/5 boundary; the rolling count off by one; no clamp at
+    0; Basel on the first 250 days; a wrong n10 count.
+
 ## 2026-10-08: step 5a, session 1 of 3 (plan, point estimators)
 
 - Plan `plans/step-5a-plan.md` approved as drafted. The seven owner decisions:

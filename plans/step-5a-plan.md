@@ -181,6 +181,14 @@ Branch `step-5a-var`.
 - Mutation run on the rolling loop and the tests: a window ending at t+1, `≤` versus `<` for an
   exception, a missing (1 − λ), and so on.
 - RED and GREEN commits.
+- As built (2026-10-09, see NOTES.md):
+  - `next_day` gives today's VaR by the same rule.
+  - The tests return a `LikelihoodRatio`; `transitions` is public.
+  - `report` has one row per (level, method).
+  - The minimum window is 4 for every method.
+  - `tail_prob` and `return_series` are shared in `_validate`.
+  - The Kupiec test's exact size at 99% over 250 days is 9.5%, not 5% (for 7a).
+  - 73 tests; the mutation run caught all 22 planted bugs.
 
 **Session 3 (extra effort): dev data, then review.**
 - Dev checks: 1/N, minimum variance and the market, in the USD and CAD views:
