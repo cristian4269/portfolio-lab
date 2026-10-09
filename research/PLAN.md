@@ -106,23 +106,38 @@ monthly net excess returns over the holdout months.
   - Δ̂ = f(v̂), with v = (μ1, μ2, γ1, γ2), γ = E[r²] and f = μ1/√(γ1 − μ1²) − μ2/√(γ2 − μ2²).
   - s(Δ̂) = √(∇f(v̂)' Ψ̂ ∇f(v̂) / T).
 - **Ψ̂ on the original data:** a HAC estimate of the long-run covariance of
-  y_t = (r1 − μ1, r2 − μ2, r1² − γ1, r2² − γ2). It uses the quadratic-spectral kernel with
-  VAR(1) prewhitening and the Andrews-Monahan (1992) automatic bandwidth (AR(1) plug-in,
-  Andrews 1991).
+  y_t = (r1 − μ1, r2 − μ2, r1² − γ1, r2² − γ2), as in the authors' own code (CRAN package
+  `bootTimeInference`, `compute.se.Parzen.pw`).
+  - **Prewhitening** (Andrews and Monahan 1992): fit a VAR(1) without intercept by OLS. Cap
+    the singular values of its matrix A at 0.97. Take the residuals e_t (n = T − 1 rows).
+  - **Kernel:** Parzen, with bandwidth S = 2.6614 (α̂ n)^(1/5). α̂ is Andrews' (1991) AR(1)
+    plug-in on the columns of e, with equal weights.
+  - **Formula:** Ψ̂_e = n/(n − 4) Σ_{|j| < S} k(j/S) Γ̂(j), with Γ̂(j) = (1/n) Σ e_t e'_{t−j}.
+    Then Ψ̂ = (I − A)⁻¹ Ψ̂_e (I − A)⁻¹'.
+  - The paper's text proposes the quadratic-spectral kernel and says the Parzen kernel
+    "yields very similar performance" (footnote 8). Its authors' code uses Parzen.
 - **Bootstrap:**
   - A circular block bootstrap (Politis and Romano 1992) of the monthly return pairs, with
     block size b.
-  - Each bootstrap sample is studentized by its own block standard error: l = ⌊T/b⌋,
-    ζ_j = b^(−1/2) Σ_{t=1..b} y*_{(j−1)b+t} and Ψ̂* = (1/l) Σ ζ_j ζ_j'.
+  - A bootstrap sample has l = ⌊T/b⌋ blocks (l·b rows), each starting at a uniform position,
+    with wrap-around.
+  - Each bootstrap sample is studentized by its own block standard error.
+    - y* is centred at the bootstrap sample's own moments.
+    - ζ_j = b^(−1/2) Σ_{t=1..b} y*_{(j−1)b+t} and Ψ̂* = (1/l) Σ ζ_j ζ_j'.
+    - s(Δ̂*) uses the gradient at the bootstrap moments and the original T.
   - With d = |Δ̂|/s(Δ̂) and d̃*_m = |Δ̂*_m − Δ̂|/s(Δ̂*_m), the p-value is
     (#{d̃*_m ≥ d} + 1)/(M + 1), with **M = 4999**.
 - **Block size: Algorithm 3.1 of Ledoit and Wolf (2008), as a rule.**
-  - Fit a VAR(1) to the return pair and generate **K = 1000** pseudo-series of length T by
-    resampling its residuals with a stationary bootstrap (mean block 5).
-  - For each b in **{1, 2, 4, 6, 8, 10, 12}**, compute the 95% bootstrap interval (M = 499)
-    on every pseudo-series.
-  - Take the b whose coverage of the pseudo-parameter Δ̂ is closest to 95%. Ties go to the
-    smaller b.
+  - Fit a VAR(1) with intercept to the return pair by OLS.
+  - Generate **K = 1000** pseudo-series of length T. Each starts from the first observation,
+    is iterated with residuals resampled by a stationary bootstrap (mean block 5), and drops
+    a burn-in of 50.
+  - For each b in **{1, 2, 4, 6, 8, 10, 12}**, test H0: Δ = Δ̂ (the original estimate, the
+    pseudo-parameter) on every pseudo-series (M = 499), and count the rejections at 5%.
+  - Take the b whose rejection rate is closest to 5%, which is the same as coverage closest
+    to 95%. Ties go to the smaller b.
+  - This follows the authors' `block.size.calibrate`, with a finer grid and M = 499 for this
+    longer sample. Their defaults are {1, 3, 6, 10} and M = 199.
   - The p-values for every b in the grid are reported as a sensitivity.
   - The calibration runs for each primary pair. Exploratory pairs (§6) use the b calibrated
     for the same view's minimum variance pair.
@@ -307,3 +322,7 @@ turnover, on the same days and view, at the same cost.
 
 - 2026-10-09: draft committed before any dev comparison (blueprint Step 7a, plan
   `plans/step-7a-plan.md`, all twelve decisions approved by the owner).
+- 2026-10-09, still before any dev comparison: §5 now follows the authors' published code
+  (CRAN `bootTimeInference`) where the paper is silent or differs.
+  - The prewhitened Parzen kernel replaces the quadratic-spectral one.
+  - The exact bootstrap sample length, centring and calibration steps are spelled out.

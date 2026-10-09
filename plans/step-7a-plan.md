@@ -96,9 +96,15 @@ it must come **after** the draft PLAN.md is committed. The numbers are under "Gr
 3. **The test: Ledoit and Wolf (2008), as published.**
    - **Data:** monthly simple excess returns. LW used log returns in their examples; simple
      returns keep the test consistent with every other metric here (stated in PLAN.md).
-   - **The SE on the original data:** a HAC estimate with the prewhitened QS kernel and the
-     Andrews-Monahan automatic bandwidth (VAR(1) prewhitening, AR(1) plug-in). It is
-     implemented here, since statsmodels has no QS kernel or prewhitening.
+   - **The SE on the original data:** a HAC estimate with VAR(1) prewhitening and the
+     Andrews AR(1) plug-in bandwidth. It is implemented here, since statsmodels has neither.
+     - **Amended in session 1, before any dev comparison:** the kernel is **Parzen**
+       (bandwidth 2.6614 (αn)^(1/5), singular values of A capped at 0.97), as in the authors'
+       own R code (CRAN `bootTimeInference`).
+     - The paper's text names QS, and its footnote 8 says Parzen performs the same.
+     - The code also settles the bootstrap sample length (l·b), the centring (bootstrap
+       moments) and the calibration loop (rejection rate at H0: Δ = Δ̂).
+     - The details are in PLAN.md §5.
    - **The bootstrap:**
      - It is a circular block bootstrap of the return pairs.
      - Each bootstrap sample gets its own block SE: l = ⌊T/b⌋, ζ_j = b^(−1/2) Σ y*, and
