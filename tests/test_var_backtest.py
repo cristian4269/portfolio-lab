@@ -63,6 +63,13 @@ def test_exceptions_reject_a_missing_forecast():
     r = pd.Series([0.01, 0.02], index=days(2))
     with pytest.raises(ValueError, match="finite"):
         bt.exceptions(r, pd.Series([0.02, float("nan")], index=days(2)))
+    with pytest.raises(TypeError, match="Series"):
+        bt.exceptions(r, [0.02, 0.02])
+
+
+def test_exceptions_must_be_numeric_flags():
+    with pytest.raises(ValueError, match="True/False"):
+        bt.kupiec(pd.Series(["yes", "no"], index=days(2)), 0.99)
 
 
 # --- Kupiec POF -------------------------------------------------------------------------------
@@ -114,7 +121,8 @@ def test_kupiec_size_on_simulated_correct_forecasts():
     reps, t = 4000, 500
     var = -0.01 * stats.norm.ppf(0.05)
     r = rng.normal(0.0, 0.01, (reps, t))
-    rejected = sum(bt.kupiec(hits(row < -var), 0.95).pvalue < 0.05 for row in r)
+    index = days(t)  # built once: 4000 date ranges would dominate the test's time
+    rejected = sum(bt.kupiec(pd.Series(row < -var, index=index), 0.95).pvalue < 0.05 for row in r)
     rate = rejected / reps
     size = 0.05393307391942694
     assert abs(rate - size) < 4 * math.sqrt(size * (1 - size) / reps)

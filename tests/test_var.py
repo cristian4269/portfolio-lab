@@ -139,7 +139,7 @@ def test_historical_power_of_two_scale_is_exact(x, level, k):
     assert v.var_es(np.array(x) * c, level) == (base.var * c, base.es * c)
 
 
-@given(samples, levels, st.floats(1e-3, 1e3))
+@given(normal_samples, levels, st.floats(1e-3, 1e3))
 def test_historical_positive_scale_commutes(x, level, c):
     base = v.var_es(x, level)
     scaled = v.var_es(np.array(x) * c, level)

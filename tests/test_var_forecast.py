@@ -1,5 +1,7 @@
 """Rolling one-day-ahead VaR/ES forecasts: a plain loop as reference, timing, no look-ahead."""
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -75,14 +77,18 @@ def test_historical_forecast_by_hand():
 
 
 def test_fhs_by_hand():
-    # decay 0.5 makes the filter easy: window 2, returns 2%, -2%, 4%.
-    # Seed = mean(0.02^2, 0.02^2) = 4e-4: sigma(1) = sigma(2) = sigma(3) = 0.02 (r^2 = seed).
-    # Forecast for day 3: residuals (1, -1), rescaled by 0.02 -> sample (0.02, -0.02).
-    r = pd.Series([0.02, -0.02, 0.04], index=days(3))
-    fc = v.forecast(r, method="fhs", level=0.75, window=2, decay=0.5)
-    # Type 7 at 0.25 between -0.02 and 0.02: -0.02 + 0.25 * 0.04 = -0.01; tail = {-0.02}.
-    assert fc["var"].iloc[0] == pytest.approx(0.01, abs=1e-15)
+    # decay 0.5, window 4, returns 2%, -2%, 2%, -2%, then 4%, then anything.
+    # Seed = mean of r^2 over days 1-4 = 4e-4; every r^2 equals it, so sigma = 0.02 on days
+    # 1-5, and the residuals of days 1-4 are (1, -1, 1, -1).
+    # Day 5: sample 0.02 x (1, -1, 1, -1); type 7 at 0.25 sits between the two -0.02s.
+    # Day 6: residuals of days 2-5 are (-1, 1, -1, 0.04 / 0.02 = 2), and
+    # sigma(6)^2 = 0.5 * 4e-4 + 0.5 * 0.04^2 = 1e-3: the 4% day lifts the next VaR to 3.16%.
+    r = pd.Series([0.02, -0.02, 0.02, -0.02, 0.04, 0.0], index=days(6))
+    fc = v.forecast(r, method="fhs", level=0.75, window=4, decay=0.5)
+    assert fc["var"].iloc[0] == pytest.approx(0.02, abs=1e-15)
     assert fc["es"].iloc[0] == pytest.approx(0.02, abs=1e-15)
+    assert fc["var"].iloc[1] == pytest.approx(math.sqrt(1e-3), rel=1e-14)
+    assert fc["es"].iloc[1] == pytest.approx(math.sqrt(1e-3), rel=1e-14)
 
 
 @pytest.mark.parametrize("method", v.METHODS)
@@ -256,3 +262,17 @@ def test_forecast_rejects_bad_returns():
         v.forecast(r.iloc[::-1], method="historical", level=0.99, window=10)
     with pytest.raises(TypeError, match="Series"):
         v.forecast(r.to_frame(), method="historical", level=0.99, window=10)
+
+
+def test_fhs_raises_if_the_volatility_underflows_to_zero():
+    # With a tiny decay the filter forgets in a day; ~30 zero returns take sigma below the
+    # smallest float, and residuals r / 0 would be inf or NaN.
+    r = pd.Series([0.01, -0.01, 0.01, -0.01] + [0.0] * 40, index=days(44))
+    with pytest.raises(ValueError, match="reached 0"):
+        v.forecast(r, method="fhs", level=0.99, window=4, decay=1e-10)
+
+
+def test_next_day_names_the_day_after_the_data_for_a_flat_last_window():
+    r = pd.Series([0.02, -0.01] + [0.01] * 10, index=days(12))
+    with pytest.raises(ValueError, match=f"no variance.*the day after {r.index[-1].date()}"):
+        v.next_day(r, method="normal", level=0.99, window=10)
