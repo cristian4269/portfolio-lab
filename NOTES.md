@@ -2,6 +2,207 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-09: step 5a, session 3 of 3 (dev data: VaR model behaviour)
+
+- Series: `Result.net` of 1/N and minimum variance (sample, 252 d) from `compare`, plus the
+  market benchmark, in the USD view (1964-07-02 to 2010-12-31, 11,706 days) and the CAD view
+  (1972-01-04 to 2010-12-31, 9,841 days). All end at DEV_END. A scratch script ran them;
+  nothing was committed.
+- Per decision 1 (Step 4's decision 6), these checks show how the VaR models behave; they don't
+  rank strategies.
+- **Speed: the exit is met.**
+  - All four methods at both levels take ~0.9 s on 11,706 days (best of 3); `report` takes
+    1.6-2.3 s per series.
+  - Cornish-Fisher first took 0.63 s because numpy's general power ran `dev**3` and `dev**4`.
+    Products bring it to 0.13 s (commit `ddf5c5f`).
+- **Window 500, 99% exception rates** (expected 1%; USD 1/N, USD market, CAD 1/N):
+  - historical: 1.65%, 1.64%, 1.41%
+  - normal: 2.20%, 2.08%, 1.95%
+  - Cornish-Fisher: 1.02%, 1.12%, 0.92%
+  - FHS: 1.10%, 1.13%, 1.17%
+- **Who passes the tests:**
+  - Historical and normal fail Kupiec at 99% on all 6 series: too many exceptions (the normal
+    model has fat-tail misses; the historical 500-day window is slow to react).
+  - Cornish-Fisher gets the 99% rate right but fails independence: its misses cluster.
+  - FHS is the only method that passes conditional coverage at 99% (4 of 6 series; both
+    minimum-variance series fail independence).
+  - At 95%, every method fails independence on every series: daily misses cluster in all of
+    them. FHS gets the 95% rate right (5.0-5.2%).
+- **Basel zones over time** (share of trailing-250-day windows green/yellow/red at 99%):
+  - FHS is never red (80-89% green).
+  - Historical is red 3-11% of the time; normal 15-21%; Cornish-Fisher 0-5%.
+  - On the last 250 dev days, every method is green.
+- **Window sensitivity** (mean exception rate over the 6 series; windows 250/500/1000):
+  - At 99%, FHS goes 1.35% → 1.15% → 1.06%: 250 days leave only ~2.5 residuals in the 1%
+    tail. Historical stays at 1.5-1.6% and normal at 2.0-2.1%, whatever the window.
+  - Conditional-coverage passes at 99% for FHS: 0 of 6 series at 250 days, 4 at 500, 4 at
+    1000.
+  - For 7a: 500 is a reasonable default; 1000 does slightly better for FHS. This is a
+    pre-registration choice for 7a; nothing changes here.
+- **Cornish-Fisher in practice:**
+  - The rolling 500-day excess kurtosis reaches 91-104 and the skew −6.2 to −7.2. Those are
+    the windows holding October 1987: 1/N USD fell −17.4% on 1987-10-19.
+  - The CF quantile is non-monotone on 0-2.1% of days (slope ≤ 0 somewhere on z ∈ [−8, z_p]).
+  - CF ES < VaR on no dev day: the turn sits deeper than the tail mass that matters.
+- **Sanity:**
+  - VaR > 0 and ES ≥ VaR on every day, for every method.
+  - The 99% VaR for 1987-10-20, the day after the crash:
+    - FHS 5.2% → 15.0%
+    - CF 3.0% → 14.2%
+    - normal 1.9% → 2.7%
+    - historical 2.3% → 2.4% (one more value in a 500-day window)
+  - `next_day` after 2010-12-31: FHS 1.53%, historical 4.36%. The 2008-09 crisis is still in
+    the historical window, while the EWMA has forgotten it.
+- **Review.** python-reviewer found no critical or high issues. It re-derived the CF ES
+  bracket and checked every alignment by experiment, including block joins at sizes 1, 7 and
+  64. `/code-review` (high) found 7 items. Fixed test-first (RED `d072432`, 29 failing;
+  GREEN `6c85107`):
+  - **ES dropped a tail observation** (reviewer, medium). When (n − 1)p should be a whole
+    number k, 1 − 0.9 = 0.09999999999999998 put q a hair below the (k+1)-th smallest value,
+    so that value left the tail. At n = 101 and 90%, this happened on 12 of 40 seeds (the
+    reviewer saw 844 of 2000). Now an index within 1e-9 of a whole number takes that order
+    statistic exactly (`np.partition`). Nothing changes at 95% or 99% for windows 250, 500
+    and 1000 (indices 24.95, 4.99, 12.45, ...), so the dev numbers above stand.
+  - **`forecast` raised on the row it drops** (reviewer, medium). It used to compute the
+    day-after-the-data row too, so a series ending in 10 zero days raised "no variance".
+    `forecast` now runs the windows of r[:-1], and `next_day` looks only at the last window
+    (FHS keeps the whole history for its filter).
+  - **Results that aren't finite now raise, naming the day.** A NaN VaR would compare False
+    and silently count as "no exception".
+    - A +1e200 return made the normal forecast inf and CF NaN.
+    - In FHS, `lfilter` turns an overflowing r² into NaN (its padded zero coefficient times
+      inf), which the σ check had reported as "volatility reached 0".
+    - The point functions check their results too.
+  - Numpy integers and reals are accepted for `window`, `days` and `level`.
+  - Blocks now hold 2²⁰ values whatever the window (2048 rows meant 80 MB at window 5000).
+  - `check_decay` is shared by `ewma_cov` and the filter.
+  - `report` rejects empty `levels` or `methods`.
+  - Test changes:
+    - The FHS loop reference runs its own EWMA recursion instead of the filter under test.
+    - The block-join test compares every row, with blocks of 3 windows. It used to compare
+      only the last block, so it could not catch a bug at a join.
+  - Left as is:
+    - `report` recomputes each method per level (~1 s per series; revisit in 7a if the grid
+      is slow).
+    - `decay` is validated for every method, failing fast on a bad value.
+    - `LikelihoodRatio.days` is T while the transition tests use T − 1; this is now
+      documented.
+- Verification: 1009 passed, 99.89% coverage (risk modules 100%); ruff, format and mypy
+  clean; `uv build` and `uv lock --check` fine. Invariants 1-6 hold.
+
+## 2026-10-09: step 5a, session 2 of 3 (rolling forecasts, backtests)
+
+- `risk/var.py`:
+  - `forecast(returns, *, method, level, window=WINDOW, decay=EWMA_DECAY)` returns
+    `var` and `es` columns indexed by the day forecast; the first row is day `window` + 1.
+  - `next_day(...)` gives today's VaR by the same rule: it equals the last row of
+    `forecast` on the series with any return appended.
+  - `METHODS = ("historical", "normal", "cornish_fisher", "fhs")`, `WINDOW = 500`.
+  - One minimum window for every method, 4 days (excess kurtosis needs 4).
+  - Rows are processed in blocks of 2048 windows (`sliding_window_view` builds no copy;
+    `np.quantile` and the moments copy one block at a time).
+  - Normal and CF compute each window's moments directly: the mean, sd with ddof = 1, and
+    pandas' G1/G2 formulas from sums of powers of deviations. Pandas' online rolling moments
+    aren't used.
+  - A window with sd ≤ 1e-12 × its largest |return| raises, naming the forecast day.
+  - FHS:
+    - The seed is the mean square of the first window; a first window of zeros raises.
+    - σ comes from `_ewma_var` (n + 1 values); a σ that underflows to 0 raises (decay 1e-10
+      and 30 zero days do it).
+- `risk/backtest.py`:
+  - `exceptions(returns, var)` is strict: r < −VaR. Every forecast day needs a return.
+  - `kupiec`, `transitions`, `christoffersen`, `conditional_coverage` return a
+    `LikelihoodRatio(stat, pvalue, df, exceptions, days)`.
+  - `basel_zone` takes exactly 250 days at 99%; `basel_zones` gives trailing 250-day windows.
+  - `report(returns, *, levels, methods, window, decay)` has one row per (level, method);
+    `basel` is the zone of the last 250 days at 99%, otherwise None.
+  - `xlogy` handles 0·ln 0, and a statistic that rounds below 0 is 0. With only the last day
+    an exception, π11 has no days behind it and drops out (LR_ind = 0 exactly).
+- `_validate.tail_prob` and `_validate.return_series` are shared by both modules (they were
+  private in var.py).
+- **The Kupiec test's true size differs from 5%:**
+  - From the exact binomial distribution, a 5% Kupiec test at 99% over 250 days rejects a
+    correct model **9.5%** of the time; at 95% over 500 days, 5.4%; over 1000 days, 5.1%.
+  - Zero exceptions in 250 days at 99% is itself rejected (LR = 5.03).
+  - The Monte Carlo test (4000 × 500 days, iid normal, true VaR) matches 5.39% within 4
+    standard errors. For 7a: report the exact size (or exact binomial p-values) next to the
+    chi-square ones for 99% over short windows.
+- Tests:
+  - RED `507b999` (fails at collection), GREEN `020c45c`. 73 new tests.
+  - Full suite 953 passed, 99.88% coverage, both risk modules at 100%; ruff, format and mypy
+    clean.
+  - The vectorized forecasts match a per-window loop of the point functions to 1e-12 (rtol),
+    including across processing blocks (5200 days).
+  - No look-ahead: perturbing returns from day k on never changes a forecast for a day ≤ k,
+    for all four methods (hypothesis). A −25% day changes the next forecast, not its own.
+- Test fixes in GREEN:
+  - The FHS hand case used a 2-day window, below the minimum; it was redone with 4 days. The
+    redone case also shows a 4% day lifting the next VaR from 2% to √1e-3 = 3.16%.
+  - The Monte Carlo test built 4000 date ranges (46 s); it now builds one (2 s).
+  - The "scale commutes" property hit a subnormal (5e-324 × 0.5 = 0 creates a tie); it now
+    avoids subnormals, like the power-of-2 property.
+- Mutation run: 22 of 22 planted bugs caught.
+  - Windows that include the forecast day; rows shifted by one; an FHS seed from the whole
+    series; residuals divided by the next day's σ; FHS scaled by the previous σ.
+  - sd with ddof = 0; the G1 and G2 constants; no flat-window check; the wrong day in the
+    message; an off-by-one length check; a block seam that drops rows.
+  - `≤` for an exception; the Kupiec MLE term; π over T instead of T − 1; π11 taking π01's
+    formula; df 1 for CC; the Basel 4/5 boundary; the rolling count off by one; no clamp at
+    0; Basel on the first 250 days; a wrong n10 count.
+
+## 2026-10-08: step 5a, session 1 of 3 (plan, point estimators)
+
+- Plan `plans/step-5a-plan.md` approved as drafted. The seven owner decisions:
+  - Input: any daily simple-return Series; the dev checks use total net returns (`Result.net`).
+  - One `window` parameter, default 500 days; 250 and 1000 only as dev sensitivity.
+  - Historical VaR uses numpy's linear quantile; ES is the mean of the returns at or below
+    −VaR. Parametric ES uses closed forms.
+  - FHS: zero-mean EWMA (λ = 0.94) in one causal pass, seeded with the first window's mean
+    square; the residuals are rescaled by σ(t+1).
+  - Basel zones only at 99% over exactly 250 days.
+  - The risk functions are pure and unguarded, like `simulate`.
+  - Vectorized windows, checked against a loop.
+- `risk/var.py`:
+  - `var_es(sample, level)`, `normal_var_es(mu, sigma, level)`,
+    `cornish_fisher_var_es(mu, sigma, skew, exkurt, level)`,
+    `ewma_vol(returns, *, seed_var, decay=EWMA_DECAY)`, `scale_horizon(x, days=10)`, `LEVELS`.
+  - All return a `VarEs(var, es)` NamedTuple of positive losses.
+  - The formulas live in private array cores (`_historical` on a 2-D array of windows,
+    `_normal`, `_cornish_fisher`, `_ewma_var`) for session 2's rolling forecasts.
+  - CF ES is the exact tail mean of the CF quantile:
+    −μ + σ (φ(z)/p) [1 + zS/6 + (z² − 1)K/24 − (2z² − 1)S²/36], from E[Zᵏ | Z < z].
+    Numerical integration agrees to 1e-9 (1e-11 in the plan's check).
+    - It is not monotone for S = 1, K = 0 at 99%: VaR 1.215σ but ES 0.905σ. A test pins this
+      as documented behaviour.
+    - Also documented: excess kurtosis lowers the CF 95% VaR, because (z³ − 3z) > 0 at
+      z = −1.645.
+  - `ewma_vol` is `scipy.signal.lfilter` with initial state λ·seed, indexed by the day being
+    forecast (σ(s) uses returns through s − 1). The forecast after the last day stays in
+    `_ewma_var`'s extra element.
+- Float details:
+  - **The tail mean can round above q:** 7 copies of 0.045899312196799685 average 1 ulp above
+    the value itself. ES = −min(tail mean, q) keeps ES ≥ VaR exact, and a test pins that
+    sample.
+  - **numpy's linear interpolation never rounds below its lower neighbour,** so the tail is
+    never empty. A `max(q, min)` guard was dead code (the mutation run showed it) and was
+    removed.
+  - **Exact power-of-2 scaling fails for subnormals** (around 1e-311): halving drops bits. The
+    property test keeps magnitudes above 1e-300.
+- Tests:
+  - RED `b9243a7` (fails at import), GREEN `082de7f`. 88 tests in `tests/test_var.py`.
+  - Full suite 877 passed, 99.86% coverage; ruff, format and mypy clean.
+- Mutation run: 13 of 13 planted bugs caught:
+  - the quantile method
+  - `<` instead of `≤` in the tail
+  - no ES clamp
+  - each of the three CF coefficients
+  - the normal ES's `/ p`
+  - the EWMA's (1 − λ) and seed state
+  - a one-day look-ahead in `ewma_vol`
+  - the level bound
+  - √ in the horizon
+  - p = level instead of 1 − level
+
 ## 2026-10-08: step 4, session 4 of 4 (review)
 
 - python-reviewer: no critical or high findings. It ran its own differential fuzz (300

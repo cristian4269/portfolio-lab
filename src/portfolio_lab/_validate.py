@@ -2,6 +2,7 @@
 
 import datetime as dt
 import math
+import numbers
 
 import numpy as np
 import pandas as pd
@@ -126,6 +127,41 @@ def check_cap(cap: float) -> None:
 def check_finite(x: float, what: str) -> None:
     if not math.isfinite(x):
         raise ValueError(f"{what} must be finite, got {x}")
+
+
+def tail_prob(level: float) -> float:
+    """p = 1 - level for a VaR confidence level in (0.5, 1): 0.99 gives 0.01.
+
+    Any real number counts (numpy's too), but not a bool."""
+    if (
+        isinstance(level, bool | np.bool_)
+        or not isinstance(level, numbers.Real)
+        or not 0.5 < level < 1
+    ):
+        raise ValueError(f"level must be a confidence in (0.5, 1) such as 0.99, got {level!r}")
+    return 1.0 - float(level)
+
+
+def check_decay(decay: float) -> None:
+    """An exponential decay per period must be in (0, 1] (1 = equal weights)."""
+    if not 0 < decay <= 1:
+        raise ValueError(f"decay must be in (0, 1], got {decay}")
+
+
+def return_series(returns: pd.Series, what: str) -> np.ndarray:
+    """One portfolio's daily returns as floats: a Series on sorted, unique dates, at least one
+    day, complete, finite and >= -100%."""
+    if not isinstance(returns, pd.Series):
+        raise TypeError(f"{what} must be a Series of one portfolio, got {type(returns).__name__}")
+    check_dates(returns.index, what)
+    if len(returns) < 1:
+        raise ValueError(f"{what} need at least 1 day")
+    r = as_floats(returns, what)
+    if not np.isfinite(r).all():
+        raise ValueError(f"{what} must be finite, with no gaps")
+    if (r < -1).any():
+        raise ValueError(f"{what} below -100% are impossible without leverage")
+    return r
 
 
 def check_frame(returns: pd.DataFrame, what: str) -> None:
