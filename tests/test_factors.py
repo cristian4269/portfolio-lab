@@ -381,7 +381,19 @@ def test_weekly_equals_regress_on_compounded_weeks():
     assert table.loc["p", "coef"].to_numpy() == pytest.approx(fit.coef.to_numpy(), rel=1e-12)
     assert table.loc["p", "se"].to_numpy() == pytest.approx(fit.se.to_numpy(), rel=1e-12)
     assert table.loc[("p", "fx"), "lags"] == fa.nw_lags(fit.nobs)
-    assert table.loc[("p", "fx"), "end"].dayofweek == 2  # labelled by Wednesdays
+
+
+def test_weekly_fit_reports_the_daily_days_it_covers():
+    # Dev data ends on Friday 2010-12-31, whose week is labelled Wednesday 2011-01-05: the fit
+    # must report the days it used, not a label inside the holdout.
+    idx = pd.bdate_range("2010-01-07", "2010-12-31", name="date")  # Thursday .. Friday
+    f = factor_frame(len(idx), seed=13, start="2010-01-07")
+    assert f.index.equals(idx)
+    y = (0.5 * f["Mkt-RF"] + np.random.default_rng(14).normal(0, 0.003, len(idx))).rename("p")
+    table = fa.factor_betas(y, f, frequency="weekly")
+    assert table.loc[("p", fa.ALPHA), "start"] == pd.Timestamp("2010-01-07")
+    assert table.loc[("p", fa.ALPHA), "end"] == pd.Timestamp("2010-12-31")
+    assert table.loc[("p", fa.ALPHA), "nobs"] == len(fa.to_weekly(y))  # nobs still counts weeks
 
 
 def test_weekly_drops_the_nan_edges_before_making_weeks():
@@ -411,6 +423,9 @@ def test_factor_betas_input_types():
         fa.factor_betas(y.to_numpy(), f)
     with pytest.raises(ValueError, match="unique column names"):
         fa.factor_betas(pd.concat([y, y], axis=1), f)
+    with pytest.raises(ValueError, match="unique column names"):
+        # 1 and "1" differ as labels but name the same asset in the table
+        fa.factor_betas(pd.DataFrame({1: y, "1": 2 * y}), f)
     with pytest.raises(TypeError, match="factors must be a DataFrame"):
         fa.factor_betas(y, f.to_numpy())
     with pytest.raises(TypeError, match="fx must be a Series"):
@@ -647,3 +662,31 @@ def test_to_weekly_input_checks():
         fa.to_weekly(r.reset_index(drop=True))
     with pytest.raises(TypeError, match="Series or a DataFrame"):
         fa.to_weekly(r.to_numpy())
+
+
+@given(st.integers(0, 2**32 - 1), st.integers(1, 120), st.sampled_from(["compound", "sum"]))
+def test_to_weekly_equals_pandas_resample(seed, n, how):
+    # Random trading days (gaps of 1-12 calendar days, so some weeks are empty) against pandas'
+    # own Wednesday resampling.
+    rng = np.random.default_rng(seed)
+    idx = pd.DatetimeIndex(
+        pd.Timestamp("2001-01-01") + pd.to_timedelta(np.cumsum(rng.integers(1, 13, n)), "D")
+    )
+    r = pd.DataFrame(rng.normal(0, 0.02, (n, 3)), index=idx, columns=["a", "b", "c"])
+    weeks = r.resample("W-WED")
+    ref = (1 + r).resample("W-WED").prod() - 1 if how == "compound" else weeks.sum()
+    ref = ref[weeks.size().to_numpy() > 0]
+    out = fa.to_weekly(r, how=how)
+    assert out.index.equals(ref.index)
+    assert out.to_numpy() == pytest.approx(ref.to_numpy(), rel=1e-12, abs=1e-15)
+    assert fa.to_weekly(r["b"], how=how).to_numpy() == pytest.approx(
+        ref["b"].to_numpy(), rel=1e-12, abs=1e-15
+    )
+
+
+def test_to_weekly_of_nothing_is_empty():
+    r = hand_week_returns().iloc[:0]
+    w = fa.to_weekly(r)
+    assert isinstance(w, pd.Series) and len(w) == 0 and w.name == "r"
+    frame = fa.to_weekly(pd.DataFrame({"a": r, "b": r}), how="sum")
+    assert list(frame.columns) == ["a", "b"] and len(frame) == 0
