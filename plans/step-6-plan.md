@@ -171,6 +171,12 @@ sensitivity only and ranked no strategies. The numbers are under "Grounding 2026
   - the guard skipped
   - the anchor taken after `start`
   - the coverage check skipped
+- As built (2026-10-09, see NOTES.md):
+  - RED `b0be0c2`, GREEN `cac9ef9`.
+  - 54 tests, 100% coverage of the module.
+  - The mutation run caught 12 of 12 planted bugs: the plan's six plus an exclusive end, the
+    table's guard after the replays, a summed P&L, the worst date off by one and an empty
+    window.
 
 **Session 2: hypothetical shocks, dev check, review.**
 - `SHOCKS` values are exact: fx = −1/11 and +1/9, dy = 0.02 (decimals).

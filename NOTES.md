@@ -2,6 +2,37 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-09: step 6, session 1 of 2 (historical replay)
+
+- **Plan approved** (`3914321`): all eight decisions as recommended. The grounding numbers on
+  dev data are in `plans/step-6-plan.md`.
+- **Built** (RED `b0be0c2`, GREEN `cac9ef9`), `stress/historical.py`:
+  - `Scenario` and the read-only `SCENARIOS` (gfc, covid, rates), pinned to the blueprint's
+    dates by a test.
+  - `window`: the days in (start, end]. The holdout rule (`resolve_end`) runs before the
+    returns are read, so a 2020 or 2022 window raises `HoldoutError` even on synthetic data.
+  - `replay`: buy-and-hold through `engine.simulate` with one target and no cost.
+  - `outcome`: the P&L, the worst day and its date, the max drawdown (the anchor's value
+    counts as the first peak) and the days covered.
+  - `table`: one row per (scenario, view, portfolio). It checks every scenario against the
+    holdout rule before replaying anything.
+- **Conventions settled while building:**
+  - The data must reach both edges: a day on or before `start`, and one on or after `end`.
+    A weekend `end` therefore needs a later day, since data can't tell a weekend from a gap.
+  - A gap inside the window raises even at weight 0, as in the engine. The 49-industry NaN
+    policy is still 7b's.
+- **Tests:** 54, with 100% coverage of the module. The full suite passes (1140).
+- **Mutation run:** 12 of 12 planted bugs caught:
+  - [start, end] windows, an exclusive end
+  - the drawdown peak without the starting 1
+  - constant weights instead of drift
+  - the guard skipped, and the table's guard moved after the replays
+  - the anchor taken after `start`
+  - either coverage check skipped
+  - the P&L summed instead of compounded
+  - the worst date off by one
+  - an empty window allowed
+
 ## 2026-10-09: step 5b, session 2 of 2 (rolling and macro betas, dev check, review)
 
 - **Built** (RED `882c862`, GREEN `eb99c88`):
