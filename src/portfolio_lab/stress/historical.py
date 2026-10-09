@@ -34,7 +34,7 @@ import pandas as pd
 from portfolio_lab._validate import as_date, check_dates, portfolio_values, return_series
 from portfolio_lab.backtest.engine import simulate
 from portfolio_lab.data import resolve_end
-from portfolio_lab.data.views import View, check_view
+from portfolio_lab.data.views import MAX_AGE_DAYS, View, check_view
 from portfolio_lab.report import metrics
 
 __all__ = ["SCENARIOS", "Outcome", "Scenario", "outcome", "replay", "table", "window"]
@@ -42,7 +42,10 @@ __all__ = ["SCENARIOS", "Outcome", "Scenario", "outcome", "replay", "table", "wi
 
 @dataclass(frozen=True)
 class Scenario:
-    """A named crisis window: the returns of the days in (start, end] (see the module doc)."""
+    """A named crisis window: the returns of the days in (start, end] (see the module doc).
+
+    `start` and `end` may be given as date strings; they are kept as calendar dates (midnight).
+    """
 
     name: str
     start: pd.Timestamp
@@ -50,7 +53,13 @@ class Scenario:
     note: str
 
     def __post_init__(self) -> None:
-        start, end = as_date(self.start, "start"), as_date(self.end, "end")
+        if not isinstance(self.name, str):
+            raise TypeError(f"a scenario's name must be a string, got {type(self.name).__name__}")
+        if not self.name:
+            raise ValueError("a scenario's name must not be empty")
+        what = f"scenario {self.name!r}"
+        start = as_date(self.start, f"{what} start").normalize()
+        end = as_date(self.end, f"{what} end").normalize()
         if end <= start:
             raise ValueError(
                 f"scenario {self.name!r} must end after it starts ({start.date()} to {end.date()})"
@@ -123,17 +132,19 @@ def replay(
 ) -> pd.Series:
     """The daily returns of `weights` bought at the close before the window and held through it.
 
-    `weights`: long-only (>= 0, summing to 1), labeled by the view's assets in their order. Every
-    return inside the window must be present and finite, even at weight 0, as in the engine.
-    The result is indexed by the window's days.
+    `weights`: long-only (>= 0, summing to 1), labeled by the view's assets in their order. An
+    asset at weight 0 is never held, so its returns are not read (an industry not yet listed may
+    be NaN); every held asset's returns inside the window must be present and finite. The result
+    is indexed by the window's days.
     """
     _check_scenario(scenario, allow_holdout)
     check_view(view)
-    returns = view.returns
-    w = portfolio_values(weights, returns.columns, "weights", "the view's returns")
+    w = portfolio_values(weights, view.returns.columns, "weights", "the view's returns")
+    owned = w > 0
+    returns = view.returns.loc[:, owned]
     first, stop = _span(check_dates(returns.index, "returns"), scenario)
     held = returns.iloc[first - 1 : stop]  # the anchor (bought at its close) through the window
-    target = pd.DataFrame([w], index=held.index[:1], columns=returns.columns)
+    target = pd.DataFrame([w[owned]], index=held.index[:1], columns=returns.columns)
     return simulate(target, held, cost_bps=0.0).gross.rename("replay")
 
 
@@ -154,7 +165,7 @@ def outcome(returns: pd.Series) -> Outcome:
 
 
 def table(
-    weights: Mapping[str, Mapping[str, pd.Series]],
+    weights_by_view: Mapping[str, Mapping[str, pd.Series]],
     views: Mapping[str, View],
     scenarios: Iterable[Scenario],
     *,
@@ -162,9 +173,9 @@ def table(
 ) -> pd.DataFrame:
     """The `outcome` of every replay: one row per (scenario, view, portfolio).
 
-    `weights` maps a view's name to its portfolios, e.g. {"USD": {"1/N": w}, "CAD": {...}}, and
-    every such name must be a key of `views`. Every scenario is checked against the holdout rule
-    before anything is replayed.
+    `weights_by_view` maps a view's name to its portfolios, e.g. {"USD": {"1/N": w}, "CAD": ...},
+    and every such name must be a key of `views`. Every scenario is checked against the holdout
+    rule before anything is replayed; a replay that fails gets a note naming its row.
     """
     chosen = list(scenarios)
     if not chosen:
@@ -174,17 +185,23 @@ def table(
     names = [s.name for s in chosen]
     if len(set(names)) < len(names):
         raise ValueError(f"scenario names must be unique (rows are keyed by them): {names}")
-    missing = [name for name in weights if name not in views]
+    missing = [name for name in weights_by_view if name not in views]
     if missing:
         raise ValueError(f"no view for the weights of {missing}: the views are {list(views)}")
-    portfolios = [(v, name, w) for v, group in weights.items() for name, w in group.items()]
+    portfolios = [(v, name, w) for v, group in weights_by_view.items() for name, w in group.items()]
     if not portfolios:
         raise ValueError("table needs at least one portfolio")
-    keys, rows = [], []
+    keys: list[tuple[str, str, str]] = []
+    rows: list[dict[str, object]] = []
     for s in chosen:
         for v, name, w in portfolios:
+            try:
+                result = outcome(replay(w, views[v], s, allow_holdout=allow_holdout))
+            except (TypeError, ValueError) as err:
+                err.add_note(f"in table: scenario {s.name!r}, view {v!r}, portfolio {name!r}")
+                raise
             keys.append((s.name, v, name))
-            rows.append(asdict(outcome(replay(w, views[v], s, allow_holdout=allow_holdout))))
+            rows.append(asdict(result))
     index = pd.MultiIndex.from_tuples(keys, names=["scenario", "view", "portfolio"])
     return pd.DataFrame(rows, index=index, columns=[f.name for f in fields(Outcome)])
 
@@ -203,10 +220,12 @@ def _span(days: pd.DatetimeIndex, scenario: Scenario) -> tuple[int, int]:
 
     Calendar dates are compared, not times of day (a 16:00 close is that day's). Raises unless
     `days` reach both edges, a day on or before `start` to buy at and one on or after the last
-    weekday on or before `end` (a weekend is known to be closed, a holiday is not), and hold at
-    least one day inside.
+    weekday on or before `end` (a weekend is known to be closed, a holiday is not: data ending
+    on the Thursday before a Good Friday and a Saturday `end` is refused), hold at least one day
+    inside, and have no hole from the anchor to the window's last day: no two closes more than
+    MAX_AGE_DAYS calendar days apart (the longest market closure, 11-14 September 2001, left 7).
     """
-    name, start, end = scenario.name, scenario.start.normalize(), scenario.end.normalize()
+    name, start, end = scenario.name, scenario.start, scenario.end
     dates = days.normalize()
     if len(dates) == 0 or dates[0] > start:
         begins = "have no days" if len(dates) == 0 else f"start on {dates[0].date()}"
@@ -222,4 +241,13 @@ def _span(days: pd.DatetimeIndex, scenario: Scenario) -> tuple[int, int]:
     stop = int(dates.searchsorted(end, side="right"))
     if first == stop:
         raise ValueError(f"no day of the returns falls in {name} ({start.date()}, {end.date()}]")
+    held = dates[first - 1 : stop]  # the anchor through the window's last day
+    gaps = (held[1:] - held[:-1]).days
+    if (gaps > MAX_AGE_DAYS).any():
+        k = int(np.argmax(gaps > MAX_AGE_DAYS))
+        raise ValueError(
+            f"the returns have a hole in {name}: no close from {held[k].date()} to "
+            f"{held[k + 1].date()} ({gaps[k]} calendar days; markets close for {MAX_AGE_DAYS} "
+            "at most)"
+        )
     return first, stop

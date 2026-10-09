@@ -43,7 +43,10 @@ _TABLE_COLUMNS = ("coef", "se", "nobs", "start", "end")
 
 @dataclass(frozen=True)
 class Shock:
-    """One regressor of the 5b model (`term`) moving by `move`, every other held at 0."""
+    """One regressor of the 5b model (`term`) moving by `move`, every other held at 0.
+
+    Every term but `dy` is a return, so its move must be above -100%.
+    """
 
     name: str
     term: str
@@ -51,6 +54,10 @@ class Shock:
     note: str
 
     def __post_init__(self) -> None:
+        if not isinstance(self.name, str):
+            raise TypeError(f"a shock's name must be a string, got {type(self.name).__name__}")
+        if not self.name:
+            raise ValueError("a shock's name must not be empty")
         if self.term not in TERMS:
             raise ValueError(
                 f"shock {self.name!r} moves {self.term!r}: a shock moves one of {list(TERMS)}"
@@ -60,6 +67,11 @@ class Shock:
                 f"the move of shock {self.name!r} must be a number, got {type(self.move).__name__}"
             )
         check_finite(self.move, f"the move of shock {self.name!r}")
+        if self.term != DY and self.move <= -1:
+            raise ValueError(
+                f"shock {self.name!r} moves the return {self.term!r} by {self.move}: a return "
+                "cannot fall -100% or more"
+            )
         object.__setattr__(self, "move", float(self.move))
 
 
@@ -176,3 +188,13 @@ def _check_table(betas: object) -> None:
     missing = [col for col in _TABLE_COLUMNS if col not in betas.columns]
     if missing:
         raise ValueError(f"{what}: the columns {missing} are missing")
+    if not betas.index.is_unique:
+        repeated = betas.index[betas.index.duplicated()].unique().tolist()
+        raise ValueError(f"{what}: each (asset, term) must be unique, repeated: {repeated}")
+    values = betas[["coef", "se"]].to_numpy(dtype=float)
+    if not np.isfinite(values).all():
+        row = int(np.argmax(~np.isfinite(values).all(axis=1)))
+        raise ValueError(f"{what}: coef and se must be finite, not at {betas.index[row]}")
+    if (values[:, 1] < 0).any():
+        row = int(np.argmax(values[:, 1] < 0))
+        raise ValueError(f"{what}: se must be >= 0, not at {betas.index[row]}")

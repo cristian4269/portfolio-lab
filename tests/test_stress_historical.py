@@ -234,7 +234,7 @@ def test_window_refuses_a_hole_inside_the_window():
 
 
 def test_a_hole_between_the_anchor_and_the_window_counts():
-    holed = GFC_DAYS.drop(pd.bdate_range("2008-08-26", "2008-09-05"))
+    holed = GFC_DAYS[(GFC_DAYS < "2008-08-26") | (GFC_DAYS > "2008-09-05")]
     with pytest.raises(ValueError, match="2008-08-25 to 2008-09-08"):
         hs.window(frame(holed), GFC)
 
