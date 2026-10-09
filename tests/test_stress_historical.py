@@ -125,6 +125,24 @@ def test_a_scenario_takes_date_strings():
     assert (s.start, s.end) == (ts("2008-09-01"), ts("2008-11-30"))
 
 
+def test_a_scenario_is_a_pair_of_calendar_dates():
+    s = hs.Scenario("t", "2010-11-01 09:30", "2010-12-31 16:00", "")
+    assert (s.start, s.end) == (ts("2010-11-01"), ts("2010-12-31"))
+    # Its end is DEV_END by date, so the holdout rule lets it run.
+    assert hs.window(frame(calendar("2010-10-01", "2011-01-31")), s).index[-1] == ts("2010-12-31")
+    with pytest.raises(ValueError, match="after"):
+        hs.Scenario("x", "2008-09-01 09:00", "2008-09-01 16:00", "")
+
+
+def test_a_scenario_needs_a_name_and_names_itself_in_errors():
+    with pytest.raises(TypeError, match="name"):
+        hs.Scenario(None, ts("2008-09-01"), ts("2008-11-30"), "")
+    with pytest.raises(ValueError, match="name"):
+        hs.Scenario("", ts("2008-09-01"), ts("2008-11-30"), "")
+    with pytest.raises(ValueError, match="'crash'"):
+        hs.Scenario("crash", "", ts("2008-11-30"), "")
+
+
 # --- window ---------------------------------------------------------------------------------
 
 
@@ -207,6 +225,31 @@ def test_window_uses_the_loaders_holdout_rule():
         hs.window(r, scenario("2010-12-01", "2011-01-01"))
 
 
+def test_window_refuses_a_hole_inside_the_window():
+    holed = GFC_DAYS.drop(pd.bdate_range("2008-10-06", "2008-10-24"))  # three weeks missing
+    with pytest.raises(ValueError, match="2008-10-03 to 2008-10-27"):
+        hs.window(frame(holed), GFC)
+    with pytest.raises(ValueError, match="2008-10-03 to 2008-10-27"):
+        hs.replay(weights(0.5, 0.5), view(frame(holed)), GFC)
+
+
+def test_a_hole_between_the_anchor_and_the_window_counts():
+    holed = GFC_DAYS.drop(pd.bdate_range("2008-08-26", "2008-09-05"))
+    with pytest.raises(ValueError, match="2008-08-25 to 2008-09-08"):
+        hs.window(frame(holed), GFC)
+
+
+def test_holes_outside_the_window_and_the_longest_closure_are_fine():
+    before = GFC_DAYS.drop(pd.bdate_range("2008-08-26", "2008-08-28"))  # before the anchor
+    assert hs.window(frame(before), GFC).index[0] == ts("2008-09-02")
+    # 11-14 September 2001: the market's longest closure, 7 calendar days from close to close.
+    days = calendar(
+        "2001-09-04", "2001-09-28", holidays=tuple(f"2001-09-{d}" for d in range(11, 15))
+    )
+    got = hs.window(frame(days), scenario("2001-09-07", "2001-09-21"))
+    assert list(got.index[:2]) == [ts("2001-09-10"), ts("2001-09-17")]
+
+
 def test_window_rejects_unsorted_or_undated_returns():
     r = frame(GFC_DAYS)
     with pytest.raises(ValueError, match="sorted"):
@@ -269,11 +312,15 @@ def test_replay_needs_a_view():
         hs.replay(weights(0.6, 0.4), HAND, scenario("2008-09-09", "2008-09-12"))
 
 
-def test_replay_rejects_a_gap_inside_the_window_even_at_zero_weight():
+def test_replay_ignores_an_asset_it_does_not_hold():
+    # An asset at weight 0 is never held, so a gap in it (an industry not yet listed) is no
+    # reason to refuse the replay. A gap in a held asset still raises.
     r = HAND.copy()
     r.loc["2008-09-11", "B"] = np.nan
+    s = scenario("2008-09-09", "2008-09-12")
+    approx(hs.replay(weights(1.0, 0.0), view(r), s), [F(10, 100), F(-5, 100), F(2, 100)])
     with pytest.raises(ValueError, match="missing for B"):
-        hs.replay(weights(1.0, 0.0), view(r), scenario("2008-09-09", "2008-09-12"))
+        hs.replay(weights(0.6, 0.4), view(r), s)
 
 
 def test_replay_applies_the_holdout_rule():
@@ -406,6 +453,25 @@ def test_table_checks_every_scenario_against_the_holdout_rule_before_replaying(m
 def test_table_needs_a_view_for_every_set_of_weights():
     with pytest.raises(ValueError, match="CAD"):
         hs.table({"CAD": {"even": weights(0.5, 0.5)}}, {"USD": view(frame(GFC_DAYS))}, [GFC])
+
+
+def test_table_runs_a_holdout_scenario_with_the_flag():
+    v = {"USD": view(frame(calendar("2020-02-03", "2020-03-31")))}
+    w = {"USD": {"even": weights(0.5, 0.5)}}
+    got = hs.table(w, v, [hs.SCENARIOS["covid"]], allow_holdout=True)
+    assert got.loc[("covid", "USD", "even"), "first"] == ts("2020-02-20")
+    for col in ("worst_date", "first", "last"):
+        assert pd.api.types.is_datetime64_dtype(got[col]), col
+    assert pd.api.types.is_integer_dtype(got["days"])
+    for col in ("pnl", "worst_day", "max_drawdown"):
+        assert pd.api.types.is_float_dtype(got[col]), col
+
+
+def test_table_says_which_replay_failed():
+    w = {"USD": {"even": weights(0.5, 0.5), "bad": weights(0.5, 0.4)}}
+    with pytest.raises(ValueError, match="sum to 1") as failed:
+        hs.table(w, {"USD": view(frame(GFC_DAYS))}, [GFC])
+    assert failed.value.__notes__ == ["in table: scenario 'gfc', view 'USD', portfolio 'bad'"]
 
 
 def test_table_needs_unique_scenario_names():

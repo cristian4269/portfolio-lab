@@ -31,7 +31,10 @@ def factor_frame(n, seed=0):
     return f
 
 
-def beta_table(rows: dict[str, dict[str, tuple[float, float]]]) -> pd.DataFrame:
+SAMPLE = (523, pd.Timestamp("2001-01-03"), pd.Timestamp("2010-12-31"))  # nobs, start, end
+
+
+def beta_table(rows: dict[str, dict[str, tuple[float, float]]], samples=None) -> pd.DataFrame:
     """A long table shaped like `factor_betas`' output: (asset, term) -> coef, se and the fit."""
     blocks = []
     for asset, terms in rows.items():
@@ -40,20 +43,20 @@ def beta_table(rows: dict[str, dict[str, tuple[float, float]]]) -> pd.DataFrame:
             index=pd.MultiIndex.from_product([[asset], list(terms)], names=["asset", "term"]),
         )
         block["t"] = block["coef"] / block["se"]
-        block["nobs"] = 523
-        block["start"] = pd.Timestamp("2001-01-03")
-        block["end"] = pd.Timestamp("2010-12-31")
+        block["nobs"], block["start"], block["end"] = (samples or {}).get(asset, SAMPLE)
         blocks.append(block)
     return pd.concat(blocks)
 
 
+Q_SAMPLE = (400, pd.Timestamp("2003-01-08"), pd.Timestamp("2010-12-29"))  # q's own fit
 CAD_TABLE = beta_table(
     {
         "p": {"alpha": (0.0, 0.1), "Mkt-RF": (0.75, 0.03), "Mom": (0.04, 0.02),
               "fx": (0.99, 0.035), "dy": (-1.5, 0.4)},
         "q": {"alpha": (0.0, 0.1), "Mkt-RF": (1.0, 0.01), "Mom": (-0.01, 0.01),
               "fx": (0.97, 0.015), "dy": (-0.1, 0.15)},
-    }
+    },
+    samples={"q": Q_SAMPLE},
 )  # fmt: skip
 USD_TABLE = beta_table({"p": {"alpha": (0.0, 0.1), "Mkt-RF": (0.72, 0.03), "Mom": (0.02, 0.02)}})
 
@@ -114,6 +117,24 @@ def test_a_shock_move_is_a_number(bad):
         hy.Shock("odd", "Mkt-RF", bad, "")
 
 
+@pytest.mark.parametrize("term", ["fx", "Mkt-RF", "Mom"])
+def test_a_return_cannot_fall_100_percent_or_more(term):
+    with pytest.raises(ValueError, match="-100%"):
+        hy.Shock("wipeout", term, -1.0, "")
+    assert hy.Shock("deep", term, -0.99, "").move == -0.99
+
+
+def test_a_yield_change_may_be_any_size():
+    assert hy.Shock("cut", "dy", -0.05, "").move == -0.05
+
+
+def test_a_shock_needs_a_name():
+    with pytest.raises(TypeError, match="name"):
+        hy.Shock(1, "Mkt-RF", -0.2, "")
+    with pytest.raises(ValueError, match="name"):
+        hy.Shock("", "Mkt-RF", -0.2, "")
+
+
 # --- apply ----------------------------------------------------------------------------------
 
 
@@ -129,11 +150,22 @@ def test_apply_by_hand():
     row = got.loc[("q", "market")]
     assert row["pnl"] == pytest.approx(-0.20, abs=1e-16)
     assert row["pnl_se"] == pytest.approx(0.002, abs=1e-16)  # |-0.20| x 0.01: the SE is >= 0
-    assert (row["nobs"], row["start"], row["end"]) == (
-        523,
-        pd.Timestamp("2001-01-03"),
-        pd.Timestamp("2010-12-31"),
-    )
+    # Each row carries its own asset's sample.
+    assert (row["nobs"], row["start"], row["end"]) == Q_SAMPLE
+    p = got.loc[("p", "market")]
+    assert (p["nobs"], p["start"], p["end"]) == SAMPLE
+
+
+def test_apply_refuses_a_table_it_cannot_read():
+    repeated = pd.concat([CAD_TABLE, USD_TABLE])  # asset "p" twice
+    with pytest.raises(ValueError, match="unique"):
+        hy.apply(repeated, [hy.SHOCKS["market"]])
+    for col, value, match in [("coef", np.nan, "finite"), ("se", np.inf, "finite"),
+                              ("se", -0.01, ">= 0")]:  # fmt: skip
+        bad = CAD_TABLE.copy()
+        bad.loc[("q", "Mom"), col] = value
+        with pytest.raises(ValueError, match=match):
+            hy.apply(bad, [hy.SHOCKS["market"]])
 
 
 def test_a_cad_rise_is_a_loss_for_an_unhedged_portfolio():
