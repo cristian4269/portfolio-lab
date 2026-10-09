@@ -233,7 +233,7 @@ trade day after that day's return.
 ---
 
 ## Step 5a: VaR/ES + VaR backtesting  *(strongest model)*
-Status: **done 2026-10-09, pending PR** (3 sessions; plan `plans/step-5a-plan.md`; `risk/var.py`, `risk/backtest.py`; 1009 unit tests, 99.89% coverage; exit met: every method runs on step-4 dev return series, all four at both levels in ~0.9 s per series; python-reviewer and `/code-review` findings fixed)
+Status: **done and merged 2026-10-09** (PR #6, merge commit f736aac; 3 sessions; plan `plans/step-5a-plan.md`; `risk/var.py`, `risk/backtest.py`; 1009 unit tests, 99.89% coverage; exit met: every method runs on step-4 dev return series, all four at both levels in ~0.9 s per series; python-reviewer and `/code-review` findings fixed)
 
 **Conventions:** VaR and ES reported as **positive losses**; 1-day horizon at
 95% and 99%; historical quantile uses linear interpolation (stated); 10-day
