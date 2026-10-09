@@ -562,6 +562,14 @@ def test_rolling_window_checks(window):
     assert len(fa.rolling_betas(y, f, window=8)) == 700 - 7
 
 
+def test_a_window_as_long_as_the_data_is_the_full_sample_fit():
+    f, fx, y = rolling_problem()
+    one = fa.rolling_betas(y, f, fx=fx, window=700)
+    assert one.index.tolist() == [f.index[-1]]
+    full = fa.regress(y, f[list(fa.FACTORS)].assign(fx=fx))
+    assert one.iloc[0].to_numpy() == pytest.approx(full.coef.to_numpy(), rel=1e-10, abs=1e-12)
+
+
 def test_a_singular_window_raises_naming_its_last_day():
     f, fx, y = rolling_problem()
     f.iloc[:300, f.columns.get_loc("SMB")] = 0.0  # SMB flat for the first 300 days
