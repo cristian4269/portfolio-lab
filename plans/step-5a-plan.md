@@ -201,6 +201,13 @@ Branch `step-5a-var`.
 - python-reviewer, then `/code-review`, then verification-loop; fix the findings.
 - Check invariants 1-6. Add NOTES.md entries, the blueprint status line and the change log.
 - Ask the owner before pushing and opening the PR.
+- As built (2026-10-09, see NOTES.md):
+  - All four methods at both levels take ~0.9 s per series, after CF's moments switched to
+    products (0.63 → 0.13 s).
+  - FHS is the only method that passes conditional coverage at 99% (4 of 6 dev series).
+    Historical and normal take too many exceptions; every method's misses cluster at 95%.
+  - The review fixed ES dropping a tail observation at whole-number indices, `forecast`
+    raising on its dropped row, and silent non-finite results. 1009 tests pass.
 
 ## Checks every session
 
