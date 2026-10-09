@@ -230,6 +230,23 @@ def test_non_finite_values_raise():
     y, X = six_rows()
     with pytest.raises(ValueError, match="finite"):
         fa.regress(y.where(y.index != y.index[2], np.inf), X)
+    # In a regressor too, naming the column and the day.
+    f = factor_frame(50)
+    f.iloc[7, f.columns.get_loc("HML")] = -np.inf
+    with pytest.raises(ValueError, match=rf"HML.*finite.*{f.index[7].date()}"):
+        fa.factor_betas(f["SMB"].rename("p"), f)
+
+
+def test_a_constant_y_raises():
+    # Nothing to explain: R2 and the t-stats would be 0/0.
+    y, X = six_rows()
+    with pytest.raises(ValueError, match="constant"):
+        fa.regress(y * 0, X)
+
+
+def test_the_largest_lag_is_one_below_the_sample():
+    y, X = six_rows()
+    assert fa.regress(y, X, lags=5).lags == 5
 
 
 # --- alignment (decision 7) -------------------------------------------------------------------
@@ -342,8 +359,12 @@ def test_one_block_per_column_equal_to_regress():
     for asset in ("A", "B"):
         fit = fa.regress(excess[asset], f[list(fa.FACTORS)])
         block = table.loc[asset]
-        assert block["coef"].to_numpy() == pytest.approx(fit.coef.to_numpy(), rel=1e-12)
-        assert block["se"].to_numpy() == pytest.approx(fit.se.to_numpy(), rel=1e-12)
+        expected = fit.table()
+        for col in ("coef", "se", "t", "p"):
+            assert block[col].to_numpy() == pytest.approx(expected[col].to_numpy(), rel=1e-12)
+        assert (block["adj_r2"] == fit.adj_r2).all()
+        assert (block["lags"] == fit.lags).all()
+        assert (block["end"] == fit.end).all()
         assert (block["r2"] == fit.r2).all()
         assert (block["nobs"] == fit.nobs).all()
         assert (block["start"] == fit.start).all()
@@ -416,6 +437,14 @@ def test_bad_frequency_and_unnamed_series():
     assert table.index.get_level_values("asset").unique().tolist() == ["returns"]
 
 
+def test_asset_labels_become_text():
+    f = factor_frame(300)
+    y = 0.5 * f["Mkt-RF"] + 0.1 * f["HML"]
+    table = fa.factor_betas(pd.DataFrame({0: y, 1: -y}), f)
+    assert table.index.get_level_values("asset").unique().tolist() == ["0", "1"]
+    assert fa.factor_betas(y.rename(7), f).index.get_level_values("asset")[0] == "7"
+
+
 def test_factor_betas_input_types():
     f = factor_frame(300)
     y = f["SMB"].rename("p")
@@ -426,6 +455,8 @@ def test_factor_betas_input_types():
     with pytest.raises(ValueError, match="unique column names"):
         # 1 and "1" differ as labels but name the same asset in the table
         fa.factor_betas(pd.DataFrame({1: y, "1": 2 * y}), f)
+    with pytest.raises(ValueError, match="no columns"):
+        fa.factor_betas(f[[]], f)
     with pytest.raises(TypeError, match="factors must be a DataFrame"):
         fa.factor_betas(y, f.to_numpy())
     with pytest.raises(TypeError, match="fx must be a Series"):
@@ -572,7 +603,7 @@ def test_rolling_betas_drop_the_nan_edges():
 def test_rolling_window_checks(window):
     # 7 parameters (alpha + 6 factors): a window must have more rows than that, and fit the data.
     f, fx, y = rolling_problem()
-    with pytest.raises(ValueError, match="window"):
+    with pytest.raises(ValueError, match="window must be a whole number of days"):
         fa.rolling_betas(y, f, window=window)
     assert len(fa.rolling_betas(y, f, window=8)) == 700 - 7
 
@@ -639,6 +670,16 @@ def test_weekly_sum_for_yield_changes():
     w = fa.to_weekly(hand_week_returns(), how="sum")
     expected = [0.01, 0.02 - 0.01 + 0.03 + 0.00 + 0.01, 0.01 + 0.02 - 0.02 + 0.005, -0.03]
     assert w.to_numpy() == pytest.approx(expected, rel=1e-14)
+
+
+def test_weeks_ignore_the_time_of_day():
+    # Stamps at the close (16:00), or one at 09:30, are still the days they fall on.
+    r = hand_week_returns()
+    stamped = r.set_axis(r.index + pd.Timedelta(hours=16))
+    stamped.index = stamped.index.where(stamped.index != "2024-01-11 16:00", "2024-01-11 09:30")
+    w, ref = fa.to_weekly(stamped), fa.to_weekly(r)
+    assert w.index.equals(ref.index)  # labelled by the Wednesday's date
+    assert w.to_numpy() == pytest.approx(ref.to_numpy(), rel=1e-15)
 
 
 def test_week_label_is_the_wednesday_even_when_it_is_a_holiday():

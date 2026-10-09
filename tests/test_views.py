@@ -135,6 +135,11 @@ def test_yield_changes_reject_stale_and_non_finite_levels():
         )
     with pytest.raises(ValueError, match="finite"):
         views.yield_changes(series([0.05, np.inf, 0.05, 0.05, 0.05]), DAYS)
+    # max_age_days reaches the carry: 4 Jan is 4 days after the 31 Dec close.
+    y10 = series([0.05, 0.05], DAYS[:2])
+    assert views.yield_changes(y10, DAYS[:3], max_age_days=4).iloc[2] == 0.0
+    with pytest.raises(ValueError, match="stale"):
+        views.yield_changes(y10, DAYS[:3], max_age_days=3)
 
 
 # --- to_cad_unhedged ------------------------------------------------------------------------
