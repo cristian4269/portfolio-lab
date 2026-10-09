@@ -223,6 +223,19 @@ model behaviour only and ranked no strategies. What changed is listed at the end
 - Check invariants 1-6. Update NOTES.md, the blueprint's status line and the change log,
   including the `macro_betas` signature change.
 - Ask the owner before pushing and opening the PR.
+- As built (2026-10-09, see NOTES.md):
+  - The mutation runs caught every planted bug after one boundary test was added.
+  - Dev check:
+    - Partial weekly yield betas: Utils −3.14, minimum variance −1.83, 1/N −0.09. The yield
+      betas without controls are all +4.8 to +11.4.
+    - Weekly yield betas are 2.5-3 times the daily ones, so Step 6 should use the weekly
+      betas.
+  - Reviews:
+    - `/code-review` found 5 issues, fixed: weekly fits reported a holdout date as their end,
+      and weekly was 30 times slower (`to_weekly` now uses numpy `reduceat`).
+    - python-reviewer found 1 medium (weeks split by the time of day) and 4 lows, fixed.
+      Rolling's normal-equation limit is documented.
+  - 1086 tests pass, 99.90% coverage.
 
 ## Checks every session
 

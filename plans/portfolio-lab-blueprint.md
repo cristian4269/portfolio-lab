@@ -249,7 +249,7 @@ by √10 labelled as an approximation.
 ---
 
 ## Step 5b: Factor and macro regressions
-Status: not started
+Status: **done 2026-10-09, pending PR** (2 sessions; plan `plans/step-5b-plan.md`; `risk/factors.py`, `views.yield_changes`; 1086 unit tests, 99.90% coverage; verified: synthetic betas recovered within 4 HAC SEs, HAC SEs equal a hand-computed sandwich to 1e-12; python-reviewer and `/code-review` findings fixed)
 
 **Tasks**
 - `risk/factors.py`: USD excess returns on FF5 + momentum; CAD excess returns on the same factors **plus the USD/CAD return**; Newey-West (HAC) errors via statsmodels with lag `floor(4(T/100)^(2/9))`; rolling betas.
@@ -357,6 +357,46 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 | Scope creep | Serial steps, MVP path, explicit cut order |
 
 ## Change log
+
+- 2026-10-09: step 5b done (2 sessions, plan `plans/step-5b-plan.md`, details in NOTES.md).
+  - **Interface (`risk.factors`):**
+    - `regress(y, X, *, lags=None)` → `Fit`: coef, se, tstat and pvalue by term, `alpha`
+      first; r2, adj_r2, nobs and lags; start and end are the daily days used; `table()`.
+    - `factor_betas(excess, factors, *, fx=None, frequency="daily"|"weekly")`: a long table
+      indexed by (asset, term).
+    - `macro_betas(excess, d_cad10y, fx, factors, *, frequency)`. **This deviates from the
+      blueprint's `macro_betas(returns, d_cad10y, fx)`:** it adds `factors` so every beta is
+      partial.
+    - `rolling_betas(excess, factors, *, fx=None, window=252)`, indexed by each window's last
+      day.
+    - `to_weekly(..., how="compound"|"sum")`, W-WED.
+    - `nw_lags`, exact in integers.
+    - `data.views.yield_changes`.
+  - **Owner decisions (2026-10-09, after a review the owner asked for):**
+    - Regress each view's own excess returns. The CAD-hedged view needs no model, being equal
+      to USD (CIP).
+    - fx is Step 2's `fx_returns`. For Step 6, "CAD +10%" means fx = 1/1.10 − 1.
+    - HAC: Bartlett kernel, lag floor(4(T/100)^(2/9)), no small-sample correction, normal
+      p-values.
+    - Weekly: Wednesday-to-Wednesday weeks; returns compounded, yield changes summed.
+    - Rolling betas: 252 days, point estimates only.
+    - Macro betas are partial, with the six factors held fixed.
+    - Alignment is strict: shared span, matching dates, NaN only at the edges.
+    - Pure and unguarded.
+  - **Why partial:** on dev data, the yield betas without controls are +4.8 to +11.4 for every
+    portfolio. That is the stock-bond correlation, which would make a +200 bp stress a gain.
+    Partial weekly betas: Utils −3.14, minimum variance −1.83, 1/N −0.09.
+  - **For Step 6:**
+    - Use the weekly betas: the weekly yield betas are 2.5-3 times the daily ones.
+    - The daily 10-year starts in 2001 (523 dev weeks).
+  - **Reviews fixed:**
+    - Weekly fits reported their Wednesday label (2011-01-05) as their end.
+    - Weekly was 30 times slower than daily; `to_weekly` now uses numpy `reduceat`.
+    - Times of day split weeks.
+    - 1 and "1" asset labels collided.
+    - A constant y gave 0/0.
+    - The inf and no-column errors are clearer.
+    - `is_whole` moves to `_validate`.
 
 - 2026-10-09: step 5a done (3 sessions, plan `plans/step-5a-plan.md`, details in NOTES.md). **Interface:** `risk.var`: `var_es`, `normal_var_es`, `cornish_fisher_var_es` (point estimates, `VarEs(var, es)` as positive losses), `ewma_vol`, `forecast(returns, *, method, level, window=500, decay=0.94)` indexed by the day forecast, `next_day` (today's VaR), `scale_horizon` (√days, labelled an approximation); `METHODS = historical, normal, cornish_fisher, fhs`. `risk.backtest`: `exceptions` (strict r < −VaR), `kupiec`, `transitions`, `christoffersen`, `conditional_coverage` (LR_uc on the T − 1 transition days + LR_ind, exact), `basel_zone`/`basel_zones` (99% over 250 days only), `report`. Owner decisions (2026-10-08): any daily return Series (dev checks on total net returns); one `window`, default 500 (7a pre-registers it); historical ES = mean of returns at or below −VaR; CF ES = exact tail mean of the CF quantile (non-monotone cases reported, not corrected); FHS = one causal zero-mean EWMA pass seeded with the first window's mean square; the risk functions are pure and unguarded, like `simulate`. Conventions: the minimum window is 4 for every method; a window with no variance, or a result that isn't finite, raises naming the day; a whole-number interpolation index takes the order statistic exactly. Dev data (model behaviour only, no ranking): at 99%, historical and normal give too many exceptions on all 6 series; CF gets the rate but its misses cluster; FHS alone passes conditional coverage (4 of 6); at 95% every method's misses cluster. **For 7a:** the chi-square Kupiec test's exact size at 99% over 250 days is 9.5%, not 5%; FHS does slightly better with a 1000-day window; `report` recomputes each method per level (~1 s per series). Reviews fixed: ES dropping a tail value when 1 − level rounds down (90%), `forecast` raising on its dropped next-day row, silent NaN/inf results, numpy scalars rejected, block memory growing with the window.
 - 2026-10-08: step 4 done (4 sessions, plan `plans/step-4-plan.md`, details in NOTES.md). **Interface:** `run(strategy, view, *, start=None, end=DEV_END, allow_holdout=False, cost_bps=5.0)` takes a step-2 `View`, so a CAD view estimates on CAD returns; monthly only. Also `compare` (one common first rebalance, the longest lookback; an explicit `start` checked before anything runs), `reprice` (a result's targets at another cost, for 7b's grid, guarded and on the result's own days), and `benchmarks.market`/`market_views` (Mkt-RF + RF as an index, converted by `make_views`). Owner decisions (2026-10-08): start invested with no opening cost; start dates fail closed; no SLSQP warm start; dev performance used only for sanity checks. Conventions: net = gross − c(1 + gross), exact at zero cost; weights after a trade are exactly the target; a portfolio worth 0 raises; `cost_bps` in [0, 5000); `start`/`end` must be tz-naive dates (`_validate.as_date`, now also in `data.resolve_end`: an int was read as nanoseconds since 1970); `summary`'s gross column pays no cost. Dev data: 12 strategies take 13.6-20.6 s per view (both views ~35 s, so 7a may need the warm start); minimum variance (EWMA) turns over 29% a month. For 7b: `start=None` waits for `lookback` rows, not complete ones, and `simulate` rejects NaN returns even for zero-weight assets, so the 49-industry run must choose its NaN policy. Reviews fixed: the guarded `reprice`, compare's late start check, non-date `start`/`end`, the cost bound, label alignment of targets, `Result` index checks. Also reworded a Step 3 NOTES line that broke invariant 3's literal check.

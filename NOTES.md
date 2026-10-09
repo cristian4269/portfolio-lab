@@ -2,6 +2,78 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-09: step 5b, session 2 of 2 (rolling and macro betas, dev check, review)
+
+- **Built** (RED `882c862`, GREEN `eb99c88`):
+  - `rolling_betas`: numpy strided windows with batched normal equations, indexed by each
+    window's last day; a collinear window raises naming its day.
+  - `macro_betas`: CAD excess returns on the six factors, fx and `dy`, all partial; weekly fits
+    sum `dy`.
+  - `views.yield_changes`: carries levels like `fx_returns`, so a Canadian holiday is a change
+    of 0.
+- **Mutation runs:** 15 of 16 planted bugs caught. The survivor, a window as long as the data,
+  is now tested: the single window equals the full-sample `regress` (`83c199f`). Session 1's
+  survivor (Δy compounded) is caught.
+- **Dev check** (scratch script, model behaviour only, no ranking; CAD 1972-2010, 10,093
+  days, 2,088 weeks; lags 11 daily and 7 weekly):
+  - **Market plumbing:**
+    - USD: Mkt-RF beta 0.999999999999998, R² = 1.
+    - CAD: Mkt-RF 1.0015, fx 0.9997, R² 0.9996.
+  - **USD industry betas look right:**
+    - Money HML +0.77.
+    - BusEq HML −0.50, RMW −0.52, CMA −0.60.
+    - Utils Mkt-RF 0.68, the lowest. Durbl Mkt-RF 1.19, the highest.
+    - R² from 0.55 (Utils) to 0.90 (Manuf).
+  - **CAD fx betas** run 0.72-1.10 daily and 0.62-1.21 weekly. Energy is the lowest (0.72 /
+    0.62): US energy stocks rise with oil when the CAD does, a partial natural hedge.
+  - **Strategies:**
+    - 1/N: Mkt-RF 0.985, R² 0.985.
+    - Minimum variance (sample): Mkt-RF 0.66, R² 0.74.
+    - CAD fx betas 0.98-1.00, daily or weekly.
+  - **Macro, 2001-2010 (2,514 days, 523 weeks)**, yield beta alone → partial daily (SE) →
+    partial weekly (SE):
+
+    | Portfolio | Alone | Partial daily (SE) | Partial weekly (SE) |
+    |---|---|---|---|
+    | 1/N | +8.43 | −0.02 (0.07) | −0.09 (0.16) |
+    | Minimum variance | +4.76 | −0.63 (0.25) | −1.83 (0.39) |
+    | Utils | +4.86 | −1.21 (0.47) | −3.14 (0.95) |
+    | Money | +11.40 | −0.19 (0.31) | −0.22 (0.61) |
+    | Market | +9.01 | +0.00 (0.01) | −0.02 (0.04) |
+
+    - A +200 bp shock, partial weekly: Utils −6.3%, minimum variance −3.7%, 1/N −0.2%.
+    - Weekly yield betas are 2.5-3 times the daily ones for the rate-sensitive portfolios.
+      **For Step 6: use the weekly betas** (asynchronous closes; 523 weeks).
+  - **Rolling (252 days):**
+    - 1/N USD Mkt-RF beta 0.91-1.06 over 11,455 windows; CAD fx 0.91-1.04.
+    - 0.2 s per series; matches lstsq to 2e-15 on dev data.
+- **`/code-review` (high): 5 findings, all fixed** (RED `8e308cd`, GREEN `33efedd`):
+  - **Weekly fits reported a holdout date.** On dev data ending Friday 2010-12-31, the end
+    was 2011-01-05, that week's Wednesday label. Fits now report the daily days they used.
+  - **Weekly fits were 30 times slower than daily.** pandas' resample ran per column per
+    asset: 34 s on 49 industries. `to_weekly` now uses numpy `reduceat` over contiguous weeks:
+    3.1 s on 49 industries, 0.8 s on 12. A hypothesis test pins it to pandas' W-WED
+    resampling.
+  - Asset labels 1 and "1" collided as text, silently dropping an asset.
+  - `to_weekly` of no rows raised a numpy reshape error.
+  - The whole-number check was copied 3 times; it is now `_validate.is_whole`, shared with
+    `var`.
+- **python-reviewer: no critical or high findings; 1 medium, 4 low, 6 test gaps.** Fixed
+  (RED `c5bebeb`, GREEN `58d06f6`):
+  - **Medium:** the `reduceat` rewrite split a week when stamps carried a time of day (a
+    09:30 among 16:00s). Weeks now use calendar dates.
+  - An inf now names its column and day.
+  - A constant y raises instead of giving 0/0 R² and t-stats.
+  - An excess frame with no columns raises clearly.
+  - All six test gaps are closed: the full table vs `Fit`, inf in a regressor, lags = T − 1,
+    text labels, the rolling window message, and `yield_changes`' `max_age_days`.
+  - **Not changed, documented:** `rolling_betas` solves normal equations, which square the
+    condition number. That only matters for a regressor SD below ~1e-7 within a window.
+- **Final:**
+  - 1086 tests pass, 99.90% coverage.
+  - ruff, format and mypy are clean; `uv build` and `uv lock --check` are OK.
+  - Invariants 1-6 hold.
+
 ## 2026-10-09: step 5b, session 1 of 2 (plan review, regression core, factor betas)
 
 - **Plan review (the owner asked for one before approving).** Scratch scripts tested every
