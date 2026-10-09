@@ -188,6 +188,12 @@ def rolling_betas(
     Same model and alignment as `factor_betas`; the first row is the `window`-th day of the
     aligned sample. Raises naming the day if a window's regressors are collinear (a factor
     flat over the whole window).
+
+    The windows are solved by their normal equations, which square the design's condition
+    number: exact at return scales (1e-15 from lstsq on dev data), but a regressor whose
+    standard deviation within a window is below ~1e-7, or two regressors that differ by that
+    little, can be flagged as collinear or lose precision where `regress` (on the design
+    itself) would not.
     """
     if not isinstance(excess, pd.Series):
         raise TypeError(f"excess must be a Series of one portfolio, got {type(excess).__name__}")
@@ -242,7 +248,9 @@ def to_weekly[T: (pd.Series, pd.DataFrame)](returns: T, *, how: str = "compound"
     # Each day belongs to the week of the Wednesday on or after it. The days are sorted, so a
     # week's rows are contiguous: one reduceat per week, in numpy (pandas' resample is ~30
     # times slower here).
-    labels = (days + pd.to_timedelta((2 - days.dayofweek) % 7, unit="D")).as_unit(days.unit)
+    # Calendar days: a stamp at 16:00 or 09:30 belongs to its date's week.
+    dates = days.normalize()
+    labels = (dates + pd.to_timedelta((2 - dates.dayofweek) % 7, unit="D")).as_unit(days.unit)
     starts = np.flatnonzero(np.r_[True, labels[1:] != labels[:-1]])
     if how == "compound":
         weekly = np.multiply.reduceat(1 + values, starts, axis=0) - 1
@@ -287,6 +295,8 @@ def _each_asset(
     if isinstance(excess, pd.Series):
         assets = {_UNNAMED if excess.name is None else str(excess.name): excess}
     elif isinstance(excess, pd.DataFrame):
+        if excess.shape[1] == 0:
+            raise ValueError("excess returns have no columns")
         # Unique as text too: the table names assets by str(label), where 1 and "1" collide.
         names = [str(col) for col in excess.columns]
         if len(set(names)) != len(names):
@@ -361,7 +371,10 @@ def _sample(
         values = _matrix(obj, what)
         cols = [what] if isinstance(obj, pd.Series) else [f"{what} {c}" for c in obj.columns]
         if np.isinf(values).any():
-            raise ValueError(f"{what} must be finite")
+            row, col = (int(i) for i in np.argwhere(np.isinf(values))[0])
+            raise ValueError(
+                f"{cols[col]} must be finite, got {values[row, col]} on {obj.index[row].date()}"
+            )
         labels += cols
         blocks.append(values)
     values = np.column_stack(blocks)
@@ -404,7 +417,10 @@ def _fit(
         raise ValueError(f"lags must be a whole number, got {lags!r}")
     elif not 0 <= lags < nobs:
         raise ValueError(f"lags must be in [0, {nobs}), got {lags}")
-    res = OLS(as_floats(y, "y"), design).fit(cov_type="HAC", cov_kwds={"maxlags": int(lags)})
+    yv = as_floats(y, "y")
+    if np.ptp(yv) == 0:
+        raise ValueError(f"y is constant over its {nobs} observations: there is nothing to explain")
+    res = OLS(yv, design).fit(cov_type="HAC", cov_kwds={"maxlags": int(lags)})
 
     terms = pd.Index([ALPHA, *X.columns], name="term")
     start, end = span if span is not None else (y.index[0], y.index[-1])
