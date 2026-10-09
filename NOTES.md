@@ -35,7 +35,7 @@ Running log of decisions, data quirks and findings. Newest first.
 
     | Portfolio | Alone | Partial daily (SE) | Partial weekly (SE) |
     |---|---|---|---|
-    | 1/N | +8.43 | −0.02 (0.07) | −0.09 (0.16) |
+    | 1/N | +8.43 | −0.02 (0.07) | −0.09 (0.15) |
     | Minimum variance | +4.76 | −0.63 (0.25) | −1.83 (0.39) |
     | Utils | +4.86 | −1.21 (0.47) | −3.14 (0.95) |
     | Money | +11.40 | −0.19 (0.31) | −0.22 (0.61) |

@@ -249,7 +249,7 @@ by √10 labelled as an approximation.
 ---
 
 ## Step 5b: Factor and macro regressions
-Status: **done 2026-10-09, pending PR** (2 sessions; plan `plans/step-5b-plan.md`; `risk/factors.py`, `views.yield_changes`; 1086 unit tests, 99.90% coverage; verified: synthetic betas recovered within 4 HAC SEs, HAC SEs equal a hand-computed sandwich to 1e-12; python-reviewer and `/code-review` findings fixed)
+Status: **done and merged 2026-10-09** (PR #7, merge commit dc12652; 2 sessions; plan `plans/step-5b-plan.md`; `risk/factors.py`, `views.yield_changes`; 1086 unit tests, 99.90% coverage; verified: synthetic betas recovered within 4 HAC SEs, HAC SEs equal a hand-computed sandwich to 1e-12; python-reviewer and `/code-review` findings fixed)
 
 **Tasks**
 - `risk/factors.py`: USD excess returns on FF5 + momentum; CAD excess returns on the same factors **plus the USD/CAD return**; Newey-West (HAC) errors via statsmodels with lag `floor(4(T/100)^(2/9))`; rolling betas.
