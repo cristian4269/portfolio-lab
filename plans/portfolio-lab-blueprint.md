@@ -261,7 +261,7 @@ Status: **done and merged 2026-10-09** (PR #7, merge commit dc12652; 2 sessions;
 ---
 
 ## Step 6: Stress testing
-Status: not started
+Status: **done 2026-10-09, pending PR** (2 sessions; plan `plans/step-6-plan.md`; `stress/historical.py`, `stress/hypothetical.py`; 1187 unit tests, 99.91% coverage; verified: replay = hand compounding to 1e-15, the FX sign through `make_views`, synthetic shock P&L within 4 SEs of the truth; 2020 and 2022 run only on synthetic data; python-reviewer and `/code-review` findings fixed)
 
 **Tasks**
 - `stress/historical.py`: registry (GFC 2008-09-01 → 2008-11-30; COVID 2020-02-19 → 2020-03-23; rates 2022-01-01 → 2022-12-31). Replays on given weights in USD and CAD views: P&L, worst day, drawdown. "Current weights" = weights at `DEV_END` in this step; at `HOLDOUT_END` in 7b.
@@ -357,6 +357,50 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 | Scope creep | Serial steps, MVP path, explicit cut order |
 
 ## Change log
+
+- 2026-10-09: step 6 done (2 sessions, plan `plans/step-6-plan.md`, details in NOTES.md).
+  - **Interface (`stress.historical`):**
+    - `Scenario` and the read-only `SCENARIOS` (gfc, covid, rates, the dates above).
+    - `window(returns, scenario, *, allow_holdout=False)`: the days in (start, end], by
+      calendar date. The data must reach both edges (a weekend end on the Friday) and have
+      no hole of more than 7 calendar days.
+    - `replay(weights, view, scenario, *, allow_holdout=False)`: buy-and-hold through
+      `engine.simulate`, assets at weight 0 not read.
+    - `outcome(returns)` → `Outcome`: pnl, worst_day, worst_date, max_drawdown, days, first,
+      last.
+    - `table(weights_by_view, views, scenarios, *, allow_holdout=False)`.
+  - **Interface (`stress.hypothetical`):**
+    - `Shock` and the read-only `SHOCKS` (market, momentum, rates, cad_up, cad_down).
+    - `cad_move(pct)` = 1/(1 + pct) − 1.
+    - `portfolio_excess(weights, view)`: the constant mix.
+    - `apply(betas, shocks)`: P&L = β × move, SE = |move| × SE.
+    - Also `data.views.check_view`, shared with the engine.
+  - **Owner decisions (2026-10-09, all eight as recommended):**
+    - The DEV_END `final_weights` of each view's own run.
+    - Replay by buy-and-hold; the realized path is shown separately.
+    - Windows are (start, end].
+    - `window`/`replay`/`table` follow `resolve_end`'s holdout rule; 2020 and 2022 ran only
+      on synthetic data.
+    - Shock betas: weekly, partial, 2001-01-03 → DEV_END for both views.
+    - The betas are those of the constant mix of the current weights, not the strategy's
+      history.
+    - One variable per shock, with linear P&L.
+  - **Dev data** (model behaviour only):
+    - GFC replay of 1/N: −30.3% USD, −19.0% CAD, −30.1% hedged. The USD rose 16.3% against
+      the CAD, a natural hedge the partial market shock leaves out.
+    - Minimum variance: the 10-year +200 bp shock costs −3.0% ± 0.8.
+    - USD market shock: −14.4% from 2001 vs −17.5% from 1963 (sample sensitivity).
+  - **For 7b:**
+    - Replay HOLDOUT_END weights with `table(..., allow_holdout=True)` from `reproduce`.
+    - The realized paths come from `window(result.net, ...)`.
+    - The 49-industry NaN policy matters only for held assets.
+  - **Reviews fixed:**
+    - 16:00 stamps shifted the window by a day.
+    - Holes inside a window were compounded over.
+    - Duplicate scenario names and mixed beta tables were accepted.
+    - `True` was accepted as a shock move.
+    - Non-finite or negative SEs were accepted.
+    - There were three copies of the View check.
 
 - 2026-10-09: step 5b done (2 sessions, plan `plans/step-5b-plan.md`, details in NOTES.md).
   - **Interface (`risk.factors`):**

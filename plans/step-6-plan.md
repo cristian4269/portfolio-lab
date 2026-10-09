@@ -71,6 +71,8 @@ sensitivity only and ranked no strategies. The numbers are under "Grounding 2026
    - The registry keeps the blueprint's dates exactly; they are pre-registered.
    - The data must cover the window: a day on or before `start`, and a last day on or after
      `end`. Otherwise it raises, naming the gap. A shortened window never runs silently.
+     (Amended in review: a weekend `end` is reached on the Friday before it, and dates are
+     compared as calendar days, whatever the time of the stamps.)
 4. **Outcome metrics, in the view's currency, as fractions of the value at the anchor
    close:**
    - P&L: the NAV at the end minus 1, a compounded total return (not excess).
@@ -207,6 +209,21 @@ sensitivity only and ranked no strategies. The numbers are under "Grounding 2026
 - python-reviewer, then `/code-review` (high), then verification-loop. Fix the findings.
 - Check invariants 1-6. Update NOTES.md, the blueprint's status line and the change log.
 - Ask the owner before pushing and opening the PR.
+- As built (2026-10-09, see NOTES.md):
+  - RED `c15ff95`, GREEN `a8dfec5`. The plan's mutation "the strategy's realized series
+    regressed" lives in the caller, so the run planted "excess without rf" instead.
+  - Mutation runs: 10 of 10 caught; 34 of 34 on the final code of both modules.
+  - Dev check: the 2008 replay and the shocks match the grounding numbers. The partial market
+    shock (fx held at 0) costs 1/N −19.9% in CAD, where the 2008 replay lost 19.0% on a
+    30.6% market fall.
+  - Reviews:
+    - `/code-review` found 8 issues, fixed: windows now compare calendar dates, a weekend
+      end is reached on the Friday, duplicate scenario names and mixed beta tables are
+      refused, a shock's move must be a number, and there is one `check_view`.
+    - python-reviewer found no critical or high issues. Fixed: holes inside a window raise,
+      `replay` skips zero weights, `table` was tested with the flag, and the table and name
+      checks were added.
+  - 1187 tests pass, 99.91% coverage.
 
 ## Checks every session
 
