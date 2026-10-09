@@ -261,7 +261,7 @@ Status: **done and merged 2026-10-09** (PR #7, merge commit dc12652; 2 sessions;
 ---
 
 ## Step 6: Stress testing
-Status: **done 2026-10-09, pending PR** (2 sessions; plan `plans/step-6-plan.md`; `stress/historical.py`, `stress/hypothetical.py`; 1187 unit tests, 99.91% coverage; verified: replay = hand compounding to 1e-15, the FX sign through `make_views`, synthetic shock P&L within 4 SEs of the truth; 2020 and 2022 run only on synthetic data; python-reviewer and `/code-review` findings fixed)
+Status: **done and merged 2026-10-09** (PR #8, merge commit b1468b8; 2 sessions; plan `plans/step-6-plan.md`; `stress/historical.py`, `stress/hypothetical.py`; 1187 unit tests, 99.91% coverage; verified: replay = hand compounding to 1e-15, the FX sign through `make_views`, synthetic shock P&L within 4 SEs of the truth; 2020 and 2022 run only on synthetic data; python-reviewer and `/code-review` findings fixed)
 
 **Tasks**
 - `stress/historical.py`: registry (GFC 2008-09-01 → 2008-11-30; COVID 2020-02-19 → 2020-03-23; rates 2022-01-01 → 2022-12-31). Replays on given weights in USD and CAD views: P&L, worst day, drawdown. "Current weights" = weights at `DEV_END` in this step; at `HOLDOUT_END` in 7b.
