@@ -108,6 +108,12 @@ def test_a_shock_moves_a_known_regressor_by_a_finite_amount():
         hy.Shock("nan", "Mkt-RF", np.nan, "")
 
 
+@pytest.mark.parametrize("bad", [True, np.bool_(False), "-0.2", None])
+def test_a_shock_move_is_a_number(bad):
+    with pytest.raises(TypeError, match="odd"):
+        hy.Shock("odd", "Mkt-RF", bad, "")
+
+
 # --- apply ----------------------------------------------------------------------------------
 
 
@@ -143,6 +149,14 @@ def test_a_usd_fit_takes_only_the_market_and_momentum_shocks():
     for key in ("rates", "cad_up", "cad_down"):
         with pytest.raises(ValueError, match=hy.SHOCKS[key].term):
             hy.apply(USD_TABLE, [hy.SHOCKS["market"], hy.SHOCKS[key]])
+
+
+def test_apply_checks_the_terms_of_each_asset():
+    mixed = pd.concat([USD_TABLE.rename(index={"p": "u"}, level="asset"), CAD_TABLE])
+    with pytest.raises(ValueError, match="'u'"):
+        hy.apply(mixed, [hy.SHOCKS["cad_up"]])
+    got = hy.apply(mixed, [hy.SHOCKS["market"]])
+    assert got.index.get_level_values("asset").tolist() == ["u", "p", "q"]
 
 
 def test_apply_needs_shocks():

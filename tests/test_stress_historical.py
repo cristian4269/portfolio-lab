@@ -159,13 +159,26 @@ def test_window_needs_a_close_on_or_before_the_start():
         hs.window(frame(GFC_DAYS[GFC_DAYS >= "2008-09-02"]), GFC)
 
 
-def test_window_needs_data_on_or_after_the_end():
-    # A weekend end needs a later day: the data can't tell a weekend from a missing day.
-    assert hs.window(frame(GFC_DAYS[GFC_DAYS <= "2008-12-01"]), GFC).index[-1] == ts("2008-11-28")
-    with pytest.raises(ValueError, match="2008-11-28"):
-        hs.window(frame(GFC_DAYS[GFC_DAYS <= "2008-11-28"]), GFC)
+def test_window_needs_data_through_the_last_weekday_of_the_window():
+    # A weekend end is reached on the Friday before it. A holiday is not known, so data ending
+    # before a weekday end (even a holiday) is refused.
+    assert hs.window(frame(GFC_DAYS[GFC_DAYS <= "2008-11-28"]), GFC).index[-1] == ts("2008-11-28")
+    with pytest.raises(ValueError, match="2008-11-26"):
+        hs.window(frame(GFC_DAYS[GFC_DAYS <= "2008-11-26"]), GFC)
     with pytest.raises(ValueError, match="2008-10-31"):
         hs.window(frame(GFC_DAYS[GFC_DAYS <= "2008-10-31"]), GFC)
+    covid = frame(calendar("2020-02-10", "2020-03-20"))  # ends the Friday before Monday's end
+    with pytest.raises(ValueError, match="2020-03-20"):
+        hs.window(covid, hs.SCENARIOS["covid"], allow_holdout=True)
+
+
+def test_window_compares_calendar_dates_not_times_of_day():
+    days = calendar("2020-02-19", "2020-03-31") + pd.Timedelta(hours=16)  # closes at 16:00
+    r = frame(days)
+    got = hs.window(r, hs.SCENARIOS["covid"], allow_holdout=True)
+    assert (got.index[0], got.index[-1]) == (ts("2020-02-20 16:00"), ts("2020-03-23 16:00"))
+    replayed = hs.replay(weights(0.5, 0.5), view(r), hs.SCENARIOS["covid"], allow_holdout=True)
+    assert replayed.index.equals(got.index)
 
 
 def test_window_with_no_day_inside_raises():
@@ -393,6 +406,14 @@ def test_table_checks_every_scenario_against_the_holdout_rule_before_replaying(m
 def test_table_needs_a_view_for_every_set_of_weights():
     with pytest.raises(ValueError, match="CAD"):
         hs.table({"CAD": {"even": weights(0.5, 0.5)}}, {"USD": view(frame(GFC_DAYS))}, [GFC])
+
+
+def test_table_needs_unique_scenario_names():
+    october = hs.Scenario("gfc", ts("2008-09-30"), ts("2008-10-31"), "same name, other dates")
+    with pytest.raises(ValueError, match="unique"):
+        hs.table(
+            {"USD": {"even": weights(0.5, 0.5)}}, {"USD": view(frame(GFC_DAYS))}, [GFC, october]
+        )
 
 
 def test_table_needs_scenarios_and_portfolios():
