@@ -2,6 +2,53 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-09: step 5b, session 1 of 2 (plan review, regression core, factor betas)
+
+- **Plan review (the owner asked for one before approving).** Scratch scripts tested every
+  claim on synthetic and dev data, looking at model behaviour only, never a ranking. Four
+  decisions changed; the plan's "Review 2026-10-09" section lists them.
+  - **Macro betas must be partial.** From 2001 to 2010 the CAD 1/N yield beta was +8.45 with
+    no controls and −0.03 with the six factors held fixed. Market: +9.01 vs 0.00. Utilities:
+    +4.86 vs −1.21 daily and −3.14 weekly.
+    - The uncontrolled beta is the stock-bond correlation (corr(Δy, Mkt-RF) = +0.36), not
+      duration. It would make Step 6's "+200 bp" stress a gain, and the sign flipped in 2022.
+    - fx shows the same pattern: 0.53 alone (the USD rises when US stocks fall, a natural
+      hedge for Canadians) against the mechanical 0.97-1.0 once the factors are held fixed.
+  - Weekly yield changes must be summed, not compounded.
+  - Alignment is strict: an inner join would accept a monthly y against daily factors.
+  - Rolling betas use numpy windows: 0.15 s and 1e-14 from a lstsq loop, against `RollingOLS`
+    at 0.75 s, whose add-and-remove updates give 1e-13.
+- **Facts measured on dev data:**
+  - statsmodels' HAC with default options is exactly the Bartlett sandwich with no 1/T factor
+    and no correction (4e-16), with normal p-values (`use_t=False`).
+  - Lags: 11 for both daily views (T = 11,959 USD, 10,094 CAD), about 7 weekly.
+  - The small-sample correction would change SEs by 0.04-0.3%.
+  - Compounding excess returns weekly instead of total and RF separately is off by at most
+    1.3e-4 (the weekly SD is 1.9%).
+  - Holidays: 91 Fridays and 46 Wednesdays from 1963 to 2010, 24 of those Wednesdays being the
+    1968 paperwork-crisis closures.
+  - Market plumbing: in the USD view, Mkt-RF beta 1 to 2e-15 and R² = 1; in the CAD view,
+    fx 1.000, Mkt-RF 1.001, R² 0.9996.
+  - Daily vs weekly fx betas with the factors in: 1/N 0.981 vs 0.991, so the asynchrony costs
+    little at the portfolio level.
+- **Built** (`risk/factors.py`, RED `55b6190`, GREEN `4533f62`):
+  - `nw_lags`: computed exactly in integers (lag⁹·100² ≤ 4⁹·T²), because the float formula
+    puts T = 51,200 at 15.999… instead of 16.
+  - `regress` → `Fit` (coef, se, t, p by term with `alpha` first; r2, adj_r2, nobs, lags,
+    start, end; `table()`).
+  - `factor_betas`: a long table indexed by (asset, term).
+  - `to_weekly`: `how="compound"` or `"sum"`, W-WED.
+  - `_validate.check_aligned` now accepts a DataFrame as its second argument.
+- **Tests:** 48 tests, 100% coverage of the module.
+  - A plain-loop HAC sandwich at lag 1 (6 rows) and lag 3 (300 autocorrelated rows), plus
+    lag 0 = White.
+  - Hypothesis invariances: scaling y scales betas and SEs; adding c·X_k shifts beta_k only.
+  - Synthetic USD and CAD betas recovered within 4 HAC SEs.
+  - Alignment: span, monthly-vs-daily, edges, interior gaps; the weekly hand examples.
+- **Mutation run:** 23 of 24 planted bugs caught. The survivor, yield changes compounded
+  instead of summed in a weekly fit, has no caller until `macro_betas` (session 2). Its
+  weekly test must catch it, so that mutant gets re-run then.
+
 ## 2026-10-09: step 5a, session 3 of 3 (dev data: VaR model behaviour)
 
 - Series: `Result.net` of 1/N and minimum variance (sample, 252 d) from `compare`, plus the

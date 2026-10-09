@@ -194,6 +194,13 @@ model behaviour only and ranked no strategies. What changed is listed at the end
   - Δy compounded instead of summed
   - the week boundary off by a day
   - the alignment check skipped
+- As built (2026-10-09, see NOTES.md):
+  - `nw_lags` is exact in integers.
+  - `regress` returns a `Fit` with `table()`, and `factor_betas` a long table indexed by
+    (asset, term).
+  - 48 tests, 100% coverage.
+  - The mutation run caught 23 of 24 planted bugs. The survivor (Δy compounded) has no caller
+    until `macro_betas`, so it is re-run in session 2.
 
 **Session 2: rolling and macro betas, dev check, review.**
 - `rolling_betas` equals a per-window loop to 1e-10 and has no look-ahead (changing day k
