@@ -223,24 +223,53 @@ def test_diff_se_is_the_delta_method_on_the_hac():
 # --- the studentized circular block bootstrap -------------------------------------------------
 
 
-def test_circular_blocks_wrap_around():
-    rows = inf._cbb_rows(np.array([[3, 0]]), block=3, n=5)
-    assert rows.tolist() == [[3, 4, 0, 0, 1, 2]]
+def test_circular_sums_wrap_around():
+    sums = inf._circular_sums(np.array([1.0, 2.0, 3.0, 4.0, 5.0]), 3)
+    assert sums.tolist() == [6.0, 9.0, 12.0, 10.0, 8.0]
 
 
 def test_block_psi_by_hand():
-    y = np.array([1.0, -1.0, 2.0, 0.0, -2.0, 1.0, 0.0, -1.0])[None, :, None]
-    # Block sums 0, 2, -1, -1 over sqrt(2), squared, averaged over 4 blocks: 6 / 8.
-    assert inf._block_psi(y, 2)[0, 0, 0] == pytest.approx(0.75, rel=1e-12)
-    # b = 1 is the sample (1/T) covariance (Ledoit-Wolf footnote 9).
-    assert inf._block_psi(y, 1)[0, 0, 0] == pytest.approx(12 / 8, rel=1e-12)
+    # x1 sums to 0. Blocks [0, 1], [2, 3], [4, 5], [6, 7] in order: mu* = 0, and the block
+    # sums of x1 - mu* are 0, 2, -1, -1, over sqrt(2), squared, averaged over 4 blocks: 6 / 8.
+    x1 = np.array([1.0, -1.0, 2.0, 0.0, -2.0, 1.0, 0.0, -1.0])
+    x2 = np.linspace(0.01, 0.08, 8)
+    mom, psi = inf._block_moments(inf._block_sums(x1, x2, 2), np.array([[0, 2, 4, 6]]), 2)
+    assert mom[0, 0] == pytest.approx(0.0, abs=1e-15)
+    assert psi[0, 0, 0] == pytest.approx(0.75, rel=1e-12)
+    # b = 1 over every row once is the sample (1/T) covariance (Ledoit-Wolf footnote 9).
+    _, psi1 = inf._block_moments(inf._block_sums(x1, x2, 1), np.arange(8)[None], 1)
+    assert psi1[0, 0, 0] == pytest.approx(12 / 8, rel=1e-12)
+    y = inf._moment_matrix(x1, x2)
+    assert psi1[0] == pytest.approx(y.T @ y / 8, rel=1e-12, abs=1e-18)
 
 
-def test_block_psi_at_1_is_the_sample_covariance_in_4_dimensions():
-    rng = np.random.default_rng(8)
-    y = rng.standard_normal((1, 40, 4))
-    y = y - y.mean(axis=1, keepdims=True)
-    assert inf._block_psi(y, 1)[0] == pytest.approx(y[0].T @ y[0] / 40, rel=1e-12)
+def _reference_d_star(x1, x2, block, starts, diff):
+    """Resample the rows themselves (circular blocks), then studentize: the slow way."""
+    t = len(x1)
+    out = []
+    for row in starts:
+        idx = np.concatenate([(s + np.arange(block)) % t for s in row])
+        a, b = x1[idx], x2[idx]
+        mu1, mu2, g1, g2 = a.mean(), b.mean(), (a * a).mean(), (b * b).mean()
+        y = np.column_stack([a - mu1, b - mu2, a * a - g1, b * b - g2])
+        z = y.reshape(len(row), block, 4).sum(axis=1) / np.sqrt(block)
+        psi = z.T @ z / len(row)
+        g = inf._gradient(mu1, mu2, g1, g2)
+        se = np.sqrt(g @ psi @ g / t)
+        sr1, sr2 = mu1 / np.sqrt(g1 - mu1**2), mu2 / np.sqrt(g2 - mu2**2)
+        out.append(abs(sr1 - sr2 - diff) / se)
+    return np.array(out)
+
+
+@pytest.mark.parametrize("block", [1, 3, 7])
+def test_bootstrap_equals_resampling_the_rows(block):
+    rng = np.random.default_rng(21)
+    r1, r2 = ar_pair(rng, 101, phi=0.3)
+    x1, x2 = r1.to_numpy(), r2.to_numpy()
+    diff = inf.sharpe_diff(r1, r2)
+    fast = inf._bootstrap_d(x1, x2, block, 50, np.random.default_rng(7), diff)
+    starts = np.random.default_rng(7).integers(0, 101, size=(50, 101 // block))
+    assert fast == pytest.approx(_reference_d_star(x1, x2, block, starts, diff), rel=1e-10)
 
 
 def test_p_value_counts_ties_and_adds_one():

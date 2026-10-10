@@ -372,18 +372,29 @@ def _cap_singular(a: np.ndarray) -> np.ndarray:
 # --- internals: the bootstrap ----------------------------------------------------------------
 
 
-def _cbb_rows(starts: np.ndarray, block: int, n: int) -> np.ndarray:
-    """Row numbers of circular blocks: each start's `block` rows, wrapping past n − 1."""
-    rows = (starts[..., None] + np.arange(block)) % n
-    return rows.reshape(*starts.shape[:-1], starts.shape[-1] * block)
+def _circular_sums(v: np.ndarray, block: int) -> np.ndarray:
+    """S[s] = Σ_{i < block} v[(s + i) mod T]: the sum of the circular block starting at s."""
+    ext = np.concatenate([v, v[: block - 1]])
+    return np.lib.stride_tricks.sliding_window_view(ext, block).sum(axis=1)
 
 
-def _block_psi(y: np.ndarray, block: int) -> np.ndarray:
-    """(1/l) Σ_j ζ_j ζ_j', ζ_j = b^(−1/2) Σ_{block j} y, for each resample (first axis)."""
-    m, n, p = y.shape
-    blocks = n // block
-    z = y[:, : blocks * block].reshape(m, blocks, block, p).sum(axis=2) / math.sqrt(block)
-    return np.einsum("mlp,mlq->mpq", z, z) / blocks
+def _block_sums(x1: np.ndarray, x2: np.ndarray, block: int) -> np.ndarray:
+    """The circular block sums of r1, r2, r1² and r2² for every start: T x 4."""
+    return np.column_stack([_circular_sums(v, block) for v in (x1, x2, x1 * x1, x2 * x2)])
+
+
+def _block_moments(
+    sums: np.ndarray, starts: np.ndarray, block: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """For each resample (row of `starts`): its moments (μ1, μ2, γ1, γ2) and Ψ*.
+
+    A block's sum of y* (centred at the resample's moments) is its raw sum minus b times the
+    moment, so ζ_j = (S(s_j) − b v*)/√b and Ψ* = (1/l) Σ ζ_j ζ_j', without building the rows.
+    """
+    s = sums[starts]  # resamples x blocks x 4
+    moments = s.sum(axis=1) / (starts.shape[1] * block)
+    z = (s - block * moments[:, None, :]) / math.sqrt(block)
+    return moments, np.einsum("mlp,mlq->mpq", z, z) / starts.shape[1]
 
 
 def _bootstrap_d(
@@ -394,23 +405,18 @@ def _bootstrap_d(
     rng: np.random.Generator,
     diff: float,
 ) -> np.ndarray:
-    """|Δ̂* − Δ̂| / s(Δ̂*) for each circular block resample."""
+    """|Δ̂* − Δ̂| / s(Δ̂*) for each circular block resample (⌊T/b⌋ uniform starts each)."""
     t = len(x1)
     blocks = t // block
+    sums = _block_sums(x1, x2, block)
     out = np.empty(resamples)
     for first in range(0, resamples, _CHUNK):
         m = min(_CHUNK, resamples - first)
-        rows = _cbb_rows(rng.integers(0, t, size=(m, blocks)), block, t)
-        a, b = x1[rows], x2[rows]
-        mu1, mu2 = a.mean(axis=1), b.mean(axis=1)
-        q1, q2 = a * a, b * b
-        g1, g2 = q1.mean(axis=1), q2.mean(axis=1)
-        y = np.stack(
-            [a - mu1[:, None], b - mu2[:, None], q1 - g1[:, None], q2 - g2[:, None]], axis=-1
-        )
+        v, psi = _block_moments(sums, rng.integers(0, t, size=(m, blocks)), block)
+        mu1, mu2, g1, g2 = v.T
         with np.errstate(divide="ignore", invalid="ignore"):
             grad = _gradient(mu1, mu2, g1, g2)
-            se = np.sqrt(np.einsum("mi,mij,mj->m", grad, _block_psi(y, block), grad) / t)
+            se = np.sqrt(np.einsum("mi,mij,mj->m", grad, psi, grad) / t)
             out[first : first + m] = np.abs(_sr(mu1, g1) - _sr(mu2, g2) - diff) / se
     if not np.isfinite(out).all():
         raise ValueError(
