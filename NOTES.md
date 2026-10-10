@@ -2,6 +2,58 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-09: step 7a, session 1 of 3 (draft pre-registration, Sharpe-ratio inference)
+
+- **Plan approved** (`727ea80`): all twelve decisions as recommended, plus the
+  post-registration addendum.
+  - The owner asked whether data after 2026-08-31 could be used.
+    - The French files (12 and 49 industries, factors) end on 2026-08-31. The 49-industry
+      file downloaded on 2026-10-09 ends there too.
+    - The library's page lists August 2026 as its latest month.
+    - One more month would move the minimum variance MDE from about 0.450 to 0.449.
+    - Splicing in other data was ruled out: invariant 3, and different return series.
+    - Instead, months published after the tag can feed a descriptive addendum (PLAN.md §12).
+- **Draft `research/PLAN.md` committed first** (`0f3c664`), before any strategy was compared
+  on dev. The planning script printed no Sharpe ratio, mean, volatility or difference.
+- **PLAN.md §5 amended before any dev comparison** (`d8d8efd`): the authors' own R code (CRAN
+  `bootTimeInference`) settles what the paper leaves open.
+  - It uses the prewhitened **Parzen** kernel, not QS (the paper's footnote 8 says they
+    perform alike), with bandwidth 2.6614 (α n)^(1/5).
+  - The singular values of the prewhitening VAR(1) are capped at 0.97. The small-sample
+    factor is n/(n − 4) over the n = T − 1 residuals.
+  - Bootstrap resamples have ⌊T/b⌋ blocks (l·b rows) and are centred at their own moments.
+  - Calibration counts rejections of H0: Δ = Δ̂ on VAR(1) pseudo-series (intercept,
+    stationary-bootstrap residuals with mean block 5, burn-in 50).
+  - One difference is kept on purpose: the authors' Δ̂ uses the ddof = 1 standard
+    deviation, and this code uses population moments throughout, as the paper's f does.
+- **Built** (RED `bfb79ae`, GREEN `05a5f0a`, survivor tests `bedd6ce`):
+  - `report/inference.py`:
+    - `sharpe_ratio`, `sharpe_diff`, `diff_se`, `hac_psi`, `lw_test` and `calibrate_block`
+    - `jobson_korkie_memmel`, `holm`, `min_detectable_difference`, `ceq` and
+      `monthly_excess`
+  - `risk/backtest.kupiec_exact`, plus a `kupiec_exact_p` column in `report`.
+- **Tests** (58 for inference, 100% of the module):
+  - Hand values for the Sharpe ratios, the gradient, Parzen weights, the kernel sum, the
+    block Ψ*, the p-value, Holm, JK-Memmel, CEQ and the monthly compounding.
+  - **A loop-based reference HAC**, written from the formulas, matches `hac_psi` to 1e-10.
+  - **The size check:** iid normal pairs, T = 120, 300 tests at 5%, inside the 99% binomial
+    band.
+  - **Calibration:**
+    - It prefers longer blocks for AR(1) data with φ = 0.8.
+    - It tests the original estimate: H0 at 0 would reject nearly always.
+    - It drops the burn-in.
+  - **Mutation run:** 21 planted bugs.
+    - 19 were caught at first. The burn-in and the calibration's null survived until the two
+      targeted tests were added; then 21 of 21.
+    - The script now retries its file writes. A Windows lock once left a mutation in place,
+      and git restored it.
+- **Timing at study size** (T = 188 months):
+  - `lw_test` with M = 4999 takes 0.12 s.
+  - `calibrate_block` takes about 2 minutes per pair (K = 1000, 7 block sizes, M = 499), so
+    about 8 minutes for the four primary pairs on the holdout. The dev pairs are longer
+    (T = 558): session 2 measures it and decides whether that needs speeding up.
+- Suite: 1250 passed; ruff, format and mypy clean.
+
 ## 2026-10-09: step 6, session 2 of 2 (hypothetical shocks, dev check, review)
 
 - **Built** (RED `c15ff95`, GREEN `a8dfec5`), `stress/hypothetical.py`:
