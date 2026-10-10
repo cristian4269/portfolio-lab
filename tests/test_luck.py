@@ -91,6 +91,7 @@ def test_shadows_report_the_turnover_they_could_not_reach():
     assert (result.turnover > 0.9).all()
     out = luck.shadows(result, returns, cost_bps=5.0, count=200, rng=np.random.default_rng(4))
     assert 0.5 < out.shortfall <= 1.0
+    assert 0 < out.turnover_ratio < 1  # the shadows traded less than the strategy
     calm = luck.shadows(
         a_result(returns, st.equal_weight()),
         returns,
@@ -99,6 +100,7 @@ def test_shadows_report_the_turnover_they_could_not_reach():
         rng=np.random.default_rng(4),
     )
     assert calm.shortfall < 0.01  # 1/N barely trades: a random step almost always reaches it
+    assert calm.turnover_ratio == pytest.approx(1.0, abs=0.02)
 
 
 def test_shadows_are_repeatable_and_labelled_by_the_results_days():

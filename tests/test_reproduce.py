@@ -110,6 +110,14 @@ def repo(tmp_path, monkeypatch):
     return tmp_path
 
 
+def freeze(repo):
+    """The freeze: a dev run records the vintage, then the manifest is committed and tagged."""
+    assert cli.main(["reproduce"]) == 0
+    git(repo, "add", "research/results/manifest.json")
+    git(repo, "commit", "-qm", "freeze with the manifest")
+    git(repo, "tag", "-f", cli.PREREG_TAG)
+
+
 def test_lock_opens_with_the_tag_and_an_unchanged_plan(repo):
     cli.check_prereg(repo)
 
@@ -219,7 +227,7 @@ def test_reproduce_holdout_refuses_without_the_lock(stubbed, capsys, monkeypatch
 
 def test_reproduce_holdout_opens_with_the_lock(stubbed, repo, monkeypatch):
     monkeypatch.chdir(repo)
-    assert cli.main(["reproduce"]) == 0  # the dev run records the frozen vintage
+    freeze(repo)
     assert cli.main(["reproduce", "--holdout"]) == 0
     assert stubbed["load"] == {"end": "2026-08-31", "allow_holdout": True, "refresh": False}
     assert stubbed["run"]["period"] == "holdout"
@@ -264,14 +272,14 @@ def test_holdout_refuses_refresh(stubbed, repo, monkeypatch, capsys):
 
 def test_holdout_needs_the_frozen_vintage(stubbed, repo, monkeypatch, capsys):
     monkeypatch.chdir(repo)
-    assert cli.main(["reproduce", "--holdout"]) == 2  # no manifest.json yet
+    assert cli.main(["reproduce", "--holdout"]) == 2  # no manifest.json at the tag
     assert "load" not in stubbed
     assert "manifest" in capsys.readouterr().err
 
 
 def test_holdout_refuses_drift_unless_accepted(stubbed, repo, monkeypatch, capsys):
     monkeypatch.chdir(repo)
-    cli.main(["reproduce"])
+    freeze(repo)
     stubbed.clear()
     cache_every_source({"usdcad": b"DATE,DEXCAUS\nrevised\n"})
     assert cli.main(["reproduce", "--holdout"]) == 2
@@ -282,7 +290,7 @@ def test_holdout_refuses_drift_unless_accepted(stubbed, repo, monkeypatch, capsy
 
 def test_holdout_runs_once_unless_rerun(stubbed, repo, monkeypatch, capsys):
     monkeypatch.chdir(repo)
-    cli.main(["reproduce"])
+    freeze(repo)
     assert cli.main(["reproduce", "--holdout"]) == 0
     stubbed.clear()
     assert cli.main(["reproduce", "--holdout"]) == 2
@@ -308,13 +316,13 @@ def test_reproduce_needs_the_plan(stubbed, tmp_path, capsys):
 def test_reproduce_checks_the_cache_before_running(stubbed, capsys):
     cache.evict(manifest.SOURCES["ca_govt_10y"])
     assert cli.main(["reproduce"]) == 2
-    assert "run" not in stubbed
+    assert "run" not in stubbed and "load" not in stubbed  # refused before any data is read
     assert "ca_govt_10y" in capsys.readouterr().err
 
 
 def test_holdout_refuses_a_cache_that_changes_while_loading(stubbed, repo, monkeypatch, capsys):
     monkeypatch.chdir(repo)
-    cli.main(["reproduce"])
+    freeze(repo)
     real = manifest.sources
 
     def changing():
@@ -327,3 +335,37 @@ def test_holdout_refuses_a_cache_that_changes_while_loading(stubbed, repo, monke
     monkeypatch.setattr(manifest, "sources", changing)
     assert cli.main(["reproduce", "--holdout"]) == 2
     assert "run" not in stubbed and "changed while loading" in capsys.readouterr().err
+
+
+def test_holdout_compares_with_the_manifest_at_the_tag(stubbed, repo, monkeypatch, capsys):
+    """A dev run after the freeze rewrites the working manifest with the new vintage; the
+    holdout still compares with the vintage frozen at the tag."""
+    monkeypatch.chdir(repo)
+    freeze(repo)
+    cache_every_source({"usdcad": b"DATE,DEXCAUS\nrevised\n"})
+    with pytest.warns(UserWarning, match="usdcad"):
+        assert cli.main(["reproduce"]) == 0
+    stubbed.clear()
+    assert cli.main(["reproduce", "--holdout"]) == 2
+    assert "load" not in stubbed and "usdcad" in capsys.readouterr().err
+
+
+def test_one_shot_record_does_not_depend_on_out(stubbed, repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    freeze(repo)
+    assert cli.main(["reproduce", "--holdout"]) == 0
+    stubbed.clear()
+    assert cli.main(["reproduce", "--holdout", "--out", str(repo / "elsewhere")]) == 2
+    assert "already" in capsys.readouterr().err
+
+
+def test_each_run_records_its_own_sources(stubbed, repo, monkeypatch):
+    monkeypatch.chdir(repo)
+    freeze(repo)
+    cache_every_source({"usdcad": b"DATE,DEXCAUS\nrevised\n"})
+    with pytest.warns(UserWarning):
+        cli.main(["reproduce", "--holdout", "--accept-drift"])
+    m = json.loads((repo / "research" / "results" / "manifest.json").read_text())
+    dev, hold = m["runs"]["dev"]["sources"], m["runs"]["holdout"]["sources"]
+    assert dev["usdcad"]["sha256"] != hold["usdcad"]["sha256"]
+    assert dev["ff5_daily"] == hold["ff5_daily"]

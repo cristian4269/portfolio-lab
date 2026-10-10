@@ -459,3 +459,18 @@ def test_holdout_run_refuses_data_that_stop_before_holdout_end():
             settings=SMALL,
             strategies=group,
         )
+
+
+def test_a_primary_test_has_one_p_value_across_tables(dev_tables):
+    tests, sens, cal = (dev_tables[k] for k in ("tests", "block_sensitivity", "calibration"))
+    for (view, name), row in tests[tests["family"] == "primary"].iterrows():
+        assert sens.loc[(view, name, int(row["block"])), "p"] == row["p"]
+        rows = cal.reset_index()
+        chosen = rows[(rows["view"] == view) & (rows["strategy"] == name) & rows["chosen"]]
+        assert int(chosen["block"].iloc[0]) == row["block"]
+
+
+def test_luck_reports_how_much_of_the_turnover_the_shadows_matched(dev_tables):
+    lk = dev_tables["luck"]
+    assert lk["turnover_ratio"].between(0, 1 + 1e-12).all()
+    assert lk.loc[("USD", "1/N"), "turnover_ratio"] == pytest.approx(1.0, abs=1e-3)
