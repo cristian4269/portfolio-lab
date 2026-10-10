@@ -33,7 +33,7 @@ import pandas as pd
 from scipy.special import xlogy
 from scipy.stats import binomtest, chi2
 
-from portfolio_lab._validate import as_floats, check_dates, return_series, tail_prob
+from portfolio_lab._validate import as_date, as_floats, check_dates, return_series, tail_prob
 from portfolio_lab.construct.covariance import EWMA_DECAY
 from portfolio_lab.risk.var import LEVELS, METHODS, WINDOW, forecast
 
@@ -166,12 +166,15 @@ def report(
     methods: Sequence[str] = METHODS,
     window: int = WINDOW,
     decay: float = EWMA_DECAY,
+    start: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """Every backtest of every method's rolling forecasts, one row per (level, method).
 
-    `basel` is the zone of the last 250 days at 99%, and None at other levels or with fewer
-    days.
+    With `start`, only the forecast days on or after it count (an evaluation period); the
+    forecasts still use the history before it. `basel` is the zone of the last 250 days at
+    99%, and None at other levels or with fewer days.
     """
+    first = None if start is None else as_date(start, "start")
     if not levels:
         raise ValueError("levels must name at least one confidence level")
     if not methods:
@@ -182,6 +185,10 @@ def report(
         for method in methods:
             fc = forecast(returns, method=method, level=level, window=window, decay=decay)
             exc = exceptions(returns, fc["var"])
+            if first is not None:
+                exc = exc.loc[exc.index >= first]
+                if exc.empty:
+                    raise ValueError(f"no forecast day on or after start={start!r}")
             flags = exc.to_numpy()
             days, x = len(flags), int(flags.sum())
             uc, ind = kupiec(exc, level), christoffersen(exc)

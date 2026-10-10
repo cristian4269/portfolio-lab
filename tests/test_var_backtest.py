@@ -332,6 +332,27 @@ def test_report_has_no_basel_zone_with_less_than_a_year():
     assert table.loc[(0.99, "historical"), "days"] == 200
 
 
+def test_report_counts_exceptions_from_start_with_forecasts_from_earlier_history():
+    r = pd.Series(np.random.default_rng(9).standard_t(4, 700) * 0.01, index=days(700))
+    start = days(700)[300]
+    table = bt.report(r, window=100, methods=("historical", "fhs"), levels=(0.99,), start=start)
+    for method in ("historical", "fhs"):
+        fc = v.forecast(r, method=method, level=0.99, window=100)
+        exc = bt.exceptions(r, fc["var"]).loc[start:]
+        row = table.loc[(0.99, method)]
+        assert row["days"] == 400
+        assert row["exceptions"] == exc.sum()
+        assert row["kupiec_p"] == bt.kupiec(exc, 0.99).pvalue
+        assert row["cc_p"] == bt.conditional_coverage(exc, 0.99).pvalue
+        assert row["basel"] == bt.basel_zone(exc.iloc[-250:], 0.99)
+
+
+def test_report_start_must_leave_days():
+    r = pd.Series(np.random.default_rng(9).normal(0, 0.01, 300), index=days(300))
+    with pytest.raises(ValueError, match="start"):
+        bt.report(r, window=100, levels=(0.99,), methods=("historical",), start="2030-01-01")
+
+
 def test_report_needs_levels_and_methods():
     r = pd.Series(np.random.default_rng(8).normal(0, 0.01, 300), index=days(300))
     with pytest.raises(ValueError, match="levels"):
