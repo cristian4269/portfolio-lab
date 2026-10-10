@@ -108,8 +108,16 @@ class ZTest(NamedTuple):
 # --- Sharpe ratios ----------------------------------------------------------------------------
 
 
-def sharpe_ratio(r: pd.Series) -> float:
-    """μ/σ with population moments, per period (no annualization)."""
+@overload
+def sharpe_ratio(r: pd.Series) -> float: ...
+@overload
+def sharpe_ratio(r: pd.DataFrame) -> pd.Series: ...
+def sharpe_ratio(r: pd.Series | pd.DataFrame) -> float | pd.Series:
+    """μ/σ with population moments, per period (no annualization); per column for a frame."""
+    if isinstance(r, pd.DataFrame):
+        return pd.Series(
+            [sharpe_ratio(r[col]) for col in r.columns], index=r.columns, name="sharpe"
+        )
     x = _series(r, "returns")
     return float(x.mean() / _sd(x, "returns"))
 
@@ -274,21 +282,24 @@ def ceq(r: pd.Series, gamma: float = 1.0) -> float:
     return float(x.mean() - gamma / 2 * x.var(ddof=1))
 
 
-def monthly_excess(returns: pd.Series, rf: pd.Series) -> pd.Series:
+def monthly_excess[T: (pd.Series, pd.DataFrame)](returns: T, rf: pd.Series) -> T:
     """Daily returns compounded within each calendar month, minus the risk-free rate
-    compounded the same way: Π(1 + r) − Π(1 + rf). Labelled by each month's last day."""
-    for s, what in ((returns, "returns"), (rf, "rf")):
-        if not isinstance(s, pd.Series):
-            raise TypeError(f"{what} must be a Series of daily returns, got {type(s).__name__}")
+    compounded the same way: Π(1 + r) − Π(1 + rf), per column for a frame. Labelled by each
+    month's last day."""
+    if not isinstance(returns, pd.Series | pd.DataFrame):
+        raise TypeError(
+            f"returns must be a Series or DataFrame of daily returns, got {type(returns).__name__}"
+        )
+    if not isinstance(rf, pd.Series):
+        raise TypeError(f"rf must be a Series of daily returns, got {type(rf).__name__}")
     days = check_dates(returns.index, "returns")
     check_aligned(returns, rf, "returns and rf dates")
     months = days.to_period("M")
     growth = (1 + returns.astype(float)).groupby(months).prod()
     carry = (1 + rf.astype(float)).groupby(months).prod()
-    last = pd.Series(days, index=days).groupby(months).max()
-    return pd.Series(
-        (growth - carry).to_numpy(), index=pd.DatetimeIndex(last.to_numpy()), name=returns.name
-    )
+    out = growth.sub(carry, axis=0)
+    out.index = pd.DatetimeIndex(pd.Series(days, index=days).groupby(months).max().to_numpy())
+    return out
 
 
 # --- internals: moments and the HAC ----------------------------------------------------------
