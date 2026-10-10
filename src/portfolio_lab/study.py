@@ -166,6 +166,10 @@ def selection(monthly_usd: pd.DataFrame) -> pd.DataFrame:
     volatility (ddof 1) of monthly net excess returns; ties go to the first candidate."""
     names = [st.min_variance(e).name for e in CANDIDATES]
     vol = np.array([monthly_usd[n].std(ddof=1) * _YEAR for n in names])
+    if not np.isfinite(vol).all():
+        raise ValueError(
+            f"a candidate has no finite dev volatility: {dict(zip(names, vol, strict=True))}"
+        )
     chosen = np.zeros(len(CANDIDATES), dtype=bool)
     chosen[int(np.argmin(vol))] = True
     index = pd.Index(CANDIDATES, name="estimator")
@@ -208,6 +212,8 @@ def run(
         )
         for v, res in results.items()
     }
+    if period == "holdout":
+        _check_reaches(results, end)
     tables: dict[str, pd.DataFrame] = {}
     if period == "dev":
         tables["selection"] = selection(monthly["USD"])
@@ -483,6 +489,7 @@ def _mde(
     monthly: Mapping[str, pd.DataFrame], pair: tuple[str, str], holdout_months: int
 ) -> pd.DataFrame:
     rows = []
+    family = len(monthly) * len(pair)  # Holm's first step divides alpha by the family size
     for v, m in monthly.items():
         for name in pair:
             se = inf.diff_se(m[name], m[BENCHMARK]) * math.sqrt(len(m) / holdout_months) * _YEAR
@@ -494,13 +501,26 @@ def _mde(
                     "holdout_months": holdout_months,
                     "se": se,
                     "mde": inf.min_detectable_difference(se, alpha=ALPHA),
-                    "mde_holm": inf.min_detectable_difference(se, alpha=ALPHA / 4),
+                    "mde_holm": inf.min_detectable_difference(se, alpha=ALPHA / family),
                 }
             )
     return pd.DataFrame(rows).set_index(["view", "strategy"])
 
 
 # --- helpers ----------------------------------------------------------------------------------
+
+
+def _check_reaches(results: Mapping[str, Mapping[str, Result]], end: str | pd.Timestamp) -> None:
+    """The holdout must reach HOLDOUT_END: every view's last day within its last week, in its
+    month, so the last month is complete and no shorter holdout passes silently."""
+    stop = pd.Timestamp(end)
+    for v, res in results.items():
+        last = res[BENCHMARK].net.index[-1]
+        if last < stop - pd.Timedelta(days=6) or last.to_period("M") != stop.to_period("M"):
+            raise ValueError(
+                f"the {v} data end on {last.date()}, short of HOLDOUT_END {stop.date()}: "
+                "refresh the data or check the sources"
+            )
 
 
 def _in_months(days: pd.Index, months: pd.Index) -> np.ndarray:

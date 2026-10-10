@@ -78,6 +78,7 @@ _MAX_SINGULAR = 0.97  # Andrews and Monahan (1992): keep I - A invertible
 _PARAMS = 4  # the small-sample factor n / (n - 4): v has 4 parameters
 _MIN_PERIODS = 6  # n = T - 1 residuals must exceed the 4 parameters
 _CHUNK = 1000  # resamples per vectorized batch (about 6 MB at T = 200)
+_UNIT_ROOT = 1e-8  # an AR(1) slope this close to 1 has no long-run variance
 _DEGENERATE = 1e-12  # theta of an O(1) quantity below this is rounding error
 
 
@@ -168,6 +169,8 @@ def lw_test(
     _check_count(resamples, "resamples")
     if not 0 < level < 1:
         raise ValueError(f"level must be in (0, 1), got {level}")
+    if not math.isfinite(null):
+        raise ValueError(f"null must be a finite Sharpe difference, got {null}")
     if np.array_equal(x1, x2):
         raise ValueError("the two series are identical: their Sharpe difference has no variance")
     diff = float(x1.mean() / _sd(x1, "r1") - x2.mean() / _sd(x2, "r2"))
@@ -343,6 +346,8 @@ def _andrews_alpha(e: np.ndarray) -> float:
         design = np.column_stack([np.ones(len(c) - 1), c[:-1]])
         coef, *_ = np.linalg.lstsq(design, c[1:], rcond=None)
         rho = float(coef[1])
+        if not abs(1 - rho) > _UNIT_ROOT:
+            raise ValueError(f"a moment series is a unit root (AR(1) slope {rho}): no bandwidth")
         s2 = float(np.mean((c[1:] - design @ coef) ** 2))
         num += 4 * rho**2 * s2**2 / (1 - rho) ** 8
         den += s2**2 / (1 - rho) ** 4

@@ -22,7 +22,7 @@ from typing import Any
 from portfolio_lab import config, study
 from portfolio_lab.data import boc, cache, fred, french, statcan
 
-__all__ = ["HEADER_CHARS", "SOURCES", "build", "drift", "header_line", "merge"]
+__all__ = ["HEADER_CHARS", "SOURCES", "build", "drift", "header_line", "merge", "sources"]
 
 SOURCES = {
     "ff5_daily": french.BASE_URL + french.DATASETS["ff5_daily"],
@@ -46,20 +46,43 @@ def header_line(content: bytes) -> str:
     return lines[0].strip()[:HEADER_CHARS] if lines else ""
 
 
-def build(*, period: str, command: str, estimator: str, root: Path | None = None) -> dict[str, Any]:
-    """The manifest of one run, from the cached sources (all must be cached)."""
-    sources = {}
+def sources() -> dict[str, dict[str, Any]]:
+    """The cached copy of every source: URL, header line, SHA-256, size, retrieval time.
+
+    Reads the cache only (never downloads); a source missing or failing its checksum raises.
+    """
+    out = {}
     for name, url in SOURCES.items():
         meta = cache.cache_info(url)
-        if meta is None:
-            raise FileNotFoundError(f"{name} is not in the download cache ({url})")
-        sources[name] = {
+        content = cache.read_cached(url)
+        if meta is None or content is None:
+            raise FileNotFoundError(
+                f"{name} is not in the download cache, or fails its checksum ({url}): "
+                "run `portfolio-lab reproduce --refresh`"
+            )
+        out[name] = {
             "url": url,
-            "header": header_line(cache.fetch(url)),
+            "header": header_line(content),
             "sha256": meta["sha256"],
             "bytes": meta["bytes"],
             "retrieved": meta["retrieved"],
         }
+    return out
+
+
+def build(
+    *,
+    period: str,
+    command: str,
+    estimator: str,
+    source_table: dict[str, dict[str, Any]] | None = None,
+    root: Path | None = None,
+    tag_commit: str | None = None,
+) -> dict[str, Any]:
+    """The manifest of one run: `source_table` (default: `sources()` now) and the run."""
+    table = sources() if source_table is None else source_table
+    git = _git_state(Path.cwd() if root is None else root)
+    git["tag_commit"] = tag_commit
     versions = {"python": platform.python_version()}
     versions |= {p: metadata.version(p) for p in PACKAGES}
     return {
@@ -70,13 +93,13 @@ def build(*, period: str, command: str, estimator: str, root: Path | None = None
         "holdout_start": config.HOLDOUT_START,
         "holdout_end": config.HOLDOUT_END,
         "packages": versions,
-        "sources": sources,
+        "sources": table,
         "runs": {
             period: {
                 "command": command,
                 "created": datetime.now(UTC).isoformat(timespec="seconds"),
                 "estimator": estimator,
-                "git": _git_state(Path.cwd() if root is None else root),
+                "git": git,
             }
         },
     }

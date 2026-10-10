@@ -310,3 +310,20 @@ def test_reproduce_checks_the_cache_before_running(stubbed, capsys):
     assert cli.main(["reproduce"]) == 2
     assert "run" not in stubbed
     assert "ca_govt_10y" in capsys.readouterr().err
+
+
+def test_holdout_refuses_a_cache_that_changes_while_loading(stubbed, repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    cli.main(["reproduce"])
+    real = manifest.sources
+
+    def changing():
+        out = real()
+        if "load" in stubbed:  # after the data were loaded
+            out["usdcad"] = {**out["usdcad"], "sha256": "changed"}
+        return out
+
+    stubbed.clear()
+    monkeypatch.setattr(manifest, "sources", changing)
+    assert cli.main(["reproduce", "--holdout"]) == 2
+    assert "run" not in stubbed and "changed while loading" in capsys.readouterr().err

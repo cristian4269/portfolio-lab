@@ -81,6 +81,16 @@ def fetch_parsed[T](url: str, parse: Callable[[bytes], T], *, refresh: bool = Fa
         raise
 
 
+def read_cached(url: str) -> bytes | None:
+    """The cached body of `url` if its checksum holds, else None: never downloads."""
+    data_path, _ = _paths(url)
+    meta = cache_info(url)
+    if meta is None or not data_path.exists():
+        return None
+    content = data_path.read_bytes()
+    return content if hashlib.sha256(content).hexdigest() == meta["sha256"] else None
+
+
 def fetch(url: str, *, refresh: bool = False) -> bytes:
     """Return the body at `url`, from the cache unless `refresh` or the copy is bad."""
     data_path, _ = _paths(url)
