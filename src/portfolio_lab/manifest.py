@@ -1,0 +1,112 @@
+"""The results manifest (research/results/manifest.json): where every number came from.
+
+- For each source file the study reads (`SOURCES`): its URL, its header line, and the SHA-256,
+  size and retrieval time from the download cache's sidecar.
+- For each run (dev, holdout): the command, the time, the primary estimator, and the git
+  commit with a dirty flag.
+- The Python and package versions, NumPy's bit generator, the seed, DEV_END and HOLDOUT_END.
+
+`drift` names the files whose SHA-256 differs from an earlier manifest (a newer vintage), and
+`merge` keeps the other period's run when a period is run again.
+"""
+
+import io
+import platform
+import subprocess
+import zipfile
+from datetime import UTC, datetime
+from importlib import metadata
+from pathlib import Path
+from typing import Any
+
+from portfolio_lab import config, study
+from portfolio_lab.data import boc, cache, fred, french, statcan
+
+__all__ = ["HEADER_CHARS", "SOURCES", "build", "drift", "header_line", "merge"]
+
+SOURCES = {
+    "ff5_daily": french.BASE_URL + french.DATASETS["ff5_daily"],
+    "mom_daily": french.BASE_URL + french.DATASETS["mom_daily"],
+    "ind12_daily": french.BASE_URL + french.DATASETS["ind12_daily"],
+    "usdcad": fred.csv_url("DEXCAUS"),
+    "ca_tbill_3m": statcan.data_url("v122531"),
+    "ca_govt_long": statcan.data_url("v122487"),
+    "ca_govt_10y": boc.observations_url("BD.CDN.10YR.DQ.YLD"),
+}
+HEADER_CHARS = 200
+PACKAGES = ("numpy", "pandas", "scipy", "statsmodels", "portfolio-lab")
+
+
+def header_line(content: bytes) -> str:
+    """The first line of a file (of the first member of a zip), at most HEADER_CHARS long."""
+    if content[:2] == b"PK":
+        with zipfile.ZipFile(io.BytesIO(content)) as z:
+            content = z.read(z.namelist()[0])
+    lines = content.decode("utf-8-sig", errors="replace").splitlines()
+    return lines[0].strip()[:HEADER_CHARS] if lines else ""
+
+
+def build(*, period: str, command: str, estimator: str, root: Path | None = None) -> dict[str, Any]:
+    """The manifest of one run, from the cached sources (all must be cached)."""
+    sources = {}
+    for name, url in SOURCES.items():
+        meta = cache.cache_info(url)
+        if meta is None:
+            raise FileNotFoundError(f"{name} is not in the download cache ({url})")
+        sources[name] = {
+            "url": url,
+            "header": header_line(cache.fetch(url)),
+            "sha256": meta["sha256"],
+            "bytes": meta["bytes"],
+            "retrieved": meta["retrieved"],
+        }
+    versions = {"python": platform.python_version()}
+    versions |= {p: metadata.version(p) for p in PACKAGES}
+    return {
+        "schema": 1,
+        "seed": study.SEED,
+        "bit_generator": "PCG64",
+        "dev_end": config.DEV_END,
+        "holdout_start": config.HOLDOUT_START,
+        "holdout_end": config.HOLDOUT_END,
+        "packages": versions,
+        "sources": sources,
+        "runs": {
+            period: {
+                "command": command,
+                "created": datetime.now(UTC).isoformat(timespec="seconds"),
+                "estimator": estimator,
+                "git": _git_state(Path.cwd() if root is None else root),
+            }
+        },
+    }
+
+
+def drift(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
+    """The sources of `new` whose SHA-256 is not the one in `old`, sorted."""
+    before = old.get("sources", {})
+    return sorted(
+        name
+        for name, src in new["sources"].items()
+        if before.get(name, {}).get("sha256") != src["sha256"]
+    )
+
+
+def merge(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """`new`, keeping the runs of `old` for the other periods."""
+    return {**new, "runs": {**old.get("runs", {}), **new["runs"]}}
+
+
+def _git_state(root: Path) -> dict[str, Any]:
+    try:
+        commit = _git(root, "rev-parse", "HEAD").strip()
+        dirty = bool(_git(root, "status", "--porcelain").strip())
+    except (OSError, subprocess.CalledProcessError):
+        return {"commit": None, "dirty": None}
+    return {"commit": commit, "dirty": dirty}
+
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=root, check=True, capture_output=True, text=True
+    ).stdout

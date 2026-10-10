@@ -124,8 +124,8 @@ def _shadow_paths(
         value = held.sum(axis=2)
         before = np.concatenate([np.ones((count, 1)), value[:, :-1]], axis=1)
         net[a:b] = (value / before - 1).T
-        if k + 1 == len(pos):
-            break
+        if k + 1 == len(pos):  # the last target is held to the end: no trade follows
+            continue
         drifted = held[:, -1] / value[:, -1:]
         u = rng.dirichlet(np.ones(n_assets), size=count)
         gap = np.abs(u - drifted).sum(axis=1)

@@ -571,6 +571,8 @@ def test_single_series_checks():
         inf.ceq(pair(R1, R2)[0], gamma=float("nan"))
     with pytest.raises(TypeError, match="Series"):
         inf.monthly_excess([0.01, 0.02], pd.Series([0.0, 0.0]))
+    with pytest.raises(TypeError, match="rf"):
+        inf.monthly_excess(pair(R1, R2)[0], [0.0] * 6)
 
 
 def test_level_and_alpha_checks():

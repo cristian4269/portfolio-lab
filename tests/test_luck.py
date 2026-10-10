@@ -126,6 +126,17 @@ def test_shadows_pay_the_cost_on_trade_days_only():
     assert (paid.net <= free.net + 1e-15).all()
 
 
+def test_shadows_when_the_last_trade_is_on_the_last_day():
+    returns = asset_returns()
+    trade_day = a_result(returns).weights.index[-1]
+    cut = returns.loc[:trade_day]  # the data end on a trade date: its target is never held
+    result = a_result(cut)
+    assert result.weights.index[-1] == result.net.index[-1]
+    out = luck.shadows(result, cut, cost_bps=5.0, count=4, rng=np.random.default_rng(7))
+    assert out.net.index.equals(result.net.index)
+    assert np.isfinite(out.net.to_numpy()).all()
+
+
 def test_shadows_check_their_inputs():
     returns = asset_returns()
     result = a_result(returns)

@@ -31,7 +31,12 @@ def cache_every_source(content_by_name=None):
 
 def test_sources_are_the_seven_files_the_study_reads():
     assert set(manifest.SOURCES) == {
-        "ff5_daily", "mom_daily", "ind12_daily", "usdcad", "ca_tbill_3m", "ca_govt_long",
+        "ff5_daily",
+        "mom_daily",
+        "ind12_daily",
+        "usdcad",
+        "ca_tbill_3m",
+        "ca_govt_long",
         "ca_govt_10y",
     }
     assert manifest.SOURCES["usdcad"].endswith("id=DEXCAUS")
@@ -86,7 +91,9 @@ def test_merge_keeps_the_other_periods_runs():
 def git(root, *args):
     subprocess.run(
         ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
-        cwd=root, check=True, capture_output=True,
+        cwd=root,
+        check=True,
+        capture_output=True,
     )
 
 
