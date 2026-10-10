@@ -329,6 +329,16 @@ it must come **after** the draft PLAN.md is committed. The numbers are under "Gr
   - the lock skipped
   - the manifest reading the wrong SHA
 
+- As built (2026-10-09, see NOTES.md):
+  - luck RED `c7b169d` / GREEN `c344831`; bootstrap speed-up `7b60031`; `report(start=)`
+    `2b939c7`.
+  - study RED `a61d955` / GREEN `8970045`, written in one pass.
+  - reproduce RED `ab72d21` / GREEN `d66aa6c`; survivor tests `b397b62`.
+  - Mutation run: 19 of 19 (16 at first). Session 1's run is still 21 of 21 on the new
+    bootstrap.
+  - Dev `reproduce` timing: 571 s, so no warm start. Only the clock and the table shapes
+    were read.
+
 **Session 3: the dev analysis, the reviews, the freeze.**
 - Refresh every source (network; keyless public sources, polite delays) and set HOLDOUT_END
   (decision 6).

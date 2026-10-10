@@ -2,6 +2,61 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-09: step 7a, session 2 of 3 (luck benchmark, study, reproduce)
+
+- **Built:**
+  - `backtest/luck.py` (RED `c7b169d`, GREEN `c344831`):
+    - Turnover-matched Dirichlet(1) shadows, vectorized over the shadows.
+    - On their own targets they equal `engine.simulate` to 1e-12, costs included.
+    - Shadows whose turnover is capped trade no more than the strategy, and the shortfall
+      share is exact.
+    - `percentile` and `best_of`.
+  - **Bootstrap speed-up** (`7b60031`):
+    - Resamples are summed from precomputed circular block sums, O(T/b) instead of O(T).
+    - The draws are the same: a test compares it to resampling the rows, at blocks 1, 3
+      and 7.
+    - Calibration is about 42 s per pair at T = 188 and 2 min at T = 558 (it was 2 and 6).
+  - `risk.backtest.report(start=...)` (`2b939c7`): exceptions are counted from an evaluation
+    start, while the forecasts still use the earlier history.
+  - `study.py` (RED `a61d955`, GREEN `8970045`). **The RED commit came after the code: this
+    module and its tests were written in one pass.** It holds:
+    - the registry: the 17 strategies, the seed and the candidates
+    - the dev rule, the period months (the partial first month dropped) and seeded
+      generators
+    - `load` through the guarded loaders (RF taken on the asset days exactly)
+    - `run`, which makes 13 tables
+  - `cli.py reproduce`, `manifest.py`, and `config.HOLDOUT_END` / `PREREG_TAG` (RED
+    `ab72d21`, GREEN `d66aa6c`):
+    - **The holdout lock:** HOLDOUT_END and the estimator must be frozen, the tag must
+      exist, and PLAN.md must equal its tagged copy (LF-normalized). It is tested in a
+      temporary git repo.
+    - **The manifest:** per source, URL, header line, SHA-256, size and retrieval time; per
+      run, the command, time, estimator and git state; plus the packages and seed. It warns
+      on drift.
+    - The Step 0 stub-reproduce test was dropped (`7dfaaae`).
+- **Mutation runs:**
+  - Session 2: 19 planted bugs. 16 were caught at first.
+    - Three survived because the small synthetic run could not tell the variants apart: the
+      exploratory pairs on the ERC block, Holm over all for the primaries, and an unscaled
+      MDE.
+    - A test that every random part has its own seed label was added beforehand, for the
+      "one RNG stream" mutation.
+    - Targeted tests (`b397b62`): 19 of 19.
+  - Session 1's run was re-pointed at the new bootstrap code: 21 of 21.
+- **Timing, a full dev `reproduce` on the current cache** (written to the scratchpad):
+  - **571 s (9.5 min)**: under the 10-minute bar, so no SLSQP warm start (decision 12).
+  - 12 tables with the expected shapes:
+    - 32 tests
+    - 28 calibration rows
+    - 34 performance and 34 luck rows
+    - 60 VaR rows
+    - 21 shock rows
+    - 6 stress rows
+  - MDE was skipped because HOLDOUT_END is not set yet. No warnings.
+  - **Only the clock and the row counts were read; no number was looked at.** The recorded
+    dev analysis is session 3's, on the refreshed vintage.
+- Suite: 1310 passed, 99.8% coverage; ruff, format and mypy clean.
+
 ## 2026-10-09: step 7a, session 1 of 3 (draft pre-registration, Sharpe-ratio inference)
 
 - **Plan approved** (`727ea80`): all twelve decisions as recommended, plus the
