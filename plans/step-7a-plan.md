@@ -290,6 +290,17 @@ it must come **after** the draft PLAN.md is committed. The numbers are under "Gr
   - no prewhitening recolouring
   - the QS weight formula
   - the Memmel term dropped
+- As built (2026-10-09, see NOTES.md):
+  - Draft PLAN.md `0f3c664`. §5 amended to follow the authors' code (`d8d8efd`).
+  - RED `bfb79ae`, GREEN `05a5f0a`, survivor tests `bedd6ce`.
+  - 58 inference tests, 100% coverage of the module. A loop-based reference HAC matches to
+    1e-10. The iid size check is inside its 99% band.
+  - The mutation run caught 21 of 21: the plan's eight, plus the bandwidth constant, the cap,
+    n/(n − 4), the bootstrap centre, ties, the binomial rate, the geometric mean, the
+    burn-in, wrap-around, the calibration null, rf compounding, the lag direction and the
+    Andrews exponent.
+  - Timing: `lw_test` (M = 4999) 0.12 s; `calibrate_block` about 2 minutes per pair at
+    T = 188.
 
 **Session 2: luck benchmark, study and reproduce.**
 - `luck.py`:
