@@ -342,3 +342,95 @@ def test_run_checks_the_period_and_the_primary_pair():
     without_erc = [st.equal_weight(), *[st.min_variance(e) for e in study.CANDIDATES]]
     with pytest.raises(ValueError, match="primary pair"):
         study.run(inputs, period="dev", end=config.DEV_END, settings=SMALL, strategies=without_erc)
+
+
+def test_every_random_part_has_its_own_seed(monkeypatch):
+    """Shadows, tests and calibrations of different strategies must not share a stream (the
+    best of K assumes independent shadows)."""
+    labels = []
+    real = study.rng_for
+
+    def record(*args):
+        labels.append(args)
+        return real(*args)
+
+    monkeypatch.setattr(study, "rng_for", record)
+    study.run(
+        synthetic_inputs(),
+        period="dev",
+        end=config.DEV_END,
+        settings=SMALL,
+        strategies=small_group(),
+    )
+    assert len(labels) == len(set(labels))
+    luck_labels = [x for x in labels if x[-1] == "luck"]
+    assert len(luck_labels) == 2 * 7  # one per (view, strategy)
+
+
+def test_exploratory_pairs_take_the_minimum_variance_block_not_the_ercs(monkeypatch):
+    real = study.inf.calibrate_block
+
+    def fixed(r1, r2, **kw):
+        cal = real(r1, r2, **kw)
+        block = 1 if r1.name.startswith("min variance") else 2  # MV and ERC now differ
+        return study.inf.Calibration(block, cal.rejection)
+
+    monkeypatch.setattr(study.inf, "calibrate_block", fixed)
+    tables = study.run(
+        synthetic_inputs(),
+        period="dev",
+        end=config.DEV_END,
+        settings=SMALL,
+        strategies=small_group(),
+    )
+    tests = tables["tests"]
+    primary = tests[tests["family"] == "primary"]
+    assert set(primary["block"]) == {1, 2}
+    assert (tests.loc[tests["family"] == "exploratory", "block"] == 1).all()
+
+
+def test_holm_primary_is_over_the_four_primary_tests_only(dev_tables):
+    tests = dev_tables["tests"]
+    primary = tests[tests["family"] == "primary"]
+    assert primary["holm_primary"].to_numpy() == pytest.approx(
+        study.inf.holm(primary["p"].to_numpy())
+    )
+    assert primary["reject_primary"].tolist() == (primary["holm_primary"] <= 0.05).tolist()
+
+
+def test_mde_shrinks_with_the_square_root_of_the_holdout_length():
+    months = pd.date_range("2000-01-31", periods=60, freq="ME")
+    rng = np.random.default_rng(22)
+    x = rng.multivariate_normal([0.008, 0.007], [[0.0016, 0.0012], [0.0012, 0.0016]], size=60)
+    mv, erc = study.primary("sample")
+    m = pd.DataFrame(
+        {"1/N": x[:, 0], mv: x[:, 1], erc: x[:, 1] * 0.9 + x[:, 0] * 0.1}, index=months
+    )
+    short = study._mde({"USD": m}, (mv, erc), 100)
+    long = study._mde({"USD": m}, (mv, erc), 400)
+    assert (short["se"] / long["se"]).to_numpy() == pytest.approx([2.0, 2.0])
+    se_dev = study.inf.diff_se(m[mv], m["1/N"]) * math.sqrt(12)
+    assert short.loc[("USD", mv), "se"] == pytest.approx(se_dev * math.sqrt(60 / 100))
+
+
+def test_holm_primary_differs_from_holm_over_all_when_p_values_are_small(monkeypatch):
+    real = study.inf.lw_test
+    count = iter(range(1000))
+
+    def small_p(r1, r2, **kw):
+        return real(r1, r2, **kw)._replace(pvalue=0.001 * (next(count) % 7 + 1))
+
+    monkeypatch.setattr(study.inf, "lw_test", small_p)
+    tables = study.run(
+        synthetic_inputs(),
+        period="dev",
+        end=config.DEV_END,
+        settings=SMALL,
+        strategies=small_group(),
+    )
+    tests = tables["tests"]
+    primary = tests[tests["family"] == "primary"]
+    assert primary["holm_primary"].to_numpy() == pytest.approx(
+        study.inf.holm(primary["p"].to_numpy())
+    )
+    assert (primary["holm_primary"] < primary["holm_all"]).any()
