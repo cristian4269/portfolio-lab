@@ -100,6 +100,7 @@ def build(
                 "created": datetime.now(UTC).isoformat(timespec="seconds"),
                 "estimator": estimator,
                 "git": git,
+                "sources": table,  # each run's own vintage (the top level is the latest run's)
             }
         },
     }

@@ -93,13 +93,15 @@ def read_cached(url: str) -> bytes | None:
 
 def fetch(url: str, *, refresh: bool = False) -> bytes:
     """Return the body at `url`, from the cache unless `refresh` or the copy is bad."""
-    data_path, _ = _paths(url)
-    meta = None if refresh else cache_info(url)
-    if meta is not None and data_path.exists():
-        content = data_path.read_bytes()
-        if hashlib.sha256(content).hexdigest() == meta["sha256"]:
+    if not refresh:
+        content = read_cached(url)
+        if content is not None:
             return content
-        warnings.warn(f"cached copy of {url} failed its checksum; downloading again", stacklevel=2)
+        data_path, _ = _paths(url)
+        if cache_info(url) is not None and data_path.exists():
+            warnings.warn(
+                f"cached copy of {url} failed its checksum; downloading again", stacklevel=2
+            )
     return _download(url)
 
 

@@ -368,4 +368,4 @@ def test_each_run_records_its_own_sources(stubbed, repo, monkeypatch):
     m = json.loads((repo / "research" / "results" / "manifest.json").read_text())
     dev, hold = m["runs"]["dev"]["sources"], m["runs"]["holdout"]["sources"]
     assert dev["usdcad"]["sha256"] != hold["usdcad"]["sha256"]
-    assert dev["ff5_daily"] == hold["ff5_daily"]
+    assert dev["ff5_daily"]["sha256"] == hold["ff5_daily"]["sha256"]

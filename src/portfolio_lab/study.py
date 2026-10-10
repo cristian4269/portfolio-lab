@@ -296,6 +296,7 @@ def _tests(
     for v, m in monthly.items():
         bench = m[BENCHMARK]
         blocks: dict[str, int] = {}
+        by_block: dict[tuple[str, int], inf.SharpeTest] = {}
         for name in pair:
             cal = inf.calibrate_block(
                 m[name],
@@ -308,25 +309,26 @@ def _tests(
             blocks[name] = cal.block
             for b, rate in zip(settings.blocks, cal.rejection.to_numpy(), strict=True):
                 cal_rows.append((v, name, b, float(rate), b == cal.block))
-            for b in settings.blocks:
+            for b in settings.blocks:  # the sensitivity; the calibrated block is the test itself
                 res = inf.lw_test(
                     m[name],
                     bench,
                     block=b,
                     resamples=settings.resamples,
-                    rng=rng_for(period, v, name, "sensitivity", b),
+                    rng=rng_for(period, v, name, "test", b),
                 )
+                by_block[(name, b)] = res
                 sens_rows.append((v, name, b, res.diff * _YEAR, res.pvalue))
         for name in m.columns:
             if name == BENCHMARK:
                 continue
             b = blocks.get(name, blocks[mv])
-            res = inf.lw_test(
+            res = by_block.get((name, b)) or inf.lw_test(
                 m[name],
                 bench,
                 block=b,
                 resamples=settings.resamples,
-                rng=rng_for(period, v, name, "test"),
+                rng=rng_for(period, v, name, "test", b),
             )
             jk = inf.jobson_korkie_memmel(m[name], bench)
             rows.append(
@@ -393,6 +395,7 @@ def _luck(
                     "shadow_median": float(np.median(ss)),
                     "shadow_p95": float(np.quantile(ss, 0.95)),
                     "shortfall": sh.shortfall,
+                    "turnover_ratio": sh.turnover_ratio,
                 }
             )
         tried = [n for n in m.columns if n != BENCHMARK]

@@ -33,17 +33,20 @@ SHADOWS = 1000  # per strategy (research/PLAN.md §7)
 
 @dataclass(frozen=True, eq=False)
 class Shadows:
-    """Daily net returns of each shadow (columns 0 .. count − 1) on the result's days, and the
-    share of (later trade, shadow) pairs whose turnover fell short of the strategy's."""
+    """Daily net returns of each shadow (columns 0 .. count − 1) on the result's days; the share
+    of (later trade, shadow) pairs whose turnover fell short of the strategy's; and the shadows'
+    total turnover over the strategy's (1 when every trade was matched)."""
 
     net: pd.DataFrame
     shortfall: float
+    turnover_ratio: float
 
 
 @dataclass(frozen=True, eq=False)
 class _Paths:
     net: np.ndarray  # days x shadows
     shortfall: float
+    turnover_ratio: float
     targets: np.ndarray | None  # shadows x trades x assets, when kept
 
 
@@ -58,7 +61,7 @@ def shadows(
     """`count` turnover-matched random shadows of `result`, on the asset `returns` it ran on."""
     paths = _shadow_paths(result, returns, cost_bps=cost_bps, rng=rng, count=count)
     net = pd.DataFrame(paths.net, index=result.net.index, columns=range(count))
-    return Shadows(net=net, shortfall=paths.shortfall)
+    return Shadows(net=net, shortfall=paths.shortfall, turnover_ratio=paths.turnover_ratio)
 
 
 def percentile(value: float, sample: Sequence[float] | np.ndarray | pd.Series) -> float:
@@ -117,6 +120,7 @@ def _shadow_paths(
     w = rng.dirichlet(np.ones(n_assets), size=count)
     kept = [w] if keep_targets else []
     short = 0
+    traded = 0.0  # sum over trades and shadows of sum |target - drifted|
     for k, (a, b) in enumerate(zip(starts.tolist(), stops.tolist(), strict=True)):
         if a == b:  # the last trade is on the last day
             break
@@ -135,12 +139,15 @@ def _shadow_paths(
         w = drifted + step[:, None] * (u - drifted)
         if keep_targets:
             kept.append(w)
+        traded += float((step * gap).sum())
         cost = rate * step * gap  # rate x sum |target - drifted|
         row = b - 1  # the trade day: its return is earned, then the trade pays
         net[row] = (1 + net[row]) * (1 - cost) - 1
     trades = (len(pos) - 1) * count
+    wanted = 2 * float(tau.sum()) * count  # the strategy trades sum |w* - w| = 2 tau each time
     return _Paths(
         net=net,
         shortfall=short / trades if trades else 0.0,
+        turnover_ratio=traded / wanted if wanted > 0 else 1.0,
         targets=np.stack(kept, axis=1) if keep_targets else None,
     )

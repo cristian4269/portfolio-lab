@@ -12,9 +12,11 @@ does so only after these checks, all before any data is read:
 - `check_prereg`: HOLDOUT_END and the primary estimator are frozen, the tag prereg-v1 exists
   and is an ancestor of HEAD, and research/PLAN.md is identical to its tagged copy (line
   endings aside);
-- the frozen vintage: the cached sources must match the manifest's SHA-256s (`--accept-drift`
-  runs on newer data anyway, with a warning), and `--refresh` is refused;
-- one shot: a holdout already recorded in the manifest runs again only with `--rerun`.
+- the frozen vintage: the cached sources must match the SHA-256s of the manifest committed at
+  the tag (`--accept-drift` runs on newer data anyway, with a warning), and `--refresh` is
+  refused;
+- one shot: a holdout already recorded in research/results/manifest.json runs again only with
+  `--rerun`.
 """
 
 import argparse
@@ -121,10 +123,13 @@ def _reproduce(args: argparse.Namespace) -> int:
                 "run, which reports the drift"
             )
         tag_commit = check_prereg(root)
-        current = _frozen_vintage(old, path, accept_drift=args.accept_drift)
-        if old is not None and "holdout" in old.get("runs", {}) and not args.rerun:
+        current = _frozen_vintage(root, accept_drift=args.accept_drift)
+        record = root / RESULTS / "manifest.json"  # the one-shot record, whatever --out says
+        ran = json.loads(record.read_text(encoding="utf-8")) if record.exists() else {}
+        if "holdout" in ran.get("runs", {}) and not args.rerun:
             raise HoldoutError(
-                f"the holdout has already been run once (see {path}): pass --rerun to reproduce it"
+                f"the holdout has already been run once (see {record}): pass --rerun to "
+                "reproduce it"
             )
         period, end = "holdout", config.HOLDOUT_END
         assert end is not None  # checked by check_prereg
@@ -137,6 +142,8 @@ def _reproduce(args: argparse.Namespace) -> int:
         command = "portfolio-lab reproduce --holdout"
     else:
         period, end = "dev", config.DEV_END
+        if not args.refresh:
+            manifest.sources()  # every source cached and intact before any data is read
         inputs = study.load(end=end, allow_holdout=False, refresh=args.refresh)
         current = manifest.sources()
         _warn_drift(old, current, path)
@@ -174,20 +181,25 @@ def _root() -> Path:
     )
 
 
-def _frozen_vintage(
-    old: dict[str, Any] | None, path: Path, *, accept_drift: bool
-) -> dict[str, dict[str, Any]]:
-    """The cached sources, which must be the vintage the manifest froze (or accepted drift)."""
-    if old is None:
-        raise HoldoutError(f"no {path} records the frozen vintage: run the dev analysis first")
+def _frozen_vintage(root: Path, *, accept_drift: bool) -> dict[str, dict[str, Any]]:
+    """The cached sources, which must be the vintage of the manifest committed at the tag (a
+    later dev run rewrites the working copy), unless the drift is accepted."""
+    frozen_path = f"refs/tags/{PREREG_TAG}:{(RESULTS / 'manifest.json').as_posix()}"
+    try:
+        frozen = json.loads(_git(root, "show", frozen_path))
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as err:
+        raise HoldoutError(
+            f"no manifest.json at {PREREG_TAG} records the frozen vintage: commit it with the "
+            "freeze"
+        ) from err
     current = manifest.sources()
-    changed = manifest.drift(old, {"sources": current})
+    changed = manifest.drift(frozen, {"sources": current})
     if changed and not accept_drift:
         raise HoldoutError(
-            f"the cached data differ from the frozen vintage in {path}: {', '.join(changed)}; "
-            "pass --accept-drift to run on them anyway"
+            f"the cached data differ from the vintage frozen at {PREREG_TAG}: "
+            f"{', '.join(changed)}; pass --accept-drift to run on them anyway"
         )
-    _warn_drift(old, current, path)
+    _warn_drift(frozen, current, Path(frozen_path))
     return current
 
 
