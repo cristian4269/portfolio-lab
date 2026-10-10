@@ -13,7 +13,7 @@ DEV_END = "2010-12-31"
 HOLDOUT_START = "2011-01-01"
 # The holdout's last day, frozen with the data vintage in step 7a's last commit (research/PLAN.md
 # §13). None until then, and `reproduce --holdout` refuses to run without it.
-HOLDOUT_END: str | None = None
+HOLDOUT_END: str | None = "2026-08-31"
 PREREG_TAG = "prereg-v1"  # the git tag that timestamps the frozen research/PLAN.md
 
 CACHE_ENV_VAR = "PORTFOLIO_LAB_CACHE"

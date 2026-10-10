@@ -208,7 +208,8 @@ def test_reproduce_warns_on_a_new_vintage(stubbed):
         cli.main(["reproduce"])
 
 
-def test_reproduce_holdout_refuses_without_the_lock(stubbed, capsys):
+def test_reproduce_holdout_refuses_without_the_lock(stubbed, capsys, monkeypatch):
+    monkeypatch.setattr(config, "HOLDOUT_END", None)
     assert cli.main(["reproduce", "--holdout"]) == 2
     assert "run" not in stubbed and "load" not in stubbed
     assert "HOLDOUT_END" in capsys.readouterr().err
@@ -227,3 +228,11 @@ def test_reproduce_holdout_opens_with_the_lock(stubbed, repo, monkeypatch):
 def test_main_without_a_command_prints_help(capsys):
     assert cli.main([]) == 0
     assert "reproduce" in capsys.readouterr().out
+
+
+def test_reproduce_holdout_refuses_with_holdout_end_but_no_tag(stubbed, capsys, monkeypatch):
+    monkeypatch.setattr(config, "HOLDOUT_END", "2026-08-31")
+    monkeypatch.setattr(study, "PRIMARY_ESTIMATOR", "lw_identity")
+    assert cli.main(["reproduce", "--holdout"]) == 2  # tmp_path is no git repository
+    assert "run" not in stubbed and "load" not in stubbed
+    assert "prereg-v1" in capsys.readouterr().err
