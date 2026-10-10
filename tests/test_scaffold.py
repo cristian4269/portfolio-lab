@@ -39,11 +39,6 @@ def test_cli_help_without_command(capsys):
     assert "portfolio-lab" in capsys.readouterr().out
 
 
-def test_cli_unbuilt_command(capsys):
-    assert cli.main(["reproduce"]) == 1
-    assert "not implemented yet" in capsys.readouterr().out
-
-
 def test_cli_version(capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["--version"])
