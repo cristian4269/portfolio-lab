@@ -99,7 +99,7 @@ def git(root, *args):
 
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
-    (tmp_path / "research").mkdir()
+    (tmp_path / "research").mkdir(exist_ok=True)
     (tmp_path / "research" / "PLAN.md").write_bytes(b"# Plan\n\nFROZEN\n")
     git(tmp_path, "init", "-q")
     git(tmp_path, "add", ".")
@@ -169,6 +169,8 @@ def stubbed(monkeypatch, tmp_path):
 
     monkeypatch.setattr(study, "load", fake_load)
     monkeypatch.setattr(study, "run", fake_run)
+    (tmp_path / "research").mkdir(exist_ok=True)
+    (tmp_path / "research" / "PLAN.md").write_bytes(b"# Plan\n\nFROZEN\n")
     monkeypatch.chdir(tmp_path)
     cache_every_source()
     return calls
@@ -217,6 +219,7 @@ def test_reproduce_holdout_refuses_without_the_lock(stubbed, capsys, monkeypatch
 
 def test_reproduce_holdout_opens_with_the_lock(stubbed, repo, monkeypatch):
     monkeypatch.chdir(repo)
+    assert cli.main(["reproduce"]) == 0  # the dev run records the frozen vintage
     assert cli.main(["reproduce", "--holdout"]) == 0
     assert stubbed["load"] == {"end": "2026-08-31", "allow_holdout": True, "refresh": False}
     assert stubbed["run"]["period"] == "holdout"
@@ -236,3 +239,74 @@ def test_reproduce_holdout_refuses_with_holdout_end_but_no_tag(stubbed, capsys, 
     assert cli.main(["reproduce", "--holdout"]) == 2  # tmp_path is no git repository
     assert "run" not in stubbed and "load" not in stubbed
     assert "prereg-v1" in capsys.readouterr().err
+
+
+def test_check_prereg_returns_the_tag_commit(repo):
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert cli.check_prereg(repo) == head
+
+
+def test_lock_refuses_a_tag_that_is_not_an_ancestor_of_head(repo):
+    git(repo, "checkout", "-q", "--orphan", "elsewhere")
+    git(repo, "commit", "-qm", "another history")  # same PLAN.md, unrelated history
+    with pytest.raises(HoldoutError, match="ancestor"):
+        cli.check_prereg(repo)
+
+
+def test_holdout_refuses_refresh(stubbed, repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    assert cli.main(["reproduce", "--holdout", "--refresh"]) == 2
+    assert "load" not in stubbed
+    assert "refresh" in capsys.readouterr().err
+
+
+def test_holdout_needs_the_frozen_vintage(stubbed, repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    assert cli.main(["reproduce", "--holdout"]) == 2  # no manifest.json yet
+    assert "load" not in stubbed
+    assert "manifest" in capsys.readouterr().err
+
+
+def test_holdout_refuses_drift_unless_accepted(stubbed, repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    cli.main(["reproduce"])
+    stubbed.clear()
+    cache_every_source({"usdcad": b"DATE,DEXCAUS\nrevised\n"})
+    assert cli.main(["reproduce", "--holdout"]) == 2
+    assert "load" not in stubbed and "usdcad" in capsys.readouterr().err
+    with pytest.warns(UserWarning, match="usdcad"):
+        assert cli.main(["reproduce", "--holdout", "--accept-drift"]) == 0
+
+
+def test_holdout_runs_once_unless_rerun(stubbed, repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    cli.main(["reproduce"])
+    assert cli.main(["reproduce", "--holdout"]) == 0
+    stubbed.clear()
+    assert cli.main(["reproduce", "--holdout"]) == 2
+    assert "load" not in stubbed and "already" in capsys.readouterr().err
+    assert cli.main(["reproduce", "--holdout", "--rerun"]) == 0
+    m = json.loads((repo / "research" / "results" / "manifest.json").read_text())
+    assert m["runs"]["holdout"]["git"]["tag_commit"] == cli.check_prereg(repo)
+
+
+def test_reproduce_finds_the_repository_root_from_a_subfolder(stubbed, repo, monkeypatch):
+    (repo / "src").mkdir()
+    monkeypatch.chdir(repo / "src")
+    assert cli.main(["reproduce"]) == 0
+    assert (repo / "research" / "results" / "dev" / "tests.csv").exists()
+
+
+def test_reproduce_needs_the_plan(stubbed, tmp_path, capsys):
+    (tmp_path / "research" / "PLAN.md").unlink()
+    assert cli.main(["reproduce"]) == 2
+    assert "PLAN.md" in capsys.readouterr().err
+
+
+def test_reproduce_checks_the_cache_before_running(stubbed, capsys):
+    cache.evict(manifest.SOURCES["ca_govt_10y"])
+    assert cli.main(["reproduce"]) == 2
+    assert "run" not in stubbed
+    assert "ca_govt_10y" in capsys.readouterr().err

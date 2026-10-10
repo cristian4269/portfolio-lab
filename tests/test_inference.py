@@ -607,3 +607,15 @@ def test_bootstrap_refuses_resamples_without_variance():
     r1, r2 = pair([0.01] * 5 + [0.05], R2)
     with pytest.raises(ValueError, match="no variance"):
         inf.lw_test(r1, r2, block=1, resamples=99, rng=np.random.default_rng(0))
+
+
+def test_lw_test_refuses_a_non_finite_null():
+    r1, r2 = pair(R1, R2)
+    with pytest.raises(ValueError, match="null"):
+        inf.lw_test(r1, r2, block=1, resamples=9, null=float("nan"), rng=np.random.default_rng(0))
+
+
+def test_andrews_alpha_refuses_a_unit_root():
+    # A linear trend: each value is the last plus 1, an AR(1) slope of exactly 1.
+    with pytest.raises(ValueError, match="unit root"):
+        inf._andrews_alpha(np.arange(20.0)[:, None])

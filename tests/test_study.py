@@ -434,3 +434,28 @@ def test_holm_primary_differs_from_holm_over_all_when_p_values_are_small(monkeyp
         study.inf.holm(primary["p"].to_numpy())
     )
     assert (primary["holm_primary"] < primary["holm_all"]).any()
+
+
+def test_selection_refuses_a_non_finite_volatility():
+    months = pd.date_range("2000-01-31", periods=4, freq="ME")
+    m = pd.DataFrame(
+        {st.min_variance(e).name: [0.01, -0.01, 0.02, 0.0] for e in study.CANDIDATES}, index=months
+    )
+    m.iloc[:, 1] = np.nan
+    with pytest.raises(ValueError, match="volatility"):
+        study.selection(m)
+
+
+def test_holdout_run_refuses_data_that_stop_before_holdout_end():
+    inputs = synthetic_inputs(start="2007-01-01", end="2012-06-29", n=3, seed=1)
+    group = [st.equal_weight(), st.min_variance("sample"), st.erc("sample")]
+    with pytest.raises(ValueError, match="HOLDOUT_END"):
+        study.run(
+            inputs,
+            period="holdout",
+            end="2012-12-31",
+            estimator="sample",
+            allow_holdout=True,
+            settings=SMALL,
+            strategies=group,
+        )
