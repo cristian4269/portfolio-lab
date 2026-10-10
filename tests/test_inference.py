@@ -26,8 +26,9 @@ R2 = [0.01, 0.01, -0.01, 0.03, 0.01, 0.01]
 
 
 def normal_pair(rng, t, rho=0.5, mu=(0.01, 0.01), sigma=(0.04, 0.04)):
-    cov = np.array([[sigma[0] ** 2, rho * sigma[0] * sigma[1]],
-                    [rho * sigma[0] * sigma[1], sigma[1] ** 2]])
+    cov = np.array(
+        [[sigma[0] ** 2, rho * sigma[0] * sigma[1]], [rho * sigma[0] * sigma[1], sigma[1] ** 2]]
+    )
     x = rng.multivariate_normal(mu, cov, size=t)
     return pair(x[:, 0], x[:, 1])
 
@@ -418,8 +419,8 @@ def test_jobson_korkie_memmel_matches_the_moment_form():
 
 
 def test_jobson_korkie_memmel_by_hand():
-    # Equal Sharpe ratios: z = 0, p = 1.
-    r1, r2 = pair([0.01, 0.03, -0.01, 0.02], [0.02, 0.06, -0.02, 0.04])
+    # The same six returns in another order: equal Sharpe ratios, so z = 0 and p = 1.
+    r1, r2 = pair([0.01, 0.03, -0.01, 0.02, 0.0, 0.04], [0.04, 0.0, 0.02, -0.01, 0.03, 0.01])
     res = inf.jobson_korkie_memmel(r1, r2)
     assert res.z == pytest.approx(0, abs=1e-12)
     assert res.pvalue == pytest.approx(1)
@@ -446,9 +447,9 @@ def test_holm_caps_at_one_keeps_labels_and_handles_one_test():
 
 
 def test_holm_rejects_like_the_step_down_rule():
-    p = [0.011, 0.02, 0.04, 0.3]
+    p = [0.011, 0.015, 0.04, 0.3]
     adj = inf.holm(p)
-    # 0.011 <= 0.05/4, 0.02 <= 0.05/3, 0.04 > 0.05/2: the first two reject.
+    # 0.011 <= 0.05/4, 0.015 <= 0.05/3, 0.04 > 0.05/2: the first two reject.
     assert [a <= 0.05 for a in adj] == [True, True, False, False]
 
 
@@ -488,3 +489,53 @@ def test_monthly_excess_needs_matching_dates():
     r = pd.Series(0.01, index=days)
     with pytest.raises(ValueError, match="dates"):
         inf.monthly_excess(r, pd.Series(0.0, index=days[1:]))
+
+
+# --- input checks -----------------------------------------------------------------------------
+
+
+def test_single_series_checks():
+    with pytest.raises(TypeError, match="Series"):
+        inf.sharpe_ratio(np.array(R1))
+    with pytest.raises(ValueError, match="at least 6 periods"):
+        inf.sharpe_ratio(pd.Series(R1[:5], index=months(5)))
+    with pytest.raises(ValueError, match="gamma"):
+        inf.ceq(pair(R1, R2)[0], gamma=True)
+    with pytest.raises(ValueError, match="gamma"):
+        inf.ceq(pair(R1, R2)[0], gamma=float("nan"))
+    with pytest.raises(TypeError, match="Series"):
+        inf.monthly_excess([0.01, 0.02], pd.Series([0.0, 0.0]))
+
+
+def test_level_and_alpha_checks():
+    r1, r2 = pair(R1, R2)
+    with pytest.raises(ValueError, match="level"):
+        inf.lw_test(r1, r2, block=1, resamples=9, level=1.5, rng=np.random.default_rng(0))
+    with pytest.raises(ValueError, match="alpha"):
+        inf.calibrate_block(
+            r1, r2, blocks=(1,), pseudo=2, resamples=9, alpha=0, rng=np.random.default_rng(0)
+        )
+
+
+def test_jobson_korkie_memmel_refuses_perfect_correlation():
+    r1, _ = pair(R1, R2)
+    with pytest.raises(ValueError, match="perfectly correlated"):
+        inf.jobson_korkie_memmel(r1, 2 * r1)
+
+
+def test_hac_refuses_a_constant_moment_column():
+    with pytest.raises(ValueError, match="bandwidth"):
+        inf.hac_psi(np.zeros((10, 4)))
+
+
+def test_se_refuses_a_zero_variance_estimate(monkeypatch):
+    monkeypatch.setattr(inf, "hac_psi", lambda y: np.zeros((4, 4)))
+    with pytest.raises(ValueError, match="no estimated variance"):
+        inf.diff_se(*pair(R1, R2))
+
+
+def test_bootstrap_refuses_resamples_without_variance():
+    # Five of six returns equal: some resamples of single rows draw only those five.
+    r1, r2 = pair([0.01] * 5 + [0.05], R2)
+    with pytest.raises(ValueError, match="no variance"):
+        inf.lw_test(r1, r2, block=1, resamples=99, rng=np.random.default_rng(0))
