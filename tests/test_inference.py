@@ -507,6 +507,20 @@ def test_monthly_excess_compounds_within_calendar_months():
     assert list(out.index) == [pd.Timestamp("2001-01-31"), pd.Timestamp("2001-02-28")]
 
 
+def test_monthly_excess_and_sharpe_take_frames_column_by_column():
+    days = pd.DatetimeIndex(["2001-01-30", "2001-01-31", "2001-02-01", "2001-02-28"])
+    r = pd.DataFrame({"a": [0.10, -0.05, 0.02, 0.03], "b": [0.0, 0.01, 0.0, -0.02]}, index=days)
+    rf = pd.Series([0.001, 0.001, 0.002, 0.0], index=days)
+    out = inf.monthly_excess(r, rf)
+    assert isinstance(out, pd.DataFrame)
+    for col in r:
+        assert out[col].tolist() == pytest.approx(inf.monthly_excess(r[col], rf).tolist())
+    frame = pd.DataFrame({"x": R1, "y": R2}, index=months(6))
+    ratios = inf.sharpe_ratio(frame)
+    assert ratios.tolist() == pytest.approx([math.sqrt(0.6), math.sqrt(0.75)], rel=1e-12)
+    assert list(ratios.index) == ["x", "y"]
+
+
 def test_monthly_excess_needs_matching_dates():
     days = pd.bdate_range("2001-01-01", periods=5)
     r = pd.Series(0.01, index=days)
