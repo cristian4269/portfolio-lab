@@ -15,7 +15,8 @@ from portfolio_lab.data import HoldoutError, cache
 def french_zip(first_line="This file was created using the 202608 CRSP database."):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
-        z.writestr("F.csv", f"{first_line}\r\nmore\r\n")
+        info = zipfile.ZipInfo("F.csv", date_time=(2026, 1, 1, 0, 0, 0))  # same bytes every time
+        z.writestr(info, f"{first_line}\r\nmore\r\n")
     return buf.getvalue()
 
 
