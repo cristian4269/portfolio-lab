@@ -357,6 +357,29 @@ def test_stationary_rows_wrap_around():
     assert rows.tolist() == [[998, 999, 0, 1, 998, 999]]
 
 
+def test_pseudo_series_drop_the_burn_in():
+    rng = np.random.default_rng(18)
+    r1, r2 = ar_pair(rng, 80, phi=0.5)
+    x = np.column_stack([r1.to_numpy(), r2.to_numpy()])
+    cold = inf._pseudo_series(x, np.random.default_rng(2), pseudo=4, mean_block=5, burn_in=0)
+    warm = inf._pseudo_series(x, np.random.default_rng(2), pseudo=4, mean_block=5, burn_in=50)
+    assert cold.shape == warm.shape == (4, 80, 2)
+    assert (cold[:, 0] == x[0]).all()  # no burn-in: every path starts at the first observation
+    assert not np.isclose(warm[:, 0], x[0]).any()  # 50 steps later they have left it
+
+
+def test_calibration_tests_the_original_estimate_not_zero():
+    """The pseudo-series' true difference is the original estimate, far from 0 here; testing
+    H0: Δ = 0 on them would reject nearly always."""
+    rng = np.random.default_rng(19)
+    r1, r2 = normal_pair(rng, 120, mu=(0.04, 0.0), rho=0.8)
+    assert inf.lw_test(r1, r2, block=1, resamples=99, rng=rng).pvalue < 0.05
+    cal = inf.calibrate_block(
+        r1, r2, blocks=(1, 2), pseudo=60, resamples=49, rng=np.random.default_rng(3)
+    )
+    assert (cal.rejection < 0.3).all()
+
+
 def test_calibration_picks_the_rate_closest_to_alpha_smaller_block_on_ties():
     rates = pd.Series([0.09, 0.06, 0.04, 0.02], index=[1, 2, 4, 6])
     assert inf._pick_block(rates, 0.05) == 2  # 0.06 and 0.04 tie: the smaller block

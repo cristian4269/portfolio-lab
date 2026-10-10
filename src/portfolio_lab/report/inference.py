@@ -197,13 +197,10 @@ def calibrate_block(
     _check_count(resamples, "resamples")
     if not 0 < alpha < 1:
         raise ValueError(f"alpha must be in (0, 1), got {alpha}")
-    x = np.column_stack([x1, x2])
-    c, b, resid = _var1_fit(x)
     target = float(x1.mean() / _sd(x1, "r1") - x2.mean() / _sd(x2, "r2"))
-    rows = _stationary_rows(
-        rng, n=t - 1, mean_block=mean_block, length=burn_in + t - 1, paths=pseudo
+    series = _pseudo_series(
+        np.column_stack([x1, x2]), rng, pseudo=pseudo, mean_block=mean_block, burn_in=burn_in
     )
-    series = _var1_paths(c, b, x[0], resid[rows])[:, burn_in:]
     rejected = np.zeros(len(grid))
     for k in range(pseudo):
         s1, s2 = series[k, :, 0], series[k, :, 1]
@@ -416,6 +413,19 @@ def _p_value(d: float, d_star: np.ndarray) -> float:
 
 
 # --- internals: calibration ------------------------------------------------------------------
+
+
+def _pseudo_series(
+    x: np.ndarray, rng: np.random.Generator, *, pseudo: int, mean_block: float, burn_in: int
+) -> np.ndarray:
+    """`pseudo` series as long as x from its fitted VAR(1): started at x's first row, driven by
+    residuals resampled by the stationary bootstrap, the first `burn_in` steps dropped."""
+    t = len(x)
+    c, b, resid = _var1_fit(x)
+    rows = _stationary_rows(
+        rng, n=t - 1, mean_block=mean_block, length=burn_in + t - 1, paths=pseudo
+    )
+    return _var1_paths(c, b, x[0], resid[rows])[:, burn_in:]
 
 
 def _var1_fit(x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
