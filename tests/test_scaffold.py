@@ -22,6 +22,9 @@ def test_research_split_is_fixed():
     # Changing these moves the holdout; it must also change research/PLAN.md.
     assert config.DEV_END == "2010-12-31"
     assert config.HOLDOUT_START == "2011-01-01"
+    # Frozen in step 7a's last commit (research/PLAN.md §13); None until then.
+    assert config.HOLDOUT_END is None or config.HOLDOUT_END == "2026-08-31"
+    assert config.PREREG_TAG == "prereg-v1"
 
 
 def test_cache_dir_default_and_override(monkeypatch, tmp_path):
