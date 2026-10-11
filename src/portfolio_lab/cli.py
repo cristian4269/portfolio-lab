@@ -16,11 +16,14 @@ does so only after these checks, all before any data is read:
   the tag (`--accept-drift` runs on newer data anyway, with a warning), and `--refresh` is
   refused;
 - one shot: a holdout already recorded in research/results/manifest.json runs again only with
-  `--rerun`.
+  `--rerun`, and a holdout always writes there (`--out` is refused);
+- traceable code: no uncommitted change under src/; source files changed since the tag are
+  named in a warning and recorded in the manifest.
 """
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import warnings
@@ -90,7 +93,7 @@ def check_prereg(root: Path) -> str:
         raise HoldoutError("the primary estimator is not frozen in study.py (research/PLAN.md §13)")
     ref = f"refs/tags/{PREREG_TAG}"  # a branch of the same name cannot stand in for the tag
     try:
-        tagged = _git(root, "show", f"{ref}:{PLAN.as_posix()}")
+        tagged = manifest.git_output(root, "show", f"{ref}:{PLAN.as_posix()}")
     except (OSError, subprocess.CalledProcessError) as err:
         raise HoldoutError(
             f"no tag {PREREG_TAG} holding {PLAN.as_posix()} in {root}: the pre-registration "
@@ -102,42 +105,51 @@ def check_prereg(root: Path) -> str:
             "on the plan as frozen"
         )
     try:
-        _git(root, "merge-base", "--is-ancestor", ref, "HEAD")
+        manifest.git_output(root, "merge-base", "--is-ancestor", ref, "HEAD")
     except (OSError, subprocess.CalledProcessError) as err:
         raise HoldoutError(
             f"the tag {PREREG_TAG} is not an ancestor of HEAD: run from the history it froze"
         ) from err
-    return _git(root, "rev-parse", f"{ref}^{{commit}}").decode().strip()
+    return manifest.git_output(root, "rev-parse", f"{ref}^{{commit}}").decode().strip()
 
 
 def _reproduce(args: argparse.Namespace) -> int:
     root = _root()
     out = args.out if args.out.is_absolute() else root / args.out
     path = out / "manifest.json"
-    old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
-    tag_commit = None
+    old = _read_manifest(path)
+    tag_commit, changed = None, None
     if args.holdout:
         if args.refresh:
             raise ReproduceError(
                 "--holdout runs on the frozen vintage, so --refresh is refused: refresh in a dev "
                 "run, which reports the drift"
             )
-        tag_commit = check_prereg(root)
-        current = _frozen_vintage(root, accept_drift=args.accept_drift)
-        record = root / RESULTS / "manifest.json"  # the one-shot record, whatever --out says
-        ran = json.loads(record.read_text(encoding="utf-8")) if record.exists() else {}
-        if "holdout" in ran.get("runs", {}) and not args.rerun:
-            raise HoldoutError(
-                f"the holdout has already been run once (see {record}): pass --rerun to "
-                "reproduce it"
+        if out.resolve() != (root / RESULTS).resolve():
+            raise ReproduceError(
+                f"--holdout writes to {RESULTS.as_posix()} only, where its one-shot record is "
+                "kept: drop --out"
             )
+        tag_commit = check_prereg(root)
+        _no_uncommitted_source(root)
+        current = _frozen_vintage(root, accept_drift=args.accept_drift)
+        if old is not None and "holdout" in old.get("runs", {}) and not args.rerun:
+            raise HoldoutError(
+                f"the holdout has already been run once (see {path}): pass --rerun to reproduce it"
+            )
+        changed = _changed_since_tag(root)
         period, end = "holdout", config.HOLDOUT_END
         assert end is not None  # checked by check_prereg
         inputs = study.load(end=end, allow_holdout=True, refresh=False)
         if manifest.sources() != current:
             raise HoldoutError("the cached data changed while loading: the vintage is not frozen")
         tables = study.run(
-            inputs, period=period, end=end, estimator=study.PRIMARY_ESTIMATOR, allow_holdout=True
+            inputs,
+            period=period,
+            end=end,
+            estimator=study.PRIMARY_ESTIMATOR,
+            allow_holdout=True,
+            settings=study.Settings(workers=_workers()),
         )
         command = "portfolio-lab reproduce --holdout"
     else:
@@ -146,9 +158,14 @@ def _reproduce(args: argparse.Namespace) -> int:
             manifest.sources()  # every source cached and intact before any data is read
         inputs = study.load(end=end, allow_holdout=False, refresh=args.refresh)
         current = manifest.sources()
-        _warn_drift(old, current, path)
+        _warn_drift(old, current, str(path))
         tables = study.run(
-            inputs, period=period, end=end, allow_holdout=False, holdout_months=_holdout_months()
+            inputs,
+            period=period,
+            end=end,
+            allow_holdout=False,
+            holdout_months=_holdout_months(),
+            settings=study.Settings(workers=_workers()),
         )
         command = "portfolio-lab reproduce"
     folder = out / period
@@ -162,6 +179,7 @@ def _reproduce(args: argparse.Namespace) -> int:
         source_table=current,
         root=root,
         tag_commit=tag_commit,
+        changed_since_tag=changed,
     )
     merged = new if old is None else manifest.merge(old, new)
     path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8", newline="\n")
@@ -186,7 +204,7 @@ def _frozen_vintage(root: Path, *, accept_drift: bool) -> dict[str, dict[str, An
     later dev run rewrites the working copy), unless the drift is accepted."""
     frozen_path = f"refs/tags/{PREREG_TAG}:{(RESULTS / 'manifest.json').as_posix()}"
     try:
-        frozen = json.loads(_git(root, "show", frozen_path))
+        frozen = json.loads(manifest.git_output(root, "show", frozen_path))
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as err:
         raise HoldoutError(
             f"no manifest.json at {PREREG_TAG} records the frozen vintage: commit it with the "
@@ -199,18 +217,60 @@ def _frozen_vintage(root: Path, *, accept_drift: bool) -> dict[str, dict[str, An
             f"the cached data differ from the vintage frozen at {PREREG_TAG}: "
             f"{', '.join(changed)}; pass --accept-drift to run on them anyway"
         )
-    _warn_drift(frozen, current, Path(frozen_path))
+    _warn_drift(frozen, current, frozen_path)
     return current
 
 
-def _warn_drift(old: dict[str, Any] | None, current: dict[str, Any], path: Path) -> None:
+def _warn_drift(old: dict[str, Any] | None, current: dict[str, Any], where: str) -> None:
     changed = [] if old is None else manifest.drift(old, {"sources": current})
     if changed:
         warnings.warn(
-            f"the data differ from {path}: {', '.join(changed)} have a new SHA-256 (a newer "
+            f"the data differ from {where}: {', '.join(changed)} have a new SHA-256 (a newer "
             "vintage), so the results may drift from the recorded ones",
             stacklevel=3,
         )
+
+
+def _read_manifest(path: Path) -> dict[str, Any] | None:
+    """The manifest at `path`, None if absent; a file that is not JSON is a clean error."""
+    if not path.exists():
+        return None
+    try:
+        loaded: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as err:
+        raise ReproduceError(
+            f"{path} is not valid JSON ({err}): restore it from git before reproducing"
+        ) from err
+    return loaded
+
+
+def _no_uncommitted_source(root: Path) -> None:
+    status = manifest.git_output(root, "status", "--porcelain", "--untracked-files=no", "--", "src")
+    if status.strip():
+        raise HoldoutError(
+            "uncommitted changes under src/: commit them first, so the holdout's code is a "
+            f"commit ({status.decode().strip()})"
+        )
+
+
+def _changed_since_tag(root: Path) -> list[str]:
+    """The source files that differ between the tag and HEAD, named in a warning."""
+    names = manifest.git_output(
+        root, "diff", "--name-only", f"refs/tags/{PREREG_TAG}", "HEAD", "--", "src"
+    )
+    changed = names.decode().split()
+    if changed:
+        warnings.warn(
+            f"the source changed since {PREREG_TAG}: {', '.join(changed)} (recorded in the "
+            "manifest)",
+            stacklevel=3,
+        )
+    return changed
+
+
+def _workers() -> int:
+    """Processes for the block calibration: up to 4, never more than the machine has."""
+    return max(1, min(4, os.cpu_count() or 1))
 
 
 def _holdout_months() -> int | None:
@@ -219,10 +279,6 @@ def _holdout_months() -> int | None:
         return None
     start, end = pd.Timestamp(config.HOLDOUT_START), pd.Timestamp(config.HOLDOUT_END)
     return (end.year - start.year) * 12 + end.month - start.month + 1
-
-
-def _git(root: Path, *args: str) -> bytes:
-    return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True).stdout
 
 
 def _lf(content: bytes) -> bytes:

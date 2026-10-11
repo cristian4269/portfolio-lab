@@ -22,7 +22,17 @@ from typing import Any
 from portfolio_lab import config, study
 from portfolio_lab.data import boc, cache, fred, french, statcan
 
-__all__ = ["HEADER_CHARS", "SOURCES", "build", "drift", "header_line", "merge", "sources"]
+__all__ = [
+    "HEADER_CHARS",
+    "RESULTS_MANIFEST",
+    "SOURCES",
+    "build",
+    "drift",
+    "git_output",
+    "header_line",
+    "merge",
+    "sources",
+]
 
 SOURCES = {
     "ff5_daily": french.BASE_URL + french.DATASETS["ff5_daily"],
@@ -34,6 +44,7 @@ SOURCES = {
     "ca_govt_10y": boc.observations_url("BD.CDN.10YR.DQ.YLD"),
 }
 HEADER_CHARS = 200
+RESULTS_MANIFEST = "research/results/manifest.json"  # tracked, and rewritten by every run
 PACKAGES = ("numpy", "pandas", "scipy", "statsmodels", "portfolio-lab")
 
 
@@ -78,11 +89,14 @@ def build(
     source_table: dict[str, dict[str, Any]] | None = None,
     root: Path | None = None,
     tag_commit: str | None = None,
+    changed_since_tag: list[str] | None = None,
 ) -> dict[str, Any]:
-    """The manifest of one run: `source_table` (default: `sources()` now) and the run."""
+    """The manifest of one run: `source_table` (default: `sources()` now) and the run, with the
+    git state (for a holdout: the tag's commit and the source files changed since it)."""
     table = sources() if source_table is None else source_table
     git = _git_state(Path.cwd() if root is None else root)
     git["tag_commit"] = tag_commit
+    git["changed_since_tag"] = changed_since_tag
     versions = {"python": platform.python_version()}
     versions |= {p: metadata.version(p) for p in PACKAGES}
     return {
@@ -121,17 +135,25 @@ def merge(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     return {**new, "runs": {**old.get("runs", {}), **new["runs"]}}
 
 
+def git_output(root: Path, *args: str) -> bytes:
+    """The output of `git <args>` run in `root`; raises CalledProcessError on failure."""
+    return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True).stdout
+
+
 def _git_state(root: Path) -> dict[str, Any]:
     try:
-        commit = _git(root, "rev-parse", "HEAD").strip()
-        # Tracked changes only: the untracked results folder does not change the code.
-        dirty = bool(_git(root, "status", "--porcelain", "--untracked-files=no").strip())
+        commit = git_output(root, "rev-parse", "HEAD").decode().strip()
+        # Tracked changes only, and not the results manifest that every run rewrites: the
+        # flag says whether the code differs from the commit.
+        status = git_output(
+            root,
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+            "--",
+            ".",
+            f":(exclude){RESULTS_MANIFEST}",
+        )
     except (OSError, subprocess.CalledProcessError):
         return {"commit": None, "dirty": None}
-    return {"commit": commit, "dirty": dirty}
-
-
-def _git(root: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=root, check=True, capture_output=True, text=True
-    ).stdout
+    return {"commit": commit, "dirty": bool(status.strip())}

@@ -46,7 +46,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from portfolio_lab._validate import as_floats, check_aligned, check_dates, is_whole
+from portfolio_lab._validate import check_aligned, check_dates, is_whole, return_series
 
 __all__ = [
     "BLOCKS",
@@ -497,12 +497,7 @@ def _pick_block(rates: pd.Series, alpha: float) -> int:
 
 
 def _series(r: object, what: str) -> np.ndarray:
-    if not isinstance(r, pd.Series):
-        raise TypeError(f"{what} must be a Series of returns by date, got {type(r).__name__}")
-    check_dates(r.index, what)
-    x = as_floats(r, what)
-    if not np.isfinite(x).all():
-        raise ValueError(f"{what} must be finite, with no gaps")
+    x = return_series(r, what)  # type: ignore[arg-type]  # a Series, dated, finite, >= -100%
     if len(x) < _MIN_PERIODS:
         raise ValueError(f"{what} need at least {_MIN_PERIODS} periods, got {len(x)}")
     return x

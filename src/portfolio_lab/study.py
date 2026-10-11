@@ -21,6 +21,7 @@ differences are monthly, annualized by √12 (§5); `performance` also has the d
 import math
 import zlib
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass
 
 import numpy as np
@@ -105,13 +106,18 @@ def primary(estimator: str) -> tuple[str, str]:
 
 @dataclass(frozen=True)
 class Settings:
-    """The sizes of the random parts; the defaults are the registered ones (§5, §7)."""
+    """The sizes of the random parts; the defaults are the registered ones (§5, §7).
+
+    `workers` is how many processes calibrate the primary pairs at once. Each pair has its own
+    seeded stream, so the results do not depend on it.
+    """
 
     shadows: int = luck.SHADOWS
     resamples: int = inf.RESAMPLES
     pseudo: int = inf.PSEUDO
     calibration_resamples: int = inf.CALIBRATION_RESAMPLES
     blocks: tuple[int, ...] = inf.BLOCKS
+    workers: int = 1
 
 
 @dataclass(frozen=True, eq=False)
@@ -293,19 +299,23 @@ def _tests(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     mv = pair[0]
     rows, cal_rows, sens_rows = [], [], []
+    jobs = [
+        (m[name], m[BENCHMARK], (period, v, name, "calibration"), settings)
+        for v, m in monthly.items()
+        for name in pair
+    ]
+    if settings.workers > 1:
+        with ProcessPoolExecutor(max_workers=settings.workers) as pool:
+            done = list(pool.map(_calibrate, jobs))
+    else:
+        done = [_calibrate(job) for job in jobs]
+    calibrations = {(job[2][1], job[2][2]): cal for job, cal in zip(jobs, done, strict=True)}
     for v, m in monthly.items():
         bench = m[BENCHMARK]
         blocks: dict[str, int] = {}
         by_block: dict[tuple[str, int], inf.SharpeTest] = {}
         for name in pair:
-            cal = inf.calibrate_block(
-                m[name],
-                bench,
-                rng=rng_for(period, v, name, "calibration"),
-                blocks=settings.blocks,
-                pseudo=settings.pseudo,
-                resamples=settings.calibration_resamples,
-            )
+            cal = calibrations[(v, name)]
             blocks[name] = cal.block
             for b, rate in zip(settings.blocks, cal.rejection.to_numpy(), strict=True):
                 cal_rows.append((v, name, b, float(rate), b == cal.block))
@@ -323,13 +333,16 @@ def _tests(
             if name == BENCHMARK:
                 continue
             b = blocks.get(name, blocks[mv])
-            res = by_block.get((name, b)) or inf.lw_test(
-                m[name],
-                bench,
-                block=b,
-                resamples=settings.resamples,
-                rng=rng_for(period, v, name, "test", b),
-            )
+            if (name, b) in by_block:  # a primary pair: its test at the calibrated block
+                res = by_block[(name, b)]
+            else:
+                res = inf.lw_test(
+                    m[name],
+                    bench,
+                    block=b,
+                    resamples=settings.resamples,
+                    rng=rng_for(period, v, name, "test", b),
+                )
             jk = inf.jobson_korkie_memmel(m[name], bench)
             rows.append(
                 {
@@ -360,6 +373,21 @@ def _tests(
         sens_rows, columns=["view", "strategy", "block", "diff", "p"]
     ).set_index(["view", "strategy", "block"])
     return tests, calibration, sensitivity
+
+
+def _calibrate(
+    job: tuple[pd.Series, pd.Series, tuple[object, ...], Settings],
+) -> inf.Calibration:
+    """One primary pair's block calibration (module level, so a worker process can run it)."""
+    r1, r2, labels, settings = job
+    return inf.calibrate_block(
+        r1,
+        r2,
+        rng=rng_for(*labels),
+        blocks=settings.blocks,
+        pseudo=settings.pseudo,
+        resamples=settings.calibration_resamples,
+    )
 
 
 def _luck(
@@ -470,22 +498,35 @@ def _shocks(
     period: str,
     end: str | pd.Timestamp,
 ) -> pd.DataFrame:
-    lo = pd.Timestamp(DEV_SHOCK_START if period == "dev" else HOLDOUT_START)
-    hi = pd.Timestamp(end)
+    # The period-end holdings, with betas over the period's span; on the holdout, also over
+    # 2001 -> DEV_END, the comparison PLAN.md §10 registers.
+    spans: dict[str, tuple[str | pd.Timestamp, str | pd.Timestamp]] = {
+        "dev": (DEV_SHOCK_START, DEV_END)
+    }
+    if period == "holdout":
+        spans = {"holdout": (HOLDOUT_START, end), **spans}
     parts = {}
-    for v, group in _final_weights(results, pair).items():
-        ports = pd.DataFrame({n: hy.portfolio_excess(w, inputs.views[v]) for n, w in group.items()})
-        ports = ports.loc[(ports.index >= lo) & (ports.index <= hi)]
-        if v == "CAD":
-            days = ports.index
-            betas = fa.macro_betas(
-                ports, inputs.dy.loc[days], inputs.fx.loc[days], inputs.factors, frequency="weekly"
+    for span, (lo, hi) in spans.items():
+        for v, group in _final_weights(results, pair).items():
+            ports = pd.DataFrame(
+                {n: hy.portfolio_excess(w, inputs.views[v]) for n, w in group.items()}
             )
-        else:
-            betas = fa.factor_betas(ports, inputs.factors, frequency="weekly")
-        terms = set(betas.index.get_level_values("term"))
-        parts[v] = hy.apply(betas, [s for s in hy.SHOCKS.values() if s.term in terms])
-    return pd.concat(parts, names=["view"])
+            keep = (ports.index >= pd.Timestamp(lo)) & (ports.index <= pd.Timestamp(hi))
+            ports = ports.loc[keep]
+            if v == "CAD":
+                days = ports.index
+                betas = fa.macro_betas(
+                    ports,
+                    inputs.dy.loc[days],
+                    inputs.fx.loc[days],
+                    inputs.factors,
+                    frequency="weekly",
+                )
+            else:
+                betas = fa.factor_betas(ports, inputs.factors, frequency="weekly")
+            terms = set(betas.index.get_level_values("term"))
+            parts[(span, v)] = hy.apply(betas, [s for s in hy.SHOCKS.values() if s.term in terms])
+    return pd.concat(parts, names=["span", "view"])
 
 
 def _mde(

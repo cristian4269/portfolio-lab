@@ -355,6 +355,7 @@ def test_holdout_refuses_another_results_folder(stubbed, repo, monkeypatch, caps
     """A first holdout to another folder would leave no record where the one-shot check looks."""
     monkeypatch.chdir(repo)
     freeze(repo)
+    stubbed.clear()  # the freeze's own dev run loaded data
     assert cli.main(["reproduce", "--holdout", "--out", str(repo / "elsewhere")]) == 2
     assert "load" not in stubbed and "--out" in capsys.readouterr().err
     assert cli.main(["reproduce", "--holdout"]) == 0
@@ -419,3 +420,20 @@ def test_a_corrupt_manifest_is_a_clean_error(stubbed, tmp_path, capsys):
     (out / "manifest.json").write_text("{ truncated")
     assert cli.main(["reproduce"]) == 2
     assert "manifest.json" in capsys.readouterr().err
+
+
+def test_dev_refresh_loads_first_then_records_the_new_cache(stubbed):
+    cache.evict(manifest.SOURCES["ca_govt_10y"])  # a refresh would download it again
+
+    def refreshing_load(**kw):
+        stubbed["load"] = kw
+        cache_every_source()  # what the loaders' downloads leave in the cache
+        return "inputs"
+
+    study_load = study.load
+    try:
+        study.load = refreshing_load
+        assert cli.main(["reproduce", "--refresh"]) == 0
+    finally:
+        study.load = study_load
+    assert stubbed["load"]["refresh"] is True

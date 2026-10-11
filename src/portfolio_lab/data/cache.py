@@ -83,26 +83,34 @@ def fetch_parsed[T](url: str, parse: Callable[[bytes], T], *, refresh: bool = Fa
 
 def read_cached(url: str) -> bytes | None:
     """The cached body of `url` if its checksum holds, else None: never downloads."""
-    data_path, _ = _paths(url)
-    meta = cache_info(url)
-    if meta is None or not data_path.exists():
-        return None
-    content = data_path.read_bytes()
-    return content if hashlib.sha256(content).hexdigest() == meta["sha256"] else None
+    return _cached(url)[0]
 
 
 def fetch(url: str, *, refresh: bool = False) -> bytes:
     """Return the body at `url`, from the cache unless `refresh` or the copy is bad."""
     if not refresh:
-        content = read_cached(url)
+        content, bad_checksum = _cached(url)
         if content is not None:
             return content
-        data_path, _ = _paths(url)
-        if cache_info(url) is not None and data_path.exists():
+        if bad_checksum:
             warnings.warn(
                 f"cached copy of {url} failed its checksum; downloading again", stacklevel=2
             )
     return _download(url)
+
+
+def _cached(url: str) -> tuple[bytes | None, bool]:
+    """(the cached body if its checksum holds, whether a copy exists but fails it).
+
+    Reads the metadata once, so an unreadable sidecar warns once."""
+    data_path, _ = _paths(url)
+    meta = cache_info(url)
+    if meta is None or not data_path.exists():
+        return None, False
+    content = data_path.read_bytes()
+    if hashlib.sha256(content).hexdigest() == meta["sha256"]:
+        return content, False
+    return None, True
 
 
 def _download(url: str) -> bytes:
