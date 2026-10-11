@@ -1,5 +1,7 @@
-"""`portfolio-lab reproduce` (Step 7a): manifest, drift warning, the holdout lock, the wiring."""
+"""`portfolio-lab reproduce` (Step 7a): manifest, drift warning, the holdout lock, the wiring;
+and Step 7b's robustness run and rerun record."""
 
+import hashlib
 import io
 import json
 import subprocess
@@ -8,7 +10,7 @@ import zipfile
 import pandas as pd
 import pytest
 
-from portfolio_lab import cli, config, manifest, study
+from portfolio_lab import cli, config, manifest, robustness, study
 from portfolio_lab.data import HoldoutError, cache
 
 
@@ -437,3 +439,149 @@ def test_dev_refresh_loads_first_then_records_the_new_cache(stubbed):
     finally:
         study.load = study_load
     assert stubbed["load"]["refresh"] is True
+
+
+# --- step 7b: the robustness run and the rerun record -----------------------------------------
+
+
+def test_robustness_sources_are_the_49_industries_only():
+    assert set(manifest.ROBUSTNESS_SOURCES) == {"ind49_daily"}
+    url = manifest.ROBUSTNESS_SOURCES["ind49_daily"]
+    assert url.endswith("49_Industry_Portfolios_daily_CSV.zip")
+    assert not set(manifest.ROBUSTNESS_SOURCES) & set(manifest.SOURCES)  # the vintage stays 7
+
+
+def test_sources_reads_another_table():
+    url = manifest.ROBUSTNESS_SOURCES["ind49_daily"]
+    cache._store(url, french_zip("49 industries"))
+    got = manifest.sources(manifest.ROBUSTNESS_SOURCES)
+    assert set(got) == {"ind49_daily"}
+    assert got["ind49_daily"]["sha256"] == cache.cache_info(url)["sha256"]
+
+
+def test_build_records_extra_sources_in_the_run_only():
+    cache_every_source()
+    extra = {"ind49_daily": {"sha256": "abc"}}
+    m = manifest.build(period="robustness", command="c", estimator="e", extra_sources=extra)
+    assert m["runs"]["robustness"]["extra_sources"] == extra
+    assert "ind49_daily" not in m["sources"]
+
+
+@pytest.fixture
+def robust(stubbed, repo, monkeypatch):
+    """A frozen repository whose one-shot holdout ran, the 49-industry file cached with the
+    plan's hash, and stubs for the robustness module."""
+    monkeypatch.chdir(repo)
+    freeze(repo)
+    assert cli.main(["reproduce", "--holdout"]) == 0
+    tests = pd.DataFrame({"view": ["USD"], "strategy": ["s"], "block": [2], "p": [0.5]})
+    tests.to_csv(repo / "research" / "results" / "holdout" / "tests.csv", index=False)
+    content = french_zip("This file was created using the 202608 CRSP database (49).")
+    cache._store(manifest.ROBUSTNESS_SOURCES["ind49_daily"], content)
+    monkeypatch.setattr(robustness, "IND49_SHA256", hashlib.sha256(content).hexdigest())
+
+    def fake_industries(**kw):
+        stubbed["industries"] = kw
+        return "industries"
+
+    def fake_robustness(inputs, holdout_tests, **kw):
+        stubbed["robustness"] = {"inputs": inputs, "holdout_tests": holdout_tests, **kw}
+        design = pd.DataFrame({"value": {"estimator": "lw_identity"}})
+        return {"design": design, "tests": pd.DataFrame({"p": [0.25]})}
+
+    monkeypatch.setattr(robustness, "load_industries", fake_industries)
+    monkeypatch.setattr(robustness, "run", fake_robustness)
+    stubbed.clear()
+    return stubbed
+
+
+def manifest_of(repo):
+    return json.loads((repo / "research" / "results" / "manifest.json").read_text())
+
+
+def test_parser_has_the_robustness_option():
+    assert cli.build_parser().parse_args(["reproduce", "--robustness"]).robustness
+    assert not cli.build_parser().parse_args(["reproduce"]).robustness
+
+
+def test_robustness_runs_after_the_holdout_on_its_tests(robust, repo):
+    assert cli.main(["reproduce", "--robustness"]) == 0
+    assert robust["load"] == {"end": "2026-08-31", "allow_holdout": True, "refresh": False}
+    assert robust["industries"] == {"end": "2026-08-31", "allow_holdout": True}
+    run = robust["robustness"]
+    assert run["inputs"] == "inputs" and run["industries"] == "industries"
+    assert run["end"] == "2026-08-31" and run["estimator"] == "lw_identity"
+    assert run["allow_holdout"] is True
+    held = run["holdout_tests"]
+    assert list(held.index.names) == ["view", "strategy"] and held.loc[("USD", "s"), "block"] == 2
+    assert (repo / "research" / "results" / "robustness" / "tests.csv").exists()
+    m = manifest_of(repo)
+    rec = m["runs"]["robustness"]
+    assert rec["command"] == "portfolio-lab reproduce --robustness"
+    assert rec["git"]["tag_commit"] == cli.check_prereg(repo)
+    assert rec["extra_sources"]["ind49_daily"]["sha256"] == robustness.IND49_SHA256
+    assert "holdout" in m["runs"] and "ind49_daily" not in m["sources"]
+
+
+def test_robustness_refuses_before_the_one_shot_holdout(stubbed, repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    freeze(repo)
+    stubbed.clear()
+    assert cli.main(["reproduce", "--robustness"]) == 2
+    assert "load" not in stubbed and "--holdout" in capsys.readouterr().err
+
+
+def test_robustness_needs_the_holdout_tests_table(robust, repo, capsys):
+    (repo / "research" / "results" / "holdout" / "tests.csv").unlink()
+    assert cli.main(["reproduce", "--robustness"]) == 2
+    assert "load" not in robust and "--rerun" in capsys.readouterr().err
+
+
+def test_robustness_refuses_another_49_industry_file_unless_accepted(robust, repo, capsys):
+    cache._store(manifest.ROBUSTNESS_SOURCES["ind49_daily"], french_zip("a newer file"))
+    assert cli.main(["reproduce", "--robustness"]) == 2
+    assert "load" not in robust and "step-7b-plan.md" in capsys.readouterr().err
+    with pytest.warns(UserWarning, match="49-industry"):
+        assert cli.main(["reproduce", "--robustness", "--accept-drift"]) == 0
+
+
+def test_robustness_needs_the_49_industry_file_cached(robust, capsys):
+    cache.evict(manifest.ROBUSTNESS_SOURCES["ind49_daily"])
+    assert cli.main(["reproduce", "--robustness"]) == 2
+    assert "load" not in robust and "ind49_daily" in capsys.readouterr().err
+
+
+def test_robustness_keeps_the_holdout_lock(robust, repo, capsys):
+    (repo / "research" / "PLAN.md").write_bytes(b"# Plan\n\nedited after the holdout\n")
+    assert cli.main(["reproduce", "--robustness"]) == 2
+    assert "load" not in robust and "PLAN.md" in capsys.readouterr().err
+
+
+def test_robustness_refuses_the_options_of_other_runs(robust, repo, capsys):
+    for extra in (["--holdout"], ["--refresh"], ["--out", str(repo / "elsewhere")]):
+        assert cli.main(["reproduce", "--robustness", *extra]) == 2, extra
+    assert "load" not in robust
+    err = capsys.readouterr().err
+    assert "--holdout" in err and "--refresh" in err and "--out" in err
+
+
+def test_robustness_refuses_a_49_industry_file_that_changes_while_loading(
+    robust, monkeypatch, capsys
+):
+    def changing(**kw):
+        robust["industries"] = kw
+        cache._store(manifest.ROBUSTNESS_SOURCES["ind49_daily"], french_zip("swapped"))
+        return "industries"
+
+    monkeypatch.setattr(robustness, "load_industries", changing)
+    assert cli.main(["reproduce", "--robustness"]) == 2
+    assert "robustness" not in robust and "changed while loading" in capsys.readouterr().err
+
+
+def test_a_rerun_gets_its_own_record_and_keeps_the_one_shot(robust, repo):
+    first = manifest_of(repo)["runs"]["holdout"]
+    assert cli.main(["reproduce", "--holdout", "--rerun"]) == 0
+    runs = manifest_of(repo)["runs"]
+    assert runs["holdout"] == first
+    assert runs["holdout_rerun"]["command"] == "portfolio-lab reproduce --holdout --rerun"
+    assert runs["holdout_rerun"]["git"]["tag_commit"] == first["git"]["tag_commit"]
