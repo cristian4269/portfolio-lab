@@ -199,6 +199,18 @@ turnover, on the same days and view, at the same cost.
   - **Best of K:** the share of the R replicates in which the best of K shadows (one per
     strategy) reaches the best actual Sharpe ratio among the K strategies.
 - It is run on the dev period (where the selection of §4 happened) and on the holdout.
+- **What it measures** (stated after the dev run, by the owner's decision, with no change to
+  the method):
+  - A fresh random target at every trade gives a shadow no persistent exposure, so the
+    shadows' Sharpe ratios cluster near 1/N's. On dev, in USD, the median is 0.39 and the
+    95th percentile 0.41.
+  - A strategy's percentile therefore says whether it beat random rebalancing of the same
+    assets at the same turnover and cost. **It is not a data-snooping correction** for the K
+    strategies tried; Holm over the 32 comparisons (§6) is.
+  - Best of K is near 0 for any persistent tilt. It is conservative, because shadows of
+    different strategies are independent while the strategies are correlated.
+  - Where the cap binds, shadows trade less than their strategy; the luck table reports the
+    turnover ratio. On dev it binds often only for the EWMA strategies, at 24-30% of trades.
 
 ## 8. Power: minimum detectable difference
 

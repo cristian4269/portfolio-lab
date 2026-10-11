@@ -124,7 +124,8 @@ def merge(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
 def _git_state(root: Path) -> dict[str, Any]:
     try:
         commit = _git(root, "rev-parse", "HEAD").strip()
-        dirty = bool(_git(root, "status", "--porcelain").strip())
+        # Tracked changes only: the untracked results folder does not change the code.
+        dirty = bool(_git(root, "status", "--porcelain", "--untracked-files=no").strip())
     except (OSError, subprocess.CalledProcessError):
         return {"commit": None, "dirty": None}
     return {"commit": commit, "dirty": dirty}
