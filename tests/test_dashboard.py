@@ -1,6 +1,7 @@
 """The dashboard's bundle and its pure functions (Step 8, plans/step-8-plan.md D1-D6)."""
 
 import hashlib
+import re
 
 import numpy as np
 import pandas as pd
@@ -134,11 +135,12 @@ def test_write_then_read_gives_the_same_bundle(bundle, tmp_path):
         assert hashlib.sha256((tmp_path / name).read_bytes()).hexdigest() == digest
     back = db.read(tmp_path)
     assert back.strategies == bundle.strategies
+    same = {"check_exact": True, "check_freq": False}  # synthetic days carry a frequency
     for v in db.VIEWS:
-        pd.testing.assert_frame_equal(back.returns[v], bundle.returns[v], check_exact=True)
-        pd.testing.assert_frame_equal(back.turnover[v], bundle.turnover[v], check_exact=True)
-    pd.testing.assert_frame_equal(back.weights, bundle.weights, check_exact=True)
-    pd.testing.assert_frame_equal(back.factors, bundle.factors, check_exact=True)
+        pd.testing.assert_frame_equal(back.returns[v], bundle.returns[v], **same)
+        pd.testing.assert_frame_equal(back.turnover[v], bundle.turnover[v], **same)
+    pd.testing.assert_frame_equal(back.weights, bundle.weights, **same)
+    pd.testing.assert_frame_equal(back.factors, bundle.factors, **same)
     pd.testing.assert_frame_equal(back.design, bundle.design)
     assert set(back.tables) == set(db.HOLDOUT_TABLES)
 
@@ -183,7 +185,7 @@ def test_read_refuses_non_finite_returns(written):
 
 
 def test_read_refuses_turnover_of_other_strategies(written):
-    rewrite(written / "turnover_CAD.csv.gz", lambda f: f.drop(columns=f.columns[-1], inplace=True))
+    rewrite(written / "turnover_CAD.csv.gz", lambda f: f.pop(f.columns[-1]))
     with pytest.raises(ValueError, match="turnover_CAD"):
         db.read(written)
 
@@ -245,7 +247,7 @@ def test_check_fails_on_a_perturbed_gross_return(bundle, references):
             factors=bundle.factors,
             tables=bundle.tables,
         )
-        with pytest.raises(ValueError, match=f"{v}.*{name}|{name}.*{v}"):
+        with pytest.raises(ValueError, match=f"{v} {re.escape(repr(name))}"):
             db.check(changed, *references)
 
 
@@ -297,3 +299,108 @@ def test_performance_refuses_unknown_strategies_views_and_benchmarks(bundle):
         db.performance(
             bundle, "USD", bundle.strategies, cost_bps=5.0, start=start, end=end, benchmark="x"
         )
+
+
+# --- the refusals -----------------------------------------------------------------------------
+
+
+def test_build_needs_one_over_n():
+    with pytest.raises(ValueError, match="benchmark"):
+        db.build(None, end=END, estimator="sample", strategies=[st.erc("sample")])
+
+
+@pytest.fixture(scope="module")
+def short_inputs():
+    return synthetic_inputs(start="2007-01-01", end="2009-06-30", n=3, seed=2)
+
+
+def test_build_refuses_a_net_it_cannot_give_back(short_inputs, monkeypatch):
+    real = db.net_at
+    monkeypatch.setattr(db, "net_at", lambda g, t, c: real(g, t, c) + 1e-15)
+    with pytest.raises(ValueError, match="does not give back"):
+        db.build(short_inputs, end="2009-06-30", estimator="sample", strategies=group())
+
+
+def test_build_refuses_strategies_on_other_days(short_inputs, monkeypatch):
+    real = engine.compare
+
+    def shorter(*args, **kwargs):
+        runs = real(*args, **kwargs)
+        last = runs[st.erc("sample").name]
+        runs[last.name] = engine.Result(
+            gross=last.gross.iloc[:-1],
+            net=last.net.iloc[:-1],
+            weights=last.weights,
+            turnover=last.turnover,
+            cost=last.cost,
+            final_weights=last.final_weights,
+            name=last.name,
+            rf=last.rf.iloc[:-1],
+        )
+        return runs
+
+    monkeypatch.setattr(engine, "compare", shorter)
+    with pytest.raises(ValueError, match="does not share the days"):
+        db.build(short_inputs, end="2009-06-30", estimator="sample", strategies=group())
+
+
+def drop_key(folder):
+    design = pd.read_csv(folder / "design.csv", index_col="key", dtype=str)
+    design.drop(index="cost_bps").to_csv(folder / "design.csv", lineterminator="\n")
+
+
+def say_four(folder):
+    design = pd.read_csv(folder / "design.csv", index_col="key", dtype=str)
+    design.loc["strategies", "value"] = "4"
+    design.to_csv(folder / "design.csv", lineterminator="\n")
+
+
+def move_rf(folder):
+    rewrite(folder / "returns_USD.csv.gz", lambda f: f.insert(2, "rf2", f.pop("rf")))
+
+
+def drop_from_cad(folder):
+    rewrite(folder / "returns_CAD.csv.gz", lambda f: f.pop(f.columns[-1]))
+
+
+def reverse_days(folder):
+    path = folder / "returns_USD.csv.gz"
+    frame = pd.read_csv(path, index_col=0, parse_dates=True).iloc[::-1]
+    frame.to_csv(path, compression={"method": "gzip", "mtime": 0}, lineterminator="\n")
+
+
+def trade_on_a_sunday(folder):
+    path = folder / "turnover_USD.csv.gz"
+    frame = pd.read_csv(path, index_col=0, parse_dates=True)
+    frame.index = frame.index[:-1].append(pd.DatetimeIndex(["2030-01-06"])).rename("traded")
+    frame.to_csv(path, compression={"method": "gzip", "mtime": 0}, lineterminator="\n")
+
+
+def drop_dy(folder):
+    rewrite(folder / "factors.csv.gz", lambda f: f.pop("dy"))
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (drop_key, "design.csv has no"),
+        (say_four, "says 4 strategies"),
+        (move_rf, "must start with the columns"),
+        (drop_from_cad, "returns_CAD.csv.gz holds other strategies"),
+        (reverse_days, "unique and in order"),
+        (trade_on_a_sunday, "trade days that are not days"),
+        (drop_dy, "factors.csv.gz must have the columns"),
+    ],
+)
+def test_read_refuses_a_bundle_off_the_schema(written, edit, message):
+    edit(written)
+    with pytest.raises(ValueError, match=message):
+        db.read(written)
+
+
+def test_check_needs_every_holdout_month(bundle, references):
+    performance, monthly = references
+    hedged = monthly.xs("CAD_HEDGED", level="view", drop_level=False)
+    short = monthly.drop(index=hedged.index[-1])
+    with pytest.raises(ValueError, match="covers 144 holdout months here and 143"):
+        db.check(bundle, performance, short)
