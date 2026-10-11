@@ -289,7 +289,7 @@ before looking, fixed holdout, counted trials, one-shot holdout.
 ---
 
 ## Step 7b: Holdout run, robustness, report  *(strongest model)*
-Status: **done 2026-10-11, pending PR** (1 long session; plan `plans/step-7b-plan.md`; the one-shot holdout ran on `9ca40f4` with src identical to `prereg-v1`, recorded in `adccda8`; `robustness.py`, `report/figures.py`, `reproduce --robustness`, `portfolio-lab figures`; `research/REPORT.md` and 5 figures; reruns bit-identical; python-reviewer and `/code-review` (high) findings fixed)
+Status: **done and merged 2026-10-11** (PR #10, merge commit `a4c9161`; 1 long session; plan `plans/step-7b-plan.md`; the one-shot holdout ran on `9ca40f4` with src identical to `prereg-v1`, recorded in `adccda8`; `robustness.py`, `report/figures.py`, `reproduce --robustness`, `portfolio-lab figures`; `research/REPORT.md` and 5 figures; reruns bit-identical; python-reviewer and `/code-review` (high) findings fixed)
 
 **Tasks**
 - Run the holdout **once** (`allow_holdout=True` in `reproduce` only) to `HOLDOUT_END`; log the run in NOTES.md.
@@ -302,7 +302,7 @@ Status: **done 2026-10-11, pending PR** (1 long session; plan `plans/step-7b-pla
 ---
 
 ## Step 8: Streamlit dashboard + deploy
-Status: not started
+Status: in progress (started 2026-10-11, branch `step-8-dashboard`)
 
 **Tasks**
 - First: check the current free-tier terms of Streamlit Community Cloud (does it need a public repo? sleep behaviour? resources) vs one alternative; record in NOTES.md. If a public repo is required, ask **G3 and G4 together**.
