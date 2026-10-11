@@ -7,9 +7,12 @@
 - with `--robustness`, after the holdout, the registered robustness checks (`robustness`),
   written to research/results/robustness/, under the same lock, and only on the 49-industry
   file whose SHA-256 plans/step-7b-plan.md fixed.
-Each run updates research/results/manifest.json (the only result file in git), and warns when
-a source's SHA-256 differs from the one recorded there (a newer data vintage). The project
-root is the nearest folder, from the current one up, that holds research/PLAN.md.
+`figures` draws the report's figures from those tables into research/figures/ (it needs the
+optional `report` extra, matplotlib).
+
+Each reproduce run updates research/results/manifest.json (the only result file in git), and
+warns when a source's SHA-256 differs from the one recorded there (a newer data vintage). The
+project root is the nearest folder, from the current one up, that holds research/PLAN.md.
 
 This is the only file in src/ that may open the holdout (tests/test_holdout_scan.py), and it
 does so only after these checks, all before any data is read:
@@ -26,6 +29,7 @@ does so only after these checks, all before any data is read:
 """
 
 import argparse
+import importlib
 import json
 import os
 import subprocess
@@ -40,6 +44,7 @@ from portfolio_lab import __version__, config, manifest, robustness, study
 from portfolio_lab.data import HoldoutError
 
 RESULTS = Path("research/results")
+FIGURES = Path("research/figures")
 PLAN = Path("research/PLAN.md")
 PREREG_TAG = config.PREREG_TAG
 
@@ -76,6 +81,15 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument(
         "--out", type=Path, default=RESULTS, help="results folder (default %(default)s)"
     )
+    fig = sub.add_parser(
+        "figures", help="draw the report's figures from the result tables (needs the report extra)"
+    )
+    fig.add_argument(
+        "--results", type=Path, default=RESULTS, help="result tables (default %(default)s)"
+    )
+    fig.add_argument(
+        "--out", type=Path, default=FIGURES, help="figures folder (default %(default)s)"
+    )
     return p
 
 
@@ -86,10 +100,26 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     try:
-        return _reproduce(args)
+        return _figures(args) if args.command == "figures" else _reproduce(args)
     except (HoldoutError, ReproduceError, FileNotFoundError) as err:
-        print(f"portfolio-lab reproduce: {err}", file=sys.stderr)
+        print(f"portfolio-lab {args.command}: {err}", file=sys.stderr)
         return 2
+
+
+def _figures(args: argparse.Namespace) -> int:
+    """Every figure of research/REPORT.md, from the tables that `reproduce` wrote."""
+    root = _root()
+    results = args.results if args.results.is_absolute() else root / args.results
+    out = args.out if args.out.is_absolute() else root / args.out
+    try:  # matplotlib is optional: the report extra
+        figures = importlib.import_module("portfolio_lab.report.figures")
+    except ModuleNotFoundError as err:
+        raise ReproduceError(
+            f"the figures need {err.name}: install the report extra (`uv sync --extra report`)"
+        ) from err
+    paths = figures.write(results, out)
+    print(f"wrote {len(paths)} figures to {out}")
+    return 0
 
 
 def check_prereg(root: Path) -> str:

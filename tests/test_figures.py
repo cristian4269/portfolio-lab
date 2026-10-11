@@ -28,7 +28,7 @@ def monthly_table(months=24, seed=0):
     return pd.concat(parts, names=["view", "strategy"])
 
 
-def tests_table():
+def robustness_tests():
     variants = ["primary", "window 126d", "window 504d", "cost 0bp", "cost 10bp", "cost 20bp"]
     variants.append("49 industries")
     rows = []
@@ -84,7 +84,7 @@ def write_results(root):
     rob.mkdir(parents=True)
     hold.mkdir(parents=True)
     monthly_table().to_csv(rob / "monthly.csv")
-    tests_table().to_csv(rob / "tests.csv")
+    robustness_tests().to_csv(rob / "tests.csv")
     weights_table().to_csv(rob / "weights.csv")
     stress_table().to_csv(hold / "stress.csv")
     stress_table(shift=0.01).to_csv(hold / "stress_realized.csv")
@@ -148,7 +148,7 @@ def test_drawdowns_are_from_the_running_peak():
 
 
 def test_sharpe_differences_show_every_variant_with_its_interval():
-    tests = tests_table()
+    tests = robustness_tests()
     fig = figures.sharpe_differences(tests)
     panels = [ax for ax in fig.axes if ax.get_lines() or ax.collections]
     assert len(panels) == 4
@@ -173,7 +173,7 @@ def test_weights_fold_the_tail_into_the_rest():
 
 
 def test_weights_pick_the_minimum_variance_portfolio_of_the_view():
-    weights = weights_table()
+    weights = weights_table().sort_index()
     weights.loc[("CAD", MV)] = 0.0
     weights.loc[("CAD", MV), "Utils"] = 1.0
     fig = figures.weights(weights, view="CAD")
@@ -249,3 +249,27 @@ def test_figures_command_without_matplotlib_names_the_extra(project, monkeypatch
 
 def _rgb(hex_color):
     return tuple(int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5))
+
+
+def test_weights_with_seven_industries_need_no_remaining_band():
+    weights = weights_table()[INDUSTRIES[:7]]
+    fig = figures.weights(weights, view="USD")
+    texts = [t.get_text() for t in fig.legends[0].get_texts()]
+    assert len(texts) == 7 and not any(t.startswith("Remaining") for t in texts)
+
+
+def test_a_view_without_one_portfolio_of_a_role_is_refused():
+    monthly = monthly_table().drop(index="1/N", level="strategy")
+    with pytest.raises(ValueError, match="exactly one 1/N"):
+        figures.growth(monthly)
+
+
+def test_end_labels_skip_a_value_that_would_sit_on_another():
+    monthly = monthly_table()
+    same = monthly.xs("1/N", level="strategy", drop_level=False)
+    for name in (MV, ERC):
+        copy = same.rename(index={"1/N": name}, level="strategy")
+        monthly.loc[copy.index, "net"] = copy["net"].to_numpy()  # all three end together
+    fig = figures.growth(monthly)
+    usd = [ax for ax in fig.axes if ax.get_lines()][0]
+    assert len(usd.texts) == 1  # one label for the three coinciding ends

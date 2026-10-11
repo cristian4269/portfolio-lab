@@ -43,6 +43,7 @@ __all__ = [
     "WINDOWS",
     "Industries",
     "load_industries",
+    "role",
     "run",
     "universe",
 ]
@@ -124,7 +125,7 @@ def run(
     table, indexed by (view, strategy); `industries=None` leaves the 49 industries out."""
     pair = study.primary(estimator)
     calibrated = holdout_tests["block"].astype(int)
-    blocks = {(v, _role(n)): int(calibrated[(v, n)]) for v in study.TESTED_VIEWS for n in pair}
+    blocks = {(v, role(n)): int(calibrated[(v, n)]) for v in study.TESTED_VIEWS for n in pair}
 
     def compare(view: View, window: int = st.WINDOW) -> dict[str, Result]:
         group = [st.equal_weight(), st.min_variance(estimator, window=window)]
@@ -153,7 +154,7 @@ def run(
     for variant, results in [*variants.items(), (HEDGED, hedged)]:
         monthly = {v: _monthly_excess(res) for v, res in results.items()}
         perf = study._performance(results, monthly, inputs)
-        perf["role"] = [_role(n) for n in perf.index.get_level_values("strategy")]
+        perf["role"] = [role(n) for n in perf.index.get_level_values("strategy")]
         perf_parts.append(pd.concat({variant: perf}, names=["variant"]))
         if variant == HEDGED:
             continue
@@ -161,8 +162,8 @@ def run(
             for name in m.columns:
                 if name == study.BENCHMARK:
                     continue
-                role = _role(name)
-                b = blocks[(v, role)]
+                kind = role(name)
+                b = blocks[(v, kind)]
                 labels = ("holdout",) if variant == PRIMARY else ("robustness", variant)
                 res = inf.lw_test(
                     m[name],
@@ -176,7 +177,7 @@ def run(
                         "variant": variant,
                         "view": v,
                         "strategy": name,
-                        "role": role,
+                        "role": kind,
                         "months": len(m),
                         "diff": res.diff * _YEAR,
                         "se": res.se * _YEAR,
@@ -213,7 +214,8 @@ def run(
     return tables
 
 
-def _role(name: str) -> str:
+def role(name: str) -> str:
+    """A portfolio's role by its name: "1/N", "min variance" or "ERC"."""
     if name == study.BENCHMARK:
         return "1/N"
     return ROLES[0] if name.startswith("min variance") else ROLES[1]
