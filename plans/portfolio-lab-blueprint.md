@@ -273,7 +273,7 @@ Status: **done and merged 2026-10-09** (PR #8, merge commit b1468b8; 2 sessions;
 ---
 
 ## Step 7a: Pre-registration, dev analysis, luck benchmark, reproduce CLI  *(strongest model)*
-Status: **done 2026-10-11, pending PR** (3 sessions; plan `plans/step-7a-plan.md`; `research/PLAN.md` FROZEN and tagged `prereg-v1` locally; `report/inference.py`, `backtest/luck.py`, `study.py`, `cli.py reproduce`, `manifest.py`; 1333 unit tests, 99.91% coverage; HOLDOUT_END 2026-08-31; python-reviewer and `/code-review` findings fixed)
+Status: **done 2026-10-11, pending PR** (3 sessions; plan `plans/step-7a-plan.md`; `research/PLAN.md` FROZEN and tagged `prereg-v1` locally; `report/inference.py`, `backtest/luck.py`, `study.py`, `cli.py reproduce`, `manifest.py`; 1341 unit tests, 99.94% coverage; HOLDOUT_END 2026-08-31; python-reviewer, `/code-review` (high, then xhigh) findings fixed, then re-frozen)
 
 **Context.** Same discipline as the owner's earlier study: write the plan
 before looking, fixed holdout, counted trials, one-shot holdout.
@@ -401,6 +401,15 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
     - Robustness: windows 126 and 504, costs 0, 10 and 20 bp, the hedged view, 49
       industries.
     - The 49-industry NaN policy is still open.
+  - **Extra-high review (owner asked, 2026-10-11): 11 findings, all fixed, then the freeze
+    was redone** (the tag was never pushed; no holdout number exists).
+    - The one-shot rule could be bypassed with `--out`.
+    - Code could change after the tag unnoticed; now uncommitted src/ is refused and
+      changes since the tag are recorded.
+    - The dirty flag counted the tracked results manifest.
+    - The holdout lacked the 2001 → DEV_END shock comparison that PLAN.md §10 registers.
+    - Plus smaller items, and parallel calibration with identical numbers.
+    - Every dev table was reproduced.
 
 - 2026-10-09: step 6 done (2 sessions, plan `plans/step-6-plan.md`, details in NOTES.md).
   - **Interface (`stress.historical`):**

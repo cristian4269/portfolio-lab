@@ -2,6 +2,39 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-11: step 7a, extra-high review and re-freeze (owner asked)
+
+- The owner asked for `/code-review` at xhigh effort over the whole branch: 11 findings.
+  **All fixed** (RED `fd2c58f`, GREEN `9e2df18`).
+- **The holdout lock's gaps:**
+  - The one-shot rule could be bypassed by a first run to `--out elsewhere`. `--holdout`
+    now refuses `--out`.
+  - The code could change after the tag unnoticed. Uncommitted changes under src/ are now
+    refused, and files changed since the tag are named in a warning and recorded in the
+    manifest (`git.changed_since_tag`).
+  - Every run after the freeze would have been "dirty", because the manifest is tracked and
+    rewritten. The flag now ignores research/results/manifest.json.
+- **Plan vs code:** PLAN.md §10 registers the 2001 → DEV_END betas as the comparison for the
+  HOLDOUT_END shocks, but the holdout computed only the 2011 span. The shocks table now has
+  a `span` level, with both spans on the holdout.
+- **Also fixed:**
+  - A corrupt manifest is a clean error.
+  - Unreadable cache metadata warns once.
+  - One git helper (`manifest.git_output`), and `inference` reuses `return_series`.
+  - An explicit lookup for the cached primary test.
+  - The drift warning no longer mangles the git ref on Windows.
+- **The calibration runs in up to 4 processes** (`Settings.workers`, `cli._workers`), with
+  identical results, which a test checks.
+  - The dev reproduce took 453 s (it was 648 s).
+  - Spawning works under the `portfolio-lab` console script on Windows.
+- **Dev re-run on `9e2df18`:** all 13 tables are identical to the run on `9e87fdb`. The
+  shocks table only gained the `span` level. The manifest records the commit as clean.
+- **Mutation runs:** the session 2 script was re-pointed (the lock pattern had changed), and
+  five mutations were added for this round's fixes.
+- **Re-freeze:** PLAN.md §2 (the lock) and §13 (the commit) were updated, plus its change
+  log. The tag `prereg-v1` moved from `9492cb5` to the new freeze commit. It was never
+  pushed, and no holdout number exists.
+
 ## 2026-10-10/11: step 7a, session 3 of 3 (vintage, dev analysis, reviews, freeze)
 
 - **Vintage refreshed 2026-10-10 (01:24 UTC)** (decision 6):

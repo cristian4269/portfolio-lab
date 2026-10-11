@@ -364,6 +364,11 @@ it must come **after** the draft PLAN.md is committed. The numbers are under "Gr
     / `0cffd64`.
   - Verification loop passes. The final dev run is on `9e87fdb`. Then the freeze commit and
     the local tag `prereg-v1`.
+- Extra-high review (2026-10-11, owner asked): 11 findings, all fixed (RED `fd2c58f`, GREEN
+  `9e2df18`).
+  - The dev re-run on `9e2df18` reproduced every table.
+  - Mutation runs: 24 of 24 (session 2, with five new) and 21 of 21 (session 1).
+  - Re-frozen; the tag moved from `9492cb5` (never pushed).
 
 ## Checks every session
 
