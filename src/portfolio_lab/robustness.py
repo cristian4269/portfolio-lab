@@ -30,7 +30,7 @@ import pandas as pd
 from portfolio_lab import data, study
 from portfolio_lab.backtest import engine
 from portfolio_lab.backtest.engine import Result
-from portfolio_lab.config import HOLDOUT_START
+from portfolio_lab.config import DEV_END, HOLDOUT_START
 from portfolio_lab.construct import strategy as st
 from portfolio_lab.data.views import View, make_views
 from portfolio_lab.report import inference as inf
@@ -42,6 +42,7 @@ __all__ = [
     "PRIMARY",
     "WINDOWS",
     "Industries",
+    "cache_industries",
     "load_industries",
     "role",
     "run",
@@ -105,6 +106,12 @@ def universe(assets: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return used, table
 
 
+def cache_industries() -> None:
+    """Download the 49-industry file into the cache (a dev `reproduce --refresh` calls it, so a
+    fresh clone can run `--robustness`, which reads the cache only). Dev rows only."""
+    data.load_assets(INDUSTRIES, end=DEV_END, allow_holdout=False, refresh=True)
+
+
 def load_industries(*, end: str | pd.Timestamp | None, allow_holdout: bool) -> Industries:
     """The 49-industry views through `end`, by the loaders' holdout rule (as `study.load`)."""
     f = data.load_factors(end=end, allow_holdout=allow_holdout)
@@ -133,11 +140,12 @@ def run(
     variants, hedged = _variants(
         inputs, industries, estimator=estimator, end=end, allow_holdout=allow_holdout
     )
-    months = {v: _monthly_excess(res).index for v, res in variants[PRIMARY].items()}
+    months: pd.Index | None = None  # the primary USD run's holdout months, every run's too
     test_rows: list[dict[str, object]] = []
     perf_parts = []
     for variant, results in [*variants.items(), (HEDGED, hedged)]:
         monthly = {v: _monthly_excess(res) for v, res in results.items()}
+        months = monthly["USD"].index if months is None else months
         _check_months(variant, monthly, months)
         perf = study._performance(results, monthly, inputs)
         perf["role"] = [role(n) for n in perf.index.get_level_values("strategy")]
@@ -277,16 +285,14 @@ def _test_rows(
     return rows
 
 
-def _check_months(
-    variant: str, monthly: Mapping[str, pd.DataFrame], months: Mapping[str, pd.Index]
-) -> None:
-    """Every variant must cover the primary's holdout months (a shorter file would not)."""
+def _check_months(variant: str, monthly: Mapping[str, pd.DataFrame], months: pd.Index) -> None:
+    """Every variant and view must cover the primary's holdout months (a shorter file would
+    not): all views share the US trading calendar, so one set of month ends serves them all."""
     for v, m in monthly.items():
-        expected = months.get(v, months["CAD"])  # the hedged view lives on the CAD days
-        if not m.index.equals(expected):
+        if not m.index.equals(months):
             raise ValueError(
                 f"the {variant} variant covers {len(m)} {v} months, not the holdout's "
-                f"{len(expected)}: every variant must cover the same months"
+                f"{len(months)}: every variant must cover the same months"
             )
 
 

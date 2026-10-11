@@ -30,13 +30,13 @@ does so only after these checks, all before any data is read:
 
 import argparse
 import hashlib
-import importlib
 import io
 import json
 import os
 import subprocess
 import sys
 import warnings
+from importlib import import_module
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -47,6 +47,9 @@ from portfolio_lab.data import HoldoutError
 
 RESULTS = Path("research/results")
 FIGURES = Path("research/figures")
+# The installed core: a missing one is a broken install; any other missing module is one the
+# report extra brings (matplotlib or its own dependencies).
+CORE = frozenset({"numpy", "pandas", "scipy", "statsmodels", "requests", "portfolio_lab"})
 PLAN = Path("research/PLAN.md")
 PREREG_TAG = config.PREREG_TAG
 
@@ -115,9 +118,9 @@ def _figures(args: argparse.Namespace) -> int:
     results = args.results if args.results.is_absolute() else root / args.results
     out = args.out if args.out.is_absolute() else root / args.out
     try:  # matplotlib is optional: the report extra
-        figures = importlib.import_module("portfolio_lab.report.figures")
+        figures = import_module("portfolio_lab.report.figures")
     except ModuleNotFoundError as err:
-        if (err.name or "").split(".")[0] != "matplotlib":
+        if (err.name or "").split(".")[0] in CORE:
             raise  # a missing core dependency is a broken install, not a missing extra
         raise ReproduceError(
             f"the figures need {err.name}: install the report extra (`uv sync --extra report`)"
@@ -218,6 +221,8 @@ def _dev(args: argparse.Namespace, path: Path, old: dict[str, Any] | None) -> _R
     if not args.refresh:
         manifest.sources()  # every source cached and intact before any data is read
     inputs = study.load(end=config.DEV_END, allow_holdout=False, refresh=args.refresh)
+    if args.refresh:
+        robustness.cache_industries()  # read later by --robustness, which never downloads
     current = manifest.sources()
     _warn_drift(old, current, str(path))
     tables = study.run(
@@ -239,6 +244,11 @@ def _holdout(
     if recorded and not args.rerun:
         raise HoldoutError(
             f"the holdout has already been run once (see {path}): pass --rerun to reproduce it"
+        )
+    if args.rerun and not recorded:
+        raise HoldoutError(
+            f"no holdout is recorded in {path} to rerun: the first run is the one-shot, so run "
+            "`reproduce --holdout` without --rerun"
         )
     changed = _changed_since_tag(root)
     end = config.HOLDOUT_END

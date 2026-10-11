@@ -378,17 +378,20 @@ The table gives the annual Sharpe difference against 1/N, with the raw p in brac
 
 ```bash
 uv sync --all-groups
-uv run portfolio-lab reproduce                     # the dev analysis (about 8 minutes)
+uv run portfolio-lab reproduce --refresh           # download every source, then the dev analysis (about 8 minutes)
 uv run portfolio-lab reproduce --holdout --rerun   # the holdout, recorded apart from the one-shot
 uv run portfolio-lab reproduce --robustness        # after the holdout
 uv run portfolio-lab figures                       # research/figures/
 ```
 
+- **A fresh clone has no data:** the first run needs `--refresh`, which downloads every
+  source, the 49-industry file included. Later runs read the cache.
 - **Exact reproduction needs the frozen vintage.**
+  - If the sources have changed since 2026-10-10, the dev run warns and names them. The
+    holdout and robustness runs then refuse unless `--accept-drift` is passed, and their
+    numbers may drift.
   - [`research/results/manifest.json`](results/manifest.json) records every source's SHA-256,
     the commit and the package versions.
-  - On other data, `reproduce` warns and names the files that changed. The holdout and
-    robustness runs refuse unless `--accept-drift` is passed.
   - Result tables are not committed, only the manifest and the figures.
 - **Not investment advice.** This is a research exercise on historical data; past
   differences in risk-adjusted returns say nothing certain about future ones.

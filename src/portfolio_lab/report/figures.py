@@ -212,8 +212,7 @@ def weights(table: pd.DataFrame, *, view: str = "USD", theme: str = "light") -> 
     `weights` table), the 7 largest industries on average in their own band."""
     t = THEMES[theme]
     sub = table.xs(view, level="view")
-    names = [n for n in _names(sub, "strategy") if role(n) == ROLES[1]]
-    w = sub.xs(names[0], level="strategy")
+    w = sub.xs(_one(sub, "strategy", ROLES[1], view), level="strategy")
     assert isinstance(w, pd.DataFrame)  # one row per trade, one column per industry
     order = list(w.mean().sort_values(ascending=False, kind="stable").index)
     bands = {INDUSTRY_NAMES.get(c, c): w[c] for c in order[:STACKED]}
@@ -223,7 +222,8 @@ def weights(table: pd.DataFrame, *, view: str = "USD", theme: str = "light") -> 
     fig, axes = _canvas(t, height=3.6)
     ax = axes[0, 0]
     days = pd.DatetimeIndex(w.index)
-    x = np.append(days.to_numpy(), (days[-1] + (days[-1] - days[-2])).to_datetime64())
+    hold = days[-1] - days[-2] if len(days) > 1 else pd.Timedelta(days=30)  # about a month
+    x = np.append(days.to_numpy(), (days[-1] + hold).to_datetime64())
     lower = np.zeros(len(x))
     for k, (label, band) in enumerate(bands.items()):
         values = np.append(band.to_numpy(dtype=float), float(band.iloc[-1]))  # hold the last
@@ -266,7 +266,7 @@ def stress(
         sub = table.xs(view, level="view")
         ax.axvline(0.0, color=t.axis, linewidth=PX)
         for j, r in enumerate(ROLES):
-            name = [n for n in _names(sub, "portfolio") if role(n) == r][0]
+            name = _one(sub, "portfolio", r, view)
             pnl = sub.xs(name, level="portfolio")["pnl"].reindex(scenarios).to_numpy(float)
             bars = np.arange(len(scenarios)) + (j - 1) * step
             ax.barh(bars, pnl, height=height, color=color(r, t), label=LABELS[r])
@@ -402,11 +402,16 @@ def _names(table: pd.DataFrame | pd.Series, level: str) -> list[str]:
 def _net(monthly: pd.DataFrame, view: str, r: str) -> pd.Series:
     """One portfolio's monthly net returns in one view, found by its role."""
     sub = monthly.xs(view, level="view")
-    names = [n for n in _names(sub, "strategy") if role(n) == r]
+    net: pd.Series = sub.xs(_one(sub, "strategy", r, view), level="strategy")["net"]
+    return net
+
+
+def _one(table: pd.DataFrame | pd.Series, level: str, r: str, view: str) -> str:
+    """The name of the one portfolio of role `r` at `level` (a clear error otherwise)."""
+    names = [n for n in _names(table, level) if role(n) == r]
     if len(names) != 1:
         raise ValueError(f"the {view} view needs exactly one {r} portfolio, got {names}")
-    net: pd.Series = sub.xs(names[0], level="strategy")["net"]
-    return net
+    return names[0]
 
 
 def _wealth(net: pd.Series) -> pd.Series:
