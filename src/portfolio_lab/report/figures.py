@@ -12,7 +12,7 @@ The drawing follows the dataviz method:
   and folds the rest into one neutral band.
 - Lines are 2 px, dots 8 px with a 2 px surface ring, grids solid hairlines. Every figure with
   several series has a legend. Text is in ink tokens, never in a series color.
-Only derived analytics are drawn (G1): portfolio returns, weights and test statistics.
+The figures draw portfolio returns, weights and test statistics, never an industry's own returns.
 """
 
 from collections.abc import Callable

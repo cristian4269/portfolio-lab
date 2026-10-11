@@ -74,8 +74,9 @@ changed since the tag.
   - CAD unhedged, (1 + r)(1 + fx) − 1;
   - CAD hedged by covered interest parity, r + rf_CAD − rf_USD.
 - **Excess returns** use each view's own risk-free rate.
-- **Following the French library's terms,** this report shows only derived analytics:
-  portfolio returns, weights and statistics, never an industry's own return series.
+- **This report shows portfolio results only:** returns, weights and statistics, never an
+  industry's own return series. The French library carries a copyright notice and no
+  explicit reuse terms; it is cited here and in `DATA_SOURCES.md`.
 
 ## 4. Method
 

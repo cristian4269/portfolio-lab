@@ -2,6 +2,32 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-11: step 8, session 1 of 3 (plan, hosting, G1 removed)
+
+- **Hosting, checked against the official docs on 2026-10-11** (details in
+  `plans/step-8-plan.md`):
+  - **Streamlit Community Cloud** (free): an app takes its repo's privacy, so a private repo
+    gives one private app that only invited viewers can open. A public link needs a public
+    repo (G3 ties to G4). Private repos need GitHub's broad `repo` OAuth scope. Apps sleep
+    after 12 hours without traffic, and any visitor can wake them. Resources (dated
+    2024-02): 0.078-2 cores, 690 MB-2.7 GB RAM.
+  - **Render** (free): deploys from a private repo with a public URL. It spins down after 15
+    idle minutes and takes about a minute to start; 750 hours a month.
+  - **Hugging Face Spaces:** Gradio and Docker Spaces now need a paid plan. Out.
+  - **Owner decision (D9):** build and verify locally in Step 8. Deploy on Community Cloud in
+    Step 9 after the scrub, with G3 and G4 asked together.
+- **G1 removed by the owner (2026-10-11).** The French data stay cited; the "runtime fetch,
+  never committed, derived analytics only" restrictions are gone. Updated: the blueprint
+  (header, G1 row, invariant 2, Step 8, risks, acceptance), `DATA_SOURCES.md`, the
+  docstrings of `data/french.py` and `report/figures.py`, and REPORT §3's sentence that cited
+  "the French library's terms".
+- **Plan approved as written** (`plans/step-8-plan.md`): all nine decisions as recommended
+  after the G1 change.
+  - The dashboard reads a committed bundle in `app/data/`, written by `reproduce --dashboard`
+    under the holdout lock, which checks its own 5 bp series against the holdout's tables.
+  - All 17 strategies in all three views, at most 6 shown at once.
+  - Invariant 2 amended: `.gz` added to the check, `app/data/` allowed.
+
 ## 2026-10-11: step 7b, session 1 of 3 (plan, the one-shot holdout run)
 
 - **Plan approved** by the owner as written (`plans/step-7b-plan.md`, commit `9ca40f4`): all
