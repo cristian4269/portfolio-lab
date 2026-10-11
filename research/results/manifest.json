@@ -191,15 +191,16 @@
     },
     "robustness": {
       "command": "portfolio-lab reproduce --robustness",
-      "created": "2026-10-11T19:57:59+00:00",
+      "created": "2026-10-11T20:31:00+00:00",
       "estimator": "lw_identity",
       "git": {
-        "commit": "a1389f54eb6549e6a69d5b895272497fa5ae756d",
+        "commit": "8dbb3ab5cdf43899b28b73c9c2df3ef89f7614d0",
         "dirty": false,
         "tag_commit": "317d4c45828f996a5e6d3971496622a0f8113d68",
         "changed_since_tag": [
           "src/portfolio_lab/cli.py",
           "src/portfolio_lab/manifest.py",
+          "src/portfolio_lab/report/figures.py",
           "src/portfolio_lab/robustness.py"
         ]
       },
@@ -261,6 +262,73 @@
           "sha256": "8f394fe34bea54d41b9aafed410425ee8f8e252ede3c71a7c1cd20bab83040de",
           "bytes": 4173817,
           "retrieved": "2026-10-10T01:24:39+00:00"
+        }
+      }
+    },
+    "holdout_rerun": {
+      "command": "portfolio-lab reproduce --holdout --rerun",
+      "created": "2026-10-11T20:29:36+00:00",
+      "estimator": "lw_identity",
+      "git": {
+        "commit": "8dbb3ab5cdf43899b28b73c9c2df3ef89f7614d0",
+        "dirty": false,
+        "tag_commit": "317d4c45828f996a5e6d3971496622a0f8113d68",
+        "changed_since_tag": [
+          "src/portfolio_lab/cli.py",
+          "src/portfolio_lab/manifest.py",
+          "src/portfolio_lab/report/figures.py",
+          "src/portfolio_lab/robustness.py"
+        ]
+      },
+      "sources": {
+        "ff5_daily": {
+          "url": "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_5_Factors_2x3_daily_CSV.zip",
+          "header": "This file was created by using the 202608 CRSP database.",
+          "sha256": "7881223b51929ee0d6d23b8a28524aaec478a2c3d4eeca47224955cc845c5186",
+          "bytes": 150292,
+          "retrieved": "2026-10-10T01:24:41+00:00"
+        },
+        "mom_daily": {
+          "url": "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Momentum_Factor_daily_CSV.zip",
+          "header": "This file was created by using the 202608 CRSP database.  It",
+          "sha256": "ecf82b116e6ec56d2b79a2f27bd1d1598c217b5c6c25caa55b945bdd8a2c0b78",
+          "bytes": 85269,
+          "retrieved": "2026-10-10T01:24:42+00:00"
+        },
+        "ind12_daily": {
+          "url": "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/12_Industry_Portfolios_daily_CSV.zip",
+          "header": "This file was created using the 202608 CRSP database.",
+          "sha256": "cde9864260d22e42fdbd29a8a1272b8a0ab67aaf4d8cc6fd7898e11c448f06b1",
+          "bytes": 1093383,
+          "retrieved": "2026-10-10T01:24:38+00:00"
+        },
+        "usdcad": {
+          "url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXCAUS",
+          "header": "observation_date,DEXCAUS",
+          "sha256": "d218f8173a6fa0d510cef6f99ebf339d0599aebbbc1ceef97a959061dd474e8d",
+          "bytes": 258487,
+          "retrieved": "2026-10-10T01:24:42+00:00"
+        },
+        "ca_tbill_3m": {
+          "url": "https://www150.statcan.gc.ca/t1/wds/rest/getDataFromVectorByReferencePeriodRange?vectorIds=%22122531%22&startRefPeriod=1900-01-01&endReferencePeriod=2100-12-01",
+          "header": "[{\"status\":\"SUCCESS\",\"object\":{\"responseStatusCode\":0,\"productId\":10100122,\"coordinate\":\"1.56.0.0.0.0.0.0.0.0\",\"vectorId\":122531,\"vectorDataPoint\":[{\"refPer\":\"1962-01-01\",\"refPer2\":\"\",\"refPerRaw\":\"196",
+          "sha256": "16b4bfd5e1f3b3ee0ab0089180cee75790a45f82b4f67faedceb6dd42efe4e46",
+          "bytes": 177310,
+          "retrieved": "2026-10-10T01:24:43+00:00"
+        },
+        "ca_govt_long": {
+          "url": "https://www150.statcan.gc.ca/t1/wds/rest/getDataFromVectorByReferencePeriodRange?vectorIds=%22122487%22&startRefPeriod=1900-01-01&endReferencePeriod=2100-12-01",
+          "header": "[{\"status\":\"SUCCESS\",\"object\":{\"responseStatusCode\":0,\"productId\":10100122,\"coordinate\":\"1.26.0.0.0.0.0.0.0.0\",\"vectorId\":122487,\"vectorDataPoint\":[{\"refPer\":\"1936-01-01\",\"refPer2\":\"\",\"refPerRaw\":\"193",
+          "sha256": "5c5d9940fbaa6d6ba92dcf7e2719abdf5600ef74d940971bab43ce8d639167c9",
+          "bytes": 248430,
+          "retrieved": "2026-10-10T01:24:44+00:00"
+        },
+        "ca_govt_10y": {
+          "url": "https://www.bankofcanada.ca/valet/observations/BD.CDN.10YR.DQ.YLD/json",
+          "header": "{",
+          "sha256": "fd43f53858d50f2734370f1c6e9af1fc8d86519ec494c6ec95f97c26801533c9",
+          "bytes": 838314,
+          "retrieved": "2026-10-10T01:24:44+00:00"
         }
       }
     }
