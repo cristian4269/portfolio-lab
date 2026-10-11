@@ -172,3 +172,12 @@ def test_read_cached_never_downloads(fake_http, isolated_cache):
     (isolated_cache / f"{cache.cache_key(URL)}.bin").write_bytes(b"tampered")
     assert cache.read_cached(URL) is None  # a bad checksum is None too
     assert len(fake_http.calls) == 1
+
+
+def test_unreadable_metadata_warns_once_per_fetch(fake_http, isolated_cache):
+    fake_http.add(URL, b"payload")
+    cache.fetch(URL)
+    (isolated_cache / f"{cache.cache_key(URL)}.meta.json").write_text("{not json")
+    with pytest.warns(UserWarning) as record:
+        cache.fetch(URL)
+    assert len([w for w in record if "metadata" in str(w.message)]) == 1

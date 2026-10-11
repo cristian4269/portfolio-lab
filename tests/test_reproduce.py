@@ -351,13 +351,15 @@ def test_holdout_compares_with_the_manifest_at_the_tag(stubbed, repo, monkeypatc
     assert "load" not in stubbed and "usdcad" in capsys.readouterr().err
 
 
-def test_one_shot_record_does_not_depend_on_out(stubbed, repo, monkeypatch, capsys):
+def test_holdout_refuses_another_results_folder(stubbed, repo, monkeypatch, capsys):
+    """A first holdout to another folder would leave no record where the one-shot check looks."""
     monkeypatch.chdir(repo)
     freeze(repo)
+    assert cli.main(["reproduce", "--holdout", "--out", str(repo / "elsewhere")]) == 2
+    assert "load" not in stubbed and "--out" in capsys.readouterr().err
     assert cli.main(["reproduce", "--holdout"]) == 0
     stubbed.clear()
-    assert cli.main(["reproduce", "--holdout", "--out", str(repo / "elsewhere")]) == 2
-    assert "already" in capsys.readouterr().err
+    assert cli.main(["reproduce", "--holdout"]) == 2  # recorded where the check looks
 
 
 def test_each_run_records_its_own_sources(stubbed, repo, monkeypatch):
@@ -370,3 +372,50 @@ def test_each_run_records_its_own_sources(stubbed, repo, monkeypatch):
     dev, hold = m["runs"]["dev"]["sources"], m["runs"]["holdout"]["sources"]
     assert dev["usdcad"]["sha256"] != hold["usdcad"]["sha256"]
     assert dev["ff5_daily"]["sha256"] == hold["ff5_daily"]["sha256"]
+
+
+def test_holdout_refuses_uncommitted_source_changes(stubbed, repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    (repo / "src").mkdir()
+    (repo / "src" / "procedure.py").write_text("RESAMPLES = 4999\n")
+    git(repo, "add", "src")
+    git(repo, "commit", "-qm", "code")
+    freeze(repo)
+    (repo / "src" / "procedure.py").write_text("RESAMPLES = 99\n")
+    stubbed.clear()
+    assert cli.main(["reproduce", "--holdout"]) == 2
+    assert "load" not in stubbed and "uncommitted" in capsys.readouterr().err
+
+
+def test_holdout_records_and_warns_about_code_changed_since_the_tag(stubbed, repo, monkeypatch):
+    monkeypatch.chdir(repo)
+    (repo / "src").mkdir()
+    (repo / "src" / "procedure.py").write_text("RESAMPLES = 4999\n")
+    git(repo, "add", "src")
+    git(repo, "commit", "-qm", "code")
+    freeze(repo)
+    (repo / "src" / "procedure.py").write_text("RESAMPLES = 99\n")
+    git(repo, "commit", "-qam", "changed after the tag")
+    with pytest.warns(UserWarning, match="procedure.py"):
+        assert cli.main(["reproduce", "--holdout"]) == 0
+    m = json.loads((repo / "research" / "results" / "manifest.json").read_text())
+    assert m["runs"]["holdout"]["git"]["changed_since_tag"] == ["src/procedure.py"]
+
+
+def test_dirty_ignores_the_results_manifest(repo):
+    (repo / "research" / "results").mkdir(parents=True)
+    (repo / "research" / "results" / "manifest.json").write_text("{}")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "manifest")
+    (repo / "research" / "results" / "manifest.json").write_text('{"runs": {}}')
+    assert manifest._git_state(repo)["dirty"] is False
+    (repo / "research" / "PLAN.md").write_bytes(b"edited")
+    assert manifest._git_state(repo)["dirty"] is True
+
+
+def test_a_corrupt_manifest_is_a_clean_error(stubbed, tmp_path, capsys):
+    out = tmp_path / "research" / "results"
+    out.mkdir(parents=True)
+    (out / "manifest.json").write_text("{ truncated")
+    assert cli.main(["reproduce"]) == 2
+    assert "manifest.json" in capsys.readouterr().err

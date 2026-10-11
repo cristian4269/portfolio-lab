@@ -229,9 +229,10 @@ def test_dev_stress_is_the_gfc_on_dev_end_weights(dev_tables):
     assert set(stress.index.get_level_values("scenario")) == {"gfc"}
     assert set(stress.index.get_level_values("view")) == {"USD", "CAD"}
     shocks = dev_tables["shocks"]
-    usd_terms = set(shocks.loc["USD"].index.get_level_values("shock"))
+    assert set(shocks.index.get_level_values("span")) == {"dev"}
+    usd_terms = set(shocks.xs("USD", level="view").index.get_level_values("shock"))
     assert usd_terms == {"market", "momentum"}
-    assert set(shocks.loc["CAD"].index.get_level_values("shock")) == {
+    assert set(shocks.xs("CAD", level="view").index.get_level_values("shock")) == {
         "market",
         "momentum",
         "rates",
@@ -303,6 +304,16 @@ def test_holdout_run_on_synthetic_data():
     months = tables["design"].loc["first_month", "value"]
     assert months == "2011-01-31"
     assert set(tables["stress"].index.get_level_values("scenario")) == {"gfc", "covid", "rates"}
+    # PLAN.md §10: holdout-span betas, with the 2001 -> DEV_END betas as the comparison.
+    shocks = tables["shocks"]
+    assert set(shocks.index.get_level_values("span")) == {"holdout", "dev"}
+    for span, (lo, hi) in {
+        "holdout": ("2011-01-01", "2022-12-31"),
+        "dev": ("2001-01-03", "2010-12-31"),
+    }.items():
+        fits = shocks.xs(span, level="span")
+        assert (pd.to_datetime(fits["start"]) >= pd.Timestamp(lo)).all()
+        assert (pd.to_datetime(fits["end"]) <= pd.Timestamp(hi)).all()
     assert (tables["tests"]["family"] == "primary").all()
     assert tables["tests"]["months"].eq(144).all()  # 2011-01 .. 2022-12
 
@@ -479,3 +490,23 @@ def test_luck_reports_how_much_of_the_turnover_the_shadows_matched(dev_tables):
 def test_the_frozen_estimator_is_the_one_in_the_plan():
     assert study.PRIMARY_ESTIMATOR in study.CANDIDATES
     assert f"**Primary estimator: `{study.PRIMARY_ESTIMATOR}`**" in PLAN.read_text(encoding="utf-8")
+
+
+def test_parallel_calibration_gives_the_sequential_tables():
+    inputs = synthetic_inputs()
+    one = study.run(
+        inputs,
+        period="dev",
+        end=config.DEV_END,
+        strategies=small_group(),
+        settings=study.Settings(**{**SMALL.__dict__, "workers": 1}),
+    )
+    two = study.run(
+        inputs,
+        period="dev",
+        end=config.DEV_END,
+        strategies=small_group(),
+        settings=study.Settings(**{**SMALL.__dict__, "workers": 2}),
+    )
+    for name in ("tests", "calibration", "block_sensitivity"):
+        pd.testing.assert_frame_equal(one[name], two[name])
