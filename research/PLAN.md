@@ -1,9 +1,10 @@
 # Pre-registration: optimal vs naive diversification for a Canadian investor
 
-**Status: DRAFT** (committed 2026-10-09, before any strategy was compared on dev data).
-It is frozen in its last commit before the tag `prereg-v1` (blueprint Step 7a). After the
-freeze it changes only through a dated, signed-off amendment at the end, and the holdout is
-run once (Step 7b).
+**Status: FROZEN 2026-10-11** in the commit tagged `prereg-v1`. The draft was committed on
+2026-10-09, before any strategy was compared on dev data. From now on this file changes only
+through a dated, signed-off amendment at the end, and the holdout is run once (Step 7b, `uv
+run portfolio-lab reproduce --holdout`, which refuses to run unless this file is identical to
+its tagged copy).
 
 ## 1. Question
 
@@ -316,19 +317,70 @@ turnover, on the same days and view, at the same cost.
     never merged into H1-H4.
   - It uses only the sources above. No other data is spliced in.
 
-## 13. Dev decisions (to be filled in before the freeze)
+## 13. Dev decisions (recorded before the freeze)
 
-- Vintage refreshed on: _to be filled_
-- HOLDOUT_END: _to be filled_ (expected 2026-08-31, 188 months)
-- Estimator chosen by the rule of §4: _to be filled_, with every candidate's dev volatility
-- Calibrated block sizes, by view: _to be filled_
-- MDE for the chosen configuration: _to be filled_
-- Dev results (descriptive), all with the luck benchmark:
-  - performance
-  - the Sharpe tests on dev
-  - the VaR backtests
-  - the GFC stress
-  - _to be filled_
+From `uv run portfolio-lab reproduce` on commit `9e87fdb` (clean tree). The manifest committed
+with this file has every source's SHA-256.
+
+- **Vintage refreshed on 2026-10-10** (01:24 UTC).
+  - The three French files are byte-identical to the 2026-10-02 copies (no revision of
+    history).
+  - USD/CAD reaches 2026-10-02 and the Canadian rates 2026-10-08.
+- **HOLDOUT_END = 2026-08-31.** The French files end there, so the holdout has **188
+  months**, 2011-01 → 2026-08.
+- **Primary estimator: `lw_identity`**, by the rule of §4. The dev volatility of monthly net
+  excess returns (USD, annualized, 557 months from 1964-08):
+
+  | Candidate | Volatility |
+  |---|---|
+  | `sample` | 12.77% |
+  | **`lw_identity`** | **12.71%** |
+  | `lw_constant_correlation` | 12.82% |
+
+  The candidates are nearly tied. The primary pair is therefore
+  `min variance (lw_identity, 252d)` and `ERC (lw_identity, 252d)`.
+- **Calibrated block sizes on dev** (Algorithm 3.1; every rejection rate was 2.0-4.5%, so the
+  test is slightly conservative here):
+
+  | Pair | USD | CAD |
+  |---|---|---|
+  | Minimum variance | b = 2 | b = 2 |
+  | ERC | b = 1 | b = 4 |
+
+  The holdout recalibrates on its own data (§5).
+- **Minimum detectable difference** (annual Sharpe, 80% power, 188 holdout months, the
+  prewhitened HAC SE from dev):
+
+  | Pair | α = 0.05 | α = 0.0125 (Holm's first step) |
+  |---|---|---|
+  | Minimum variance, USD | 0.48 | 0.57 |
+  | Minimum variance, CAD | 0.51 | 0.61 |
+  | ERC, USD | 0.057 | 0.068 |
+  | ERC, CAD | 0.059 | 0.071 |
+
+- **Dev results** (descriptive; the dev period was used for the selection above):
+  - **Primary pairs vs 1/N** (annual Sharpe difference, LW p-value):
+    - Minimum variance: −0.015 (p = 0.88) in USD, +0.060 (p = 0.61) in CAD.
+    - ERC: +0.011 (p = 0.36) in USD, +0.014 (p = 0.30) in CAD.
+    - All four Holm-adjusted p-values are 1.0. Jobson-Korkie-Memmel agrees (p = 0.27-0.87).
+  - **Sharpe ratios** (monthly, annualized): 1/N 0.389 (USD) and 0.326 (CAD); minimum variance
+    0.374 and 0.386; ERC 0.399 and 0.340.
+    - Minimum variance cuts volatility from 15.1% to 11.3% (USD) and its max drawdown from
+      54% to 43%, at 0.67 annual turnover against 0.13.
+  - **Exploratory:**
+    - The smallest raw p-values are the momentum tilts of 1/N: at strength 0.5, p = 0.034
+      (USD) and 0.038 (CAD); at strength 1, 0.073 and 0.058.
+    - The smallest Holm-adjusted p-value over the 32 comparisons is 1.0. Nothing exploratory
+      is a finding.
+  - **Luck:**
+    - Shadow Sharpe ratios sit in a narrow band (USD median 0.39, 95th percentile 0.41).
+    - Best of 16: p = 0.000 in both views, for the reason stated in §7.
+    - The turnover ratio is 1.00 except for the EWMA minimum variance shadows (0.84-0.95).
+  - **VaR backtests** (500-day window): FHS passes Kupiec in every series. Cornish-Fisher
+    passes at 99%. Every method's exceptions cluster at 95%.
+  - **GFC replay** at the DEV_END holdings:
+    - USD: 1/N −30.3%, minimum variance −20.4%, ERC −28.8%.
+    - CAD: −19.0%, −7.4% and −17.3%.
 
 ## Change log
 
@@ -338,3 +390,12 @@ turnover, on the same days and view, at the same cost.
   (CRAN `bootTimeInference`) where the paper is silent or differs.
   - The prewhitened Parzen kernel replaces the quadratic-spectral one.
   - The exact bootstrap sample length, centring and calibration steps are spelled out.
+- 2026-10-10, after the dev run: §7 states what the luck benchmark measures (owner decision:
+  keep the method, state it). Nothing else in the method changed.
+- 2026-10-10, after the dev run, from the code review: each test now uses one random stream
+  per (pair, block).
+  - Before, the block-sensitivity table drew a second stream at the calibrated block, so it
+    showed a different p-value for the same test.
+  - The dev p-values moved by at most 0.026, and every Sharpe difference is unchanged.
+  - The numbers in §13 are from the final code.
+- 2026-10-11: §13 filled in; frozen.

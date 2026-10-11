@@ -474,3 +474,8 @@ def test_luck_reports_how_much_of_the_turnover_the_shadows_matched(dev_tables):
     lk = dev_tables["luck"]
     assert lk["turnover_ratio"].between(0, 1 + 1e-12).all()
     assert lk.loc[("USD", "1/N"), "turnover_ratio"] == pytest.approx(1.0, abs=1e-3)
+
+
+def test_the_frozen_estimator_is_the_one_in_the_plan():
+    assert study.PRIMARY_ESTIMATOR in study.CANDIDATES
+    assert f"**Primary estimator: `{study.PRIMARY_ESTIMATOR}`**" in PLAN.read_text(encoding="utf-8")

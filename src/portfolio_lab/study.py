@@ -75,7 +75,7 @@ VAR_WINDOW = 500
 VAR_SENSITIVITY_WINDOW = 1000
 DEV_SHOCK_START = "2001-01-03"  # the daily Canadian 10-year starts in 2001 (Step 6)
 FIRST_ASSET_DAY = "1963-07-01"  # FF5 starts in July 1963
-PRIMARY_ESTIMATOR: str | None = None  # set at the freeze, from the dev rule (PLAN.md §13)
+PRIMARY_ESTIMATOR: str | None = "lw_identity"  # frozen from the dev rule (PLAN.md §13)
 
 _YEAR = math.sqrt(12)  # monthly Sharpe ratios and their differences, annualized
 
