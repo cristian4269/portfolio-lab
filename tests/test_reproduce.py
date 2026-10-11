@@ -180,6 +180,7 @@ def stubbed(monkeypatch, tmp_path):
 
     monkeypatch.setattr(study, "load", fake_load)
     monkeypatch.setattr(study, "run", fake_run)
+    monkeypatch.setattr(robustness, "cache_industries", lambda: calls.setdefault("cached49", 1))
     (tmp_path / "research").mkdir(exist_ok=True)
     (tmp_path / "research" / "PLAN.md").write_bytes(b"# Plan\n\nFROZEN\n")
     monkeypatch.chdir(tmp_path)
@@ -664,3 +665,17 @@ def test_a_first_rerun_is_refused(stubbed, repo, monkeypatch, capsys):
     stubbed.clear()
     assert cli.main(["reproduce", "--holdout", "--rerun"]) == 2
     assert "load" not in stubbed and "no holdout is recorded" in capsys.readouterr().err
+
+
+def test_a_dev_refresh_also_caches_the_49_industries(stubbed):
+    cli.main(["reproduce"])
+    assert "cached49" not in stubbed
+    cli.main(["reproduce", "--refresh"])
+    assert stubbed["cached49"] == 1  # so a fresh clone can run --robustness later
+
+
+def test_cache_industries_downloads_the_49_industries_through_dev(monkeypatch):
+    calls = []
+    monkeypatch.setattr(robustness.data, "load_assets", lambda *a, **kw: calls.append((a, kw)))
+    robustness.cache_industries()
+    assert calls == [((49,), {"end": config.DEV_END, "allow_holdout": False, "refresh": True})]
