@@ -191,10 +191,10 @@
     },
     "robustness": {
       "command": "portfolio-lab reproduce --robustness",
-      "created": "2026-10-11T20:31:00+00:00",
+      "created": "2026-10-11T21:09:09+00:00",
       "estimator": "lw_identity",
       "git": {
-        "commit": "8dbb3ab5cdf43899b28b73c9c2df3ef89f7614d0",
+        "commit": "f19622db7a349918c170cb26d7d31ebeb6793bd0",
         "dirty": false,
         "tag_commit": "317d4c45828f996a5e6d3971496622a0f8113d68",
         "changed_since_tag": [
@@ -254,6 +254,14 @@
           "bytes": 838314,
           "retrieved": "2026-10-10T01:24:44+00:00"
         }
+      },
+      "packages": {
+        "python": "3.13.15",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "scipy": "1.18.1",
+        "statsmodels": "0.15.0",
+        "portfolio-lab": "0.1.0"
       },
       "extra_sources": {
         "ind49_daily": {
@@ -263,14 +271,23 @@
           "bytes": 4173817,
           "retrieved": "2026-10-10T01:24:39+00:00"
         }
-      }
+      },
+      "tables": {
+        "design.csv": "5fa56f7f188a50de466e53c38b98c8585cfc8f6d3c6c2c1f360948ce76b93ee5",
+        "tests.csv": "307051060f0ba349aa741b6661e1b8843595fc4164a9b33789564c91112274d6",
+        "performance.csv": "f33449be54a2903a0c760b2dbb442931b4794050d1792e3faadffe2f83add9a6",
+        "universe49.csv": "702f8417044633e886baee379bf1286c014ea7756901871b8e92d4a131578804",
+        "monthly.csv": "a0fab2a3f5045ed642bfcf421928c5abe45cf28881c013a4e837ec4b5e14ff0e",
+        "weights.csv": "2454116c1bdf0a1648a9e0847ece81c047d6bf5ef5e04b7a400f5cd1a83a8b3d"
+      },
+      "holdout_tests": "6feddd2efb6855e1b24f2b7151455b7ba2b879d3e78bc045dd3faeff9591b702"
     },
     "holdout_rerun": {
       "command": "portfolio-lab reproduce --holdout --rerun",
-      "created": "2026-10-11T20:29:36+00:00",
+      "created": "2026-10-11T21:07:40+00:00",
       "estimator": "lw_identity",
       "git": {
-        "commit": "8dbb3ab5cdf43899b28b73c9c2df3ef89f7614d0",
+        "commit": "f19622db7a349918c170cb26d7d31ebeb6793bd0",
         "dirty": false,
         "tag_commit": "317d4c45828f996a5e6d3971496622a0f8113d68",
         "changed_since_tag": [
@@ -330,6 +347,27 @@
           "bytes": 838314,
           "retrieved": "2026-10-10T01:24:44+00:00"
         }
+      },
+      "packages": {
+        "python": "3.13.15",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "scipy": "1.18.1",
+        "statsmodels": "0.15.0",
+        "portfolio-lab": "0.1.0"
+      },
+      "tables": {
+        "design.csv": "048753f431fe32f30626073358f855c57f6f781c2ba0b404fc874710d32512f5",
+        "performance.csv": "577b079cfb4d644f5d4c32bb21d7a548e1e02dc28f99f379d0f1611c63694a07",
+        "tests.csv": "6feddd2efb6855e1b24f2b7151455b7ba2b879d3e78bc045dd3faeff9591b702",
+        "calibration.csv": "341f5897f99c7b9172e3b0f848f72d1fa757139a29e8c6778456c677dfccaad0",
+        "block_sensitivity.csv": "f83632730c6c83d9b39f42b721bbba92d586ff8548ed5b3e4b9fff3d2201651a",
+        "luck.csv": "f12b6641db1603cca0df29b22f876d565d381a2db4932aaeda777393912daf2a",
+        "best_of.csv": "31b8f7d4bc188ececfaf5a005c65d9bb1fa32412c0040796003fcb2dc553b2c8",
+        "var.csv": "2a2392ee2a48f232ed8af201182845da4f7915b884e313c0ad1f4492abba1159",
+        "stress.csv": "eaf188b47012e689fe9d489ad48235d16cf85f2afa9c29c096e73ac4b7cc7bef",
+        "stress_realized.csv": "8016911e167fd3fa71113d18f21bbdef8abcac89d27efdaeb49400d4b0ccaa17",
+        "shocks.csv": "89e9c11daba5836c52ada5aaccc3c5cab2b893a7bb2b45207f6a915662045137"
       }
     }
   }

@@ -80,7 +80,47 @@ Running log of decisions, data quirks and findings. Newest first.
   - **CAD hedged** (metrics only): 1/N's CAGR 12.7%, volatility 16.7%, max drawdown −36.7%;
     minimum variance 10.3%, 13.8%, −32.8%. These are about the USD view's, as CIP implies,
     with the CAD and US bill rates close on average over 2011-2026.
-- Next: figures (`report/figures.py`, `portfolio-lab figures`), then REPORT.md.
+- **Figures** (RED `1f75641`, GREEN `108fea6`, PNGs `fc157d2`):
+  - matplotlib is the optional extra `report`, and is also in the dev group.
+  - `report/figures.py` and `portfolio-lab figures`: five figures, each as a light and a dark
+    PNG.
+  - The palette was checked with the dataviz validator: slots 1-3 on every pair and slots 1-7
+    adjacent, in both modes. Aqua and yellow sit under 3:1 on the light surface, so the
+    report's tables are the relief.
+- **REPORT.md** (`8dbb3ab`): about 3850 words, 5 figures.
+  - Its numbers come from a scratch script that prints the tables from the CSVs.
+  - Two claims read off a chart were corrected against the tables before writing: health
+    care peaks at 42% (not "30-60%"), and Business equipment is held in a fifth of the trades.
+  - **New finding:** ERC's realized MDE is 0.12, twice the planned 0.06, because its holdout
+    SE doubled. Minimum variance's is 0.39-0.47 against 0.48-0.51 planned.
+- **Reproduction checks** (plan decision 8):
+  - **The rerun:** `--holdout --rerun` after all 7b code (245 s), then `--robustness`. All 17
+    tables match the one-shot's saved copy exactly (max difference 0), and 6 REPORT numbers
+    were spot-checked. The one-shot's record is unchanged; the rerun is `holdout_rerun`.
+  - **Drift, real data:** a fresh download of every source into a separate cache (2026-10-11
+    20:31 UTC) was byte-identical to the frozen vintage. Nothing newer exists yet, so the
+    dev run gave no warning, correctly.
+  - **Drift, a made vintage:** the last USD/CAD row was dropped in the separate cache.
+    - `--holdout --rerun` and `--robustness` refused before reading any data, naming `usdcad`.
+    - A dev run warned, naming `usdcad`. Its 13 tables equal the recorded ones, since the row
+      is after DEV_END.
+    - research/results and the real cache were untouched.
+- **python-reviewer** (no critical or high findings). Fixed (RED `7d3dd23`, GREEN `f19622d`):
+  - Each run records the SHA-256 of every table it wrote and its own package versions.
+    Robustness records the hash of the holdout tests table it extended. Before this, a rerun
+    that differed would have overwritten the one-shot's untracked tables without a trace.
+  - Robustness checks that every primary row is present and that every variant covers the
+    holdout's months. The primary check now covers `months` too.
+  - `universe()` refuses an empty universe, or less than 252 days of history. `role()` refuses
+    unknown names.
+  - `--rerun` is accepted only with `--holdout`. A manifest that is not a JSON object is a clean
+    error. The figures name the extra only when matplotlib is the missing module.
+  - The growth title comes from its table, and the primary row leads the forest plot.
+  - `_reproduce` and `robustness.run` are split into one helper per mode or part.
+  - **Not done** (cosmetic): moving `role()` to a lighter module, and the `ROLES` name used in
+    two modules.
+- **Final reruns** on `f19622d`: the holdout and robustness are again identical to the
+  one-shot (17 tables, max difference 0), and the figures redraw to the same bytes.
 
 ## 2026-10-11: step 7a, extra-high review and re-freeze (owner asked)
 
