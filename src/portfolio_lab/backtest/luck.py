@@ -12,7 +12,14 @@ turnover, but toward random portfolios:
 
 Many shadows run at once (vectorized over them). `percentile` places a strategy among its
 shadows; `best_of` asks how often the best of K shadows (one per strategy) does as well as
-the best of the K strategies, the data-snooping question when K strategies were tried.
+the best of the K strategies.
+
+What this measures (research/PLAN.md §7): a fresh random target at every trade gives a
+shadow no persistent exposure, so shadows' Sharpe ratios cluster near 1/N's (dev, USD: median
+0.39, 95th percentile 0.41). A strategy's percentile says whether it beat random rebalancing
+of the same assets at the same turnover and cost; it is not a data-snooping correction for the
+K strategies tried (Holm over the comparisons is). Shadows of different strategies are drawn
+independently while the strategies are correlated, which makes `best_of` conservative.
 
 Pure, like `engine.simulate`: the returns passed in must come from the guarded loaders.
 """
