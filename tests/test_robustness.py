@@ -301,3 +301,104 @@ def test_run_keeps_the_holdout_rule(inputs, holdout_tests):
             estimator="sample",
             resamples=RESAMPLES,
         )
+
+
+# --- review fixes -----------------------------------------------------------------------------
+
+
+def run_with(inputs, holdout_tests, **kw):
+    kw = {"industries": None, "end": END, "estimator": "sample", "allow_holdout": True} | kw
+    return robustness.run(inputs, holdout_tests, resamples=RESAMPLES, **kw)
+
+
+def test_each_view_and_role_takes_its_own_holdout_block(inputs, holdout_tests, monkeypatch):
+    mv, erc = study.primary("sample")
+    chosen = {("USD", mv): 2, ("USD", erc): 3, ("CAD", mv): 4, ("CAD", erc): 6}
+    edited = holdout_tests.copy()
+    for key, b in chosen.items():
+        edited.loc[key, "block"] = b
+    monkeypatch.setattr(robustness, "_check_primary", lambda *a: None)  # blocks were edited
+    tests = run_with(inputs, edited)["tests"]
+    by_role = {"min variance": mv, "ERC": erc}
+    for (_, view, _), row in tests.iterrows():
+        assert row["block"] == chosen[(view, by_role[row["role"]])]
+
+
+def test_the_49_industry_variant_runs_on_the_49_industry_views(tables, industries):
+    tests = tables["tests"]
+    for view in study.TESTED_VIEWS:
+        ind = tests.xs(("49 industries", view), level=["variant", "view"])["diff"].to_numpy()
+        primary = tests.xs(("primary", view), level=["variant", "view"])["diff"].to_numpy()
+        assert not np.allclose(ind, primary)
+    weights_cols = tables["performance"].xs("49 industries", level="variant")
+    assert len(weights_cols) == 6
+    pd.testing.assert_frame_equal(tables["universe49"], industries.universe)
+
+
+def test_a_variant_short_of_the_holdout_months_is_refused(inputs, holdout_tests):
+    usd = inputs.views["USD"]
+    days = usd.returns.index <= pd.Timestamp("2022-06-30")  # the 49 industries end early
+    noise = np.random.default_rng(9).normal(0, 0.006, (int(days.sum()), 2))
+    extra = usd.returns.loc[days].iloc[:, :2].add_suffix("b") + noise
+    raw = pd.concat([usd.returns.loc[days], extra], axis=1)
+    used, table = robustness.universe(raw)
+    fx_levels = pd.Series(
+        1.2 * np.cumprod(1 + inputs.fx.reindex(used.index).fillna(0.0)), index=used.index
+    )
+    views = make_views(used, usd.rf.reindex(used.index), fx_levels, pd.Series(0.03, used.index))
+    short = robustness.Industries(views=views, universe=table)
+    with pytest.raises(ValueError, match="months"):
+        run_with(inputs, holdout_tests, industries=short)
+
+
+def test_a_holdout_table_without_a_primary_row_is_a_clear_error(inputs, holdout_tests):
+    with pytest.raises(ValueError, match="holdout's tests table"):
+        run_with(inputs, holdout_tests.drop(index=("CAD", st.erc("sample").name)))
+
+
+@pytest.mark.parametrize("col", ["diff", "se", "ci_low", "ci_high", "p", "months"])
+def test_every_primary_statistic_must_match_the_holdout(inputs, holdout_tests, col):
+    edited = holdout_tests.copy()
+    edited[col] = edited[col].astype(float)
+    edited.loc[("CAD", st.min_variance("sample").name), col] += 1e-6 if col != "months" else 1
+    with pytest.raises(ValueError, match=col):
+        run_with(inputs, edited)
+
+
+def test_universe_refuses_when_every_industry_misses_a_holdout_day():
+    raw = assets_with(["A", "B"])
+    raw.loc[pd.Timestamp("2016-02-01"), ["A", "B"]] = np.nan
+    with pytest.raises(ValueError, match="no industry"):
+        robustness.universe(raw)
+
+
+def test_universe_needs_a_window_of_history_before_the_holdout():
+    raw = assets_with(["A", "B"])
+    raw.loc[pd.Timestamp("2010-12-20"), "A"] = np.nan  # 9 days left before the holdout
+    with pytest.raises(ValueError, match="252"):
+        robustness.universe(raw)
+
+
+def test_role_knows_only_the_three_portfolios():
+    assert robustness.role(st.min_variance("sample", cap=0.25).name) == "min variance"
+    assert robustness.role(st.erc("lw_identity", window=504).name) == "ERC"
+    with pytest.raises(ValueError, match="role"):
+        robustness.role(st.momentum_tilt(strength=0.5).name)
+
+
+def test_the_test_rows_carry_both_annual_sharpe_ratios(inputs, tables):
+    row = tables["tests"].loc[("primary", "USD", st.erc("sample").name)]
+    monthly = robustness._monthly_excess(
+        study.engine.compare(
+            group(), inputs.views["USD"], end=END, allow_holdout=True, cost_bps=study.COST_BPS
+        )
+    )
+    year = np.sqrt(12)
+    assert row["sharpe"] == pytest.approx(inf.sharpe_ratio(monthly[st.erc("sample").name]) * year)
+    assert row["sharpe_benchmark"] == pytest.approx(inf.sharpe_ratio(monthly["1/N"]) * year)
+
+
+def test_weights_hold_one_trade_per_holdout_month(tables):
+    w = tables["weights"].xs(("USD", st.min_variance("sample").name), level=["view", "strategy"])
+    assert w.index[0] == pd.Timestamp("2011-01-03")  # the first trade of the holdout
+    assert len(w) == 144

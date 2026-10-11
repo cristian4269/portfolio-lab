@@ -585,3 +585,73 @@ def test_a_rerun_gets_its_own_record_and_keeps_the_one_shot(robust, repo):
     assert runs["holdout"] == first
     assert runs["holdout_rerun"]["command"] == "portfolio-lab reproduce --holdout --rerun"
     assert runs["holdout_rerun"]["git"]["tag_commit"] == first["git"]["tag_commit"]
+
+
+# --- review fixes -----------------------------------------------------------------------------
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_each_run_records_the_sha256_of_every_table_it_wrote(robust, repo):
+    held = repo / "research" / "results" / "holdout"
+    first = manifest_of(repo)["runs"]["holdout"]["tables"]
+    assert set(first) == {"design.csv", "tests.csv"}  # the stub's tables
+    assert first["design.csv"] == sha(held / "design.csv")
+    # the fixture replaced tests.csv after the one-shot: the record still names the original
+    assert first["tests.csv"] != sha(held / "tests.csv")
+    assert cli.main(["reproduce", "--robustness"]) == 0
+    rec = manifest_of(repo)["runs"]["robustness"]
+    assert rec["holdout_tests"] == sha(held / "tests.csv")  # the table it extended
+    written = repo / "research" / "results" / "robustness" / "tests.csv"
+    assert rec["tables"]["tests.csv"] == sha(written)
+    assert cli.main(["reproduce", "--holdout", "--rerun"]) == 0
+    runs = manifest_of(repo)["runs"]
+    assert runs["holdout"]["tables"] == first
+    assert runs["holdout_rerun"]["tables"]["tests.csv"] == sha(held / "tests.csv")
+
+
+def test_each_run_records_its_own_package_versions(stubbed, tmp_path):
+    assert cli.main(["reproduce"]) == 0
+    m = json.loads((tmp_path / "research" / "results" / "manifest.json").read_text())
+    assert m["runs"]["dev"]["packages"] == m["packages"]
+    assert m["runs"]["dev"]["packages"]["numpy"]
+
+
+def test_rerun_is_only_for_the_holdout(stubbed, capsys):
+    assert cli.main(["reproduce", "--rerun"]) == 2
+    assert cli.main(["reproduce", "--robustness", "--rerun"]) == 2
+    assert "load" not in stubbed and "--rerun" in capsys.readouterr().err
+
+
+def test_a_manifest_that_is_not_an_object_is_a_clean_error(stubbed, tmp_path, capsys):
+    out = tmp_path / "research" / "results"
+    out.mkdir(parents=True)
+    (out / "manifest.json").write_text("[1, 2]")
+    assert cli.main(["reproduce"]) == 2
+    assert "manifest.json" in capsys.readouterr().err
+
+
+def test_robustness_records_the_code_changed_since_the_tag(robust, repo):
+    assert cli.main(["reproduce", "--robustness"]) == 0
+    assert manifest_of(repo)["runs"]["robustness"]["git"]["changed_since_tag"] == []
+
+
+def test_robustness_refuses_frozen_data_that_change_while_loading(robust, monkeypatch, capsys):
+    real = manifest.sources
+
+    def changing(table=manifest.SOURCES):
+        out = real(table)
+        if "industries" in robust and table is manifest.SOURCES:
+            out["usdcad"] = {**out["usdcad"], "sha256": "changed"}
+        return out
+
+    monkeypatch.setattr(manifest, "sources", changing)
+    assert cli.main(["reproduce", "--robustness"]) == 2
+    assert "robustness" not in robust and "changed while loading" in capsys.readouterr().err
+
+
+def test_accept_drift_says_it_covers_the_49_industry_file():
+    help_text = cli.build_parser()._subparsers._group_actions[0].choices["reproduce"].format_help()
+    assert "49-industry" in help_text

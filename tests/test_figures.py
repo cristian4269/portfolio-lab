@@ -1,5 +1,7 @@
 """The report's figures (Step 7b, plans/step-7b-plan.md decision 6), on synthetic tables."""
 
+import sys
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -239,12 +241,32 @@ def test_figures_command_without_results_is_a_clean_error(project, capsys):
 
 
 def test_figures_command_without_matplotlib_names_the_extra(project, monkeypatch, capsys):
-    def missing(name):
-        raise ModuleNotFoundError("No module named 'matplotlib'", name="matplotlib")
-
-    monkeypatch.setattr(cli.importlib, "import_module", missing)
+    monkeypatch.setitem(sys.modules, "matplotlib", None)  # as if the extra were not installed
+    monkeypatch.delitem(sys.modules, "portfolio_lab.report.figures")
     assert cli.main(["figures"]) == 2
     assert "--extra report" in capsys.readouterr().err
+
+
+def test_figures_command_reraises_another_missing_module(project, monkeypatch):
+    monkeypatch.setitem(sys.modules, "portfolio_lab.robustness", None)
+    monkeypatch.delitem(sys.modules, "portfolio_lab.report.figures")
+    with pytest.raises(ModuleNotFoundError, match="portfolio_lab.robustness"):
+        cli.main(["figures"])
+
+
+def test_growth_titles_the_span_of_its_table():
+    fig = figures.growth(monthly_table(months=24))
+    assert "January 2011 to December 2012" in fig.get_suptitle()
+
+
+def test_sharpe_differences_put_the_primary_test_first_whatever_the_order():
+    tests = robustness_tests()
+    tests = pd.concat([tests.drop(index="primary", level="variant"), tests.loc[["primary"]]])
+    fig = figures.sharpe_differences(tests)
+    ax = [a for a in fig.axes if a.get_lines() or a.collections][0]
+    assert ax.get_yticklabels()[0].get_text().startswith("Primary")
+    primary = tests.loc[("primary", "USD", MV), "diff"]
+    assert [t.get_text() for t in ax.texts] == [f"{primary:+.3f}".replace("-", "−")]
 
 
 def _rgb(hex_color):
