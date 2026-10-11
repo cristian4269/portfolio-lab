@@ -67,12 +67,13 @@
   "runs": {
     "dev": {
       "command": "portfolio-lab reproduce",
-      "created": "2026-10-11T04:06:40+00:00",
+      "created": "2026-10-11T18:26:44+00:00",
       "estimator": "lw_identity",
       "git": {
-        "commit": "9e87fdb6874e9fd06a97c3829564d17fb8e867fb",
+        "commit": "9e2df1804cd1936678c6bf1c47b3aa67c30c239a",
         "dirty": false,
-        "tag_commit": null
+        "tag_commit": null,
+        "changed_since_tag": null
       },
       "sources": {
         "ff5_daily": {

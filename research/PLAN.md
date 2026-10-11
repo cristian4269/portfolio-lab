@@ -51,8 +51,12 @@ These were set in the blueprint (2026-10-01) before any development.
   - The backtest starts invested, with no opening cost.
 - **Guard:** the data loaders stop at DEV_END unless `allow_holdout` is set. Only the
   `reproduce` command (`src/portfolio_lab/cli.py`) sets it, and a test scans for it. The
-  `--holdout` mode of `reproduce` refuses to run unless the tag `prereg-v1` exists and this
-  file is identical to the tagged copy.
+  `--holdout` mode of `reproduce` refuses to run unless:
+  - the tag `prereg-v1` exists, is an ancestor of HEAD, and holds a copy of this file
+    identical to the current one;
+  - the cached data match the vintage in the manifest committed at the tag;
+  - src/ has no uncommitted change (source files changed since the tag are recorded);
+  - no holdout run is recorded yet (`--rerun` reproduces it, into research/results only).
 
 ## 3. Hypotheses (confirmatory)
 
@@ -319,7 +323,8 @@ turnover, on the same days and view, at the same cost.
 
 ## 13. Dev decisions (recorded before the freeze)
 
-From `uv run portfolio-lab reproduce` on commit `9e87fdb` (clean tree). The manifest committed
+From `uv run portfolio-lab reproduce` on commit `9e2df18` (clean tree; every table identical
+to the earlier run on `9e87fdb`). The manifest committed
 with this file has every source's SHA-256.
 
 - **Vintage refreshed on 2026-10-10** (01:24 UTC).
@@ -398,4 +403,13 @@ with this file has every source's SHA-256.
     showed a different p-value for the same test.
   - The dev p-values moved by at most 0.026, and every Sharpe difference is unchanged.
   - The numbers in §13 are from the final code.
-- 2026-10-11: §13 filled in; frozen.
+- 2026-10-11: §13 filled in; frozen (commit `9492cb5`, tagged locally and never pushed).
+- 2026-10-11, before any holdout run and before the tag was pushed: an extra-high code review
+  found gaps between this plan and the code, so the freeze was redone.
+  - The holdout lock now also needs the tag as an ancestor of HEAD, the frozen vintage, a
+    committed src/, and one shot written to research/results only (§2).
+  - The holdout run now produces the 2001 → DEV_END betas that §10 registers as the
+    comparison.
+  - The calibration runs in parallel processes, with identical numbers.
+  - No rule or number of this plan changed. The dev run on `9e2df18` reproduced every table.
+  - The tag moved to the new freeze commit.
