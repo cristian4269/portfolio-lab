@@ -52,7 +52,9 @@ def holdout_tests(inputs):
 @pytest.fixture(scope="module")
 def industries(inputs):
     usd = inputs.views["USD"]
-    raw = pd.concat([usd.returns, usd.returns.iloc[:, :2].add_suffix("b") * 0.9], axis=1)
+    noise = np.random.default_rng(7).normal(0, 0.006, (len(usd.returns), 2))
+    extra = usd.returns.iloc[:, :2].add_suffix("b") * 0.9 + noise  # not collinear
+    raw = pd.concat([usd.returns, extra], axis=1)
     used, table = robustness.universe(raw)
     fx_levels = pd.Series(
         1.2 * np.cumprod(1 + inputs.fx.reindex(used.index).fillna(0.0)), index=used.index
@@ -135,7 +137,7 @@ def test_load_industries_reads_49_through_the_guarded_loaders(monkeypatch, input
     got = robustness.load_industries(end=END, allow_holdout=True)
     assert set(got.views) == {"USD", "CAD", "CAD_HEDGED"}
     assert got.views["USD"].returns.shape[1] == 6
-    for name, args, kw in calls:
+    for name, _, kw in calls:
         assert kw["end"] == END and kw["allow_holdout"] is True, name
     assert ("assets", (49,)) in [(n, a) for n, a, _ in calls]
 
@@ -261,9 +263,9 @@ def test_monthly_series_cover_the_holdout_months_of_three_views(tables, inputs):
     assert (counts == 144).all() and len(counts) == 9
     usd = monthly.xs(("USD", "1/N"), level=["view", "strategy"])
     rf = inputs.views["USD"].rf
-    carry = (1 + rf).groupby(rf.index.to_period("M")).prod() - 1
-    carry.index = carry.index.to_timestamp("M")
-    np.testing.assert_allclose(usd["net"] - usd["excess"], carry.reindex(usd.index), atol=1e-12)
+    carry = (1 + rf).groupby(rf.index.to_period("M")).prod() - 1  # months labelled by last day
+    expected = carry.reindex(usd.index.to_period("M")).to_numpy()
+    np.testing.assert_allclose(usd["net"] - usd["excess"], expected, atol=1e-12)
 
 
 def test_weights_are_the_pairs_holdout_targets(tables):
