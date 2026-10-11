@@ -247,11 +247,32 @@ def test_figures_command_without_matplotlib_names_the_extra(project, monkeypatch
     assert "--extra report" in capsys.readouterr().err
 
 
-def test_figures_command_reraises_another_missing_module(project, monkeypatch):
+def test_figures_command_reraises_a_missing_core_module(project, monkeypatch):
     monkeypatch.setitem(sys.modules, "portfolio_lab.robustness", None)
     monkeypatch.delitem(sys.modules, "portfolio_lab.report.figures")
     with pytest.raises(ModuleNotFoundError, match="portfolio_lab.robustness"):
         cli.main(["figures"])
+
+
+@pytest.mark.parametrize("missing", ["PIL", "kiwisolver"])
+def test_a_missing_matplotlib_dependency_names_the_extra(project, monkeypatch, capsys, missing):
+    def absent(name):
+        raise ModuleNotFoundError(f"No module named {missing!r}", name=missing)
+
+    monkeypatch.setattr(cli, "import_module", absent)
+    assert cli.main(["figures"]) == 2
+    assert "--extra report" in capsys.readouterr().err
+
+
+def test_weights_need_the_views_minimum_variance_portfolio():
+    weights = weights_table().drop(index=MV, level="strategy")
+    with pytest.raises(ValueError, match="exactly one min variance"):
+        figures.weights(weights, view="USD")
+
+
+def test_weights_draw_a_single_trade():
+    fig = figures.weights(weights_table(trades=1), view="USD")
+    assert fig.legends
 
 
 def test_growth_titles_the_span_of_its_table():

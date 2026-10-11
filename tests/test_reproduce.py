@@ -652,6 +652,15 @@ def test_robustness_refuses_frozen_data_that_change_while_loading(robust, monkey
     assert "robustness" not in robust and "changed while loading" in capsys.readouterr().err
 
 
-def test_accept_drift_says_it_covers_the_49_industry_file():
-    help_text = cli.build_parser()._subparsers._group_actions[0].choices["reproduce"].format_help()
-    assert "49-industry" in help_text
+def test_accept_drift_says_it_covers_the_49_industry_file(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["reproduce", "--help"])
+    assert "49-industry" in capsys.readouterr().out
+
+
+def test_a_first_rerun_is_refused(stubbed, repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    freeze(repo)
+    stubbed.clear()
+    assert cli.main(["reproduce", "--holdout", "--rerun"]) == 2
+    assert "load" not in stubbed and "no holdout is recorded" in capsys.readouterr().err
