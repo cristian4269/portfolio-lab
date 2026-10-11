@@ -121,6 +121,30 @@ Running log of decisions, data quirks and findings. Newest first.
     two modules.
 - **Final reruns** on `f19622d`: the holdout and robustness are again identical to the
   one-shot (17 tables, max difference 0), and the figures redraw to the same bytes.
+- **`/code-review` (high): 9 findings, 7 fixed** (RED `81274bc` and `4004e7f`, GREEN
+  `0428ea9`):
+  - **A fresh clone could not run robustness.** `--robustness` reads only the cache, and
+    nothing cached the 49-industry file. A dev `--refresh` now caches it, and REPORT's
+    reproduce steps start with `--refresh`.
+  - A first-ever `--holdout --rerun` is refused.
+  - A missing matplotlib dependency (pillow, kiwisolver) names the report extra.
+  - One month-end check for every variant and view.
+  - `figures.weights` handles a single trade and gives a clear error without the view's
+    minimum variance.
+  - The help test goes through the CLI.
+  - **Skipped:**
+    - One `holdout_rerun` record is kept per manifest; git keeps every committed one.
+    - The sibling `test_study` import works in pytest's default mode.
+- The robustness rerun on the final code is identical to the one-shot again.
+- **Mutation run** (scratchpad `mutate7b.py`): 21 of 23 caught at first.
+  - The two survivors were test gaps: the "holdout recorded" refusal was masked by the next
+    check's message, and nothing checked that the weights stack adds up to 1.
+  - Both tests were tightened; now 23 of 23.
+- **Verification loop:** 1424+ tests at 99.95% coverage. Ruff, format and mypy are clean;
+  `uv build` and `uv lock --check` pass; no secrets in the diff.
+  - Invariants 1-6 hold. `allow_holdout=True` appears only in cli.py.
+  - `study.py` and PLAN.md are identical to `prereg-v1`, and the tag precedes the holdout
+    record in the history.
 
 ## 2026-10-11: step 7a, extra-high review and re-freeze (owner asked)
 

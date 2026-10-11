@@ -169,6 +169,8 @@ def test_weights_fold_the_tail_into_the_rest():
     texts = [t.get_text() for t in legend.get_texts()]
     assert len(texts) == 8
     assert texts[-1].startswith("Remaining 5")
+    top = fig.axes[0].get_lines()[-1]  # the gap drawn on the stack's top edge
+    np.testing.assert_allclose(top.get_ydata(), 1.0)  # the bands add up to the whole portfolio
     mv = weights.xs(("USD", MV), level=["view", "strategy"])
     top = mv.mean().sort_values(ascending=False).index[:7]
     assert figures.INDUSTRY_NAMES[top[0]] in texts[0]

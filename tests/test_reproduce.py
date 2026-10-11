@@ -529,7 +529,8 @@ def test_robustness_refuses_before_the_one_shot_holdout(stubbed, repo, monkeypat
     freeze(repo)
     stubbed.clear()
     assert cli.main(["reproduce", "--robustness"]) == 2
-    assert "load" not in stubbed and "--holdout" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "load" not in stubbed and "does not record" in err and "--holdout" in err
 
 
 def test_robustness_needs_the_holdout_tests_table(robust, repo, capsys):
