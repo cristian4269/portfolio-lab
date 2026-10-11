@@ -44,7 +44,43 @@ Running log of decisions, data quirks and findings. Newest first.
   - COVID: 1/N −36.6% (−36.7%), minimum variance −36.1% (−32.6%), ERC −36.9% (−35.6%).
   - 2022 rates: 1/N −10.5% (−12.8%), minimum variance −0.4% (−3.8%), ERC −3.9% (−10.4%).
   - In CAD, the 2022 replay of minimum variance gains 4.0%.
-- Next: robustness (`robustness.py`, test-first), then `reproduce --robustness`.
+- **Robustness code** (test-first; `study.py` untouched):
+  - `robustness.py` (RED `80ac55a`, GREEN `f76924d`): the registered variants, the 49-industry
+    universe rule, the `primary` cross-check against the holdout's tests table, and the
+    `monthly` and `weights` series for the figures.
+  - `reproduce --robustness` (RED `03d0a38`, GREEN `a1389f5`):
+    - It runs under the holdout's lock, and only after the recorded one-shot holdout, on its
+      tests table.
+    - The 49-industry file must have the plan's SHA-256. It is recorded as the run's
+      `extra_sources`, outside the frozen vintage.
+    - A holdout `--rerun` is now recorded as `holdout_rerun`, never over the one-shot's record.
+- **The robustness run** on `a1389f5` (clean; 95 s): 6 tables.
+  - The manifest's `runs.robustness` names the three source files changed since the tag
+    (`cli.py`, `manifest.py`, `robustness.py`), as planned.
+  - The primary rows equal the holdout's tests table (the built-in check passed).
+  - The 49-industry universe: all 49 industries from 1971-03-12, none dropped.
+  - **The results** (annual Sharpe difference against 1/N; raw p at the holdout's block;
+    descriptive, no Holm):
+
+    | Variant | MV USD | MV CAD | ERC USD | ERC CAD |
+    |---|---|---|---|---|
+    | primary (252d, 5 bp) | −0.041 (0.77) | −0.026 (0.88) | +0.012 (0.79) | +0.029 (0.54) |
+    | window 126d | −0.053 (0.71) | −0.005 (0.98) | +0.010 (0.82) | +0.040 (0.42) |
+    | window 504d | −0.114 (0.40) | −0.168 (0.31) | +0.005 (0.91) | +0.010 (0.79) |
+    | cost 0 bp | −0.034 (0.81) | −0.018 (0.91) | +0.012 (0.77) | +0.029 (0.53) |
+    | cost 10 bp | −0.047 (0.74) | −0.033 (0.84) | +0.011 (0.78) | +0.029 (0.54) |
+    | cost 20 bp | −0.059 (0.68) | −0.049 (0.76) | +0.011 (0.80) | +0.028 (0.53) |
+    | 49 industries | +0.067 (0.65) | +0.133 (0.50) | +0.041 (0.15) | +0.080 (0.025) |
+
+    - One raw p of 24 is below 0.05: ERC on the 49 industries in CAD, whose 95% CI is
+      [0.011, 0.150]. With 24 descriptive tests about one is expected by chance, and PLAN.md
+      §6 registers robustness as "no new hypotheses". It is reported, not claimed.
+    - On the 49 industries, minimum variance turns over 1.4-1.6 a year (0.9 on 12), and its
+      volatility is 13.1% against 1/N's 17.9% (USD).
+  - **CAD hedged** (metrics only): 1/N's CAGR 12.7%, volatility 16.7%, max drawdown −36.7%;
+    minimum variance 10.3%, 13.8%, −32.8%. These are about the USD view's, as CIP implies,
+    with the CAD and US bill rates close on average over 2011-2026.
+- Next: figures (`report/figures.py`, `portfolio-lab figures`), then REPORT.md.
 
 ## 2026-10-11: step 7a, extra-high review and re-freeze (owner asked)
 
