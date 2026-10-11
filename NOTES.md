@@ -2,6 +2,50 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-11: step 7b, session 1 of 3 (plan, the one-shot holdout run)
+
+- **Plan approved** by the owner as written (`plans/step-7b-plan.md`, commit `9ca40f4`): all
+  nine decisions as recommended, including the one-shot holdout right after the plan commit.
+  - Grounding (dates and metadata only): after 1969-07-01 the 49 industries miss one cell
+    (Softw, 1971-03-11). The cached 49-industry file is not in the frozen vintage, so the plan
+    records its SHA-256 (`8f394fe3…40de`) before any holdout number.
+- **The holdout run, once:** `uv run portfolio-lab reproduce --holdout`.
+  - Started 2026-10-11 19:30:00 UTC, finished 19:34:57 (298 s, 4 calibration processes),
+    exit 0, no warnings. It wrote 11 tables to research/results/holdout/.
+  - The manifest's `runs.holdout`: commit `9ca40f4`, clean, `tag_commit` `317d4c4`
+    (prereg-v1), `changed_since_tag` empty, sources identical to the frozen vintage.
+  - 188 months, 2011-01 → 2026-08, both views.
+- **The four primary tests (PLAN.md §3): no rejection.** Every Holm-adjusted p is 1.0, so each
+  reads "no detectable difference at this power", never "equal". Annual Sharpe difference
+  against 1/N, its 95% CI, the calibrated block and the LW p:
+
+  | Pair | USD | CAD |
+  |---|---|---|
+  | Minimum variance | −0.041 [−0.32, 0.23], b = 2, p = 0.77 | −0.026 [−0.36, 0.31], b = 1, p = 0.88 |
+  | ERC | +0.012 [−0.071, 0.094], b = 1, p = 0.79 | +0.029 [−0.064, 0.122], b = 1, p = 0.54 |
+
+  - Jobson-Korkie-Memmel agrees (p = 0.44-0.88).
+  - The calibration's rejection rates are all at or below 4.4%, so the test is slightly
+    conservative here, as on dev.
+- **Performance** (holdout, net; monthly Sharpe × √12):
+  - Sharpe: 1/N 0.80 (USD) and 1.14 (CAD); minimum variance 0.76 and 1.11; ERC 0.81 and 1.17.
+  - Minimum variance in USD: volatility 13.8% against 16.7%, max drawdown −32.7% against
+    −36.7%, CAGR 10.3% against 12.7%, annual turnover 0.88 against 0.15.
+- **Exploratory:** the smallest raw p is 0.30 (ERC, EWMA, CAD). The smallest Holm-adjusted p
+  over the 32 comparisons is 1.0. Nothing exploratory is a finding.
+- **Luck:** best of 16 is p = 0.65 (USD) and 0.32 (CAD), not the dev's 0.000. Percentiles among
+  each portfolio's own shadows: 1/N 0.68 and 0.79, minimum variance 0.16 and 0.49, ERC 0.95 and
+  0.998.
+- **VaR backtests** (500-day window, 6 series):
+  - FHS passes Kupiec in all 6 at both levels, and conditional coverage in all 6 at 95%. At
+    99% no method passes conditional coverage (FHS with 1000 days passes in 1).
+  - Normal fails Kupiec at 99% in all 6. Every series is in the Basel green zone.
+- **Stress at the HOLDOUT_END holdings** (replay; the realized path in brackets), USD:
+  - COVID: 1/N −36.6% (−36.7%), minimum variance −36.1% (−32.6%), ERC −36.9% (−35.6%).
+  - 2022 rates: 1/N −10.5% (−12.8%), minimum variance −0.4% (−3.8%), ERC −3.9% (−10.4%).
+  - In CAD, the 2022 replay of minimum variance gains 4.0%.
+- Next: robustness (`robustness.py`, test-first), then `reproduce --robustness`.
+
 ## 2026-10-11: step 7a, extra-high review and re-freeze (owner asked)
 
 - The owner asked for `/code-review` at xhigh effort over the whole branch: 11 findings.
