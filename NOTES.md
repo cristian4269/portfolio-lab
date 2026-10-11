@@ -2,6 +2,214 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-11: step 7a, extra-high review and re-freeze (owner asked)
+
+- The owner asked for `/code-review` at xhigh effort over the whole branch: 11 findings.
+  **All fixed** (RED `fd2c58f`, GREEN `9e2df18`).
+- **The holdout lock's gaps:**
+  - The one-shot rule could be bypassed by a first run to `--out elsewhere`. `--holdout`
+    now refuses `--out`.
+  - The code could change after the tag unnoticed. Uncommitted changes under src/ are now
+    refused, and files changed since the tag are named in a warning and recorded in the
+    manifest (`git.changed_since_tag`).
+  - Every run after the freeze would have been "dirty", because the manifest is tracked and
+    rewritten. The flag now ignores research/results/manifest.json.
+- **Plan vs code:** PLAN.md §10 registers the 2001 → DEV_END betas as the comparison for the
+  HOLDOUT_END shocks, but the holdout computed only the 2011 span. The shocks table now has
+  a `span` level, with both spans on the holdout.
+- **Also fixed:**
+  - A corrupt manifest is a clean error.
+  - Unreadable cache metadata warns once.
+  - One git helper (`manifest.git_output`), and `inference` reuses `return_series`.
+  - An explicit lookup for the cached primary test.
+  - The drift warning no longer mangles the git ref on Windows.
+- **The calibration runs in up to 4 processes** (`Settings.workers`, `cli._workers`), with
+  identical results, which a test checks.
+  - The dev reproduce took 453 s (it was 648 s).
+  - Spawning works under the `portfolio-lab` console script on Windows.
+- **Dev re-run on `9e2df18`:** all 13 tables are identical to the run on `9e87fdb`. The
+  shocks table only gained the `span` level. The manifest records the commit as clean.
+- **Mutation runs:** the session 2 script was re-pointed (the lock pattern had changed), and
+  five mutations were added for this round's fixes.
+- **Re-freeze:** PLAN.md §2 (the lock) and §13 (the commit) were updated, plus its change
+  log. The tag `prereg-v1` moved from `9492cb5` to the new freeze commit. It was never
+  pushed, and no holdout number exists.
+
+## 2026-10-10/11: step 7a, session 3 of 3 (vintage, dev analysis, reviews, freeze)
+
+- **Vintage refreshed 2026-10-10 (01:24 UTC)** (decision 6):
+  - The French files' SHA-256 are unchanged from the 2026-10-02 cache, so no revision of
+    history: ff5 `7881223b`, momentum `ecf82b11`, 12 industries `cde98642`. The 49-industry
+    file also ends on 2026-08-31.
+  - USD/CAD now reaches 2026-10-02 and the Canadian rates 2026-10-08.
+  - **HOLDOUT_END = 2026-08-31** (`5b9144b`), 188 months.
+- **Dev analysis** (`reproduce`; 648 s, then 13 tables): the numbers are in PLAN.md §13.
+  - **Estimator rule:** lw_identity (12.71% against 12.77% sample and 12.82% LW constant
+    correlation). It is nearly a tie.
+  - **Primary pairs vs 1/N** (annual Sharpe difference, p):
+    - Minimum variance: −0.015 (0.88) in USD, +0.060 (0.61) in CAD.
+    - ERC: +0.011 (0.36) in USD, +0.014 (0.30) in CAD.
+    - All four Holm-adjusted p-values are 1.0.
+  - **Exploratory:** the smallest raw p is the momentum tilt at 0.5 (0.034 USD, 0.038 CAD).
+    The smallest Holm-adjusted p over the 32 comparisons is 1.0.
+  - **Calibration:** every rejection rate is at or below 5%, so the test is a little
+    conservative on dev. The blocks chosen are USD MV 2, USD ERC 1, CAD MV 2, CAD ERC 4.
+  - **MDE at 188 months:** minimum variance 0.48 / 0.57 (α 0.05 / Holm first step) in USD and
+    0.51 / 0.61 in CAD; ERC 0.057 / 0.068 and 0.059 / 0.071.
+  - **Luck: the null is degenerate for persistent tilts.**
+    - Shadows' Sharpe ratios cluster near 1/N's: in USD, median 0.39 and 95th percentile
+      0.41. Best of 16 is p = 0.000 in both views.
+    - **Owner decision (2026-10-10): keep the registered method, and state that it measures
+      "better than random rebalancing at the same turnover", not data snooping (Holm does
+      that).**
+    - The cap binds often only for EWMA minimum variance: shortfall 24-30%, turnover ratio
+      0.84-0.87 (capped variant 0.94-0.95). My grounding estimate of about 3% was wrong.
+  - VaR and stress match Steps 5a and 6:
+    - FHS passes Kupiec in every series, and every method's misses cluster at 95%.
+    - In the 2008 replay, 1/N loses 30.3% in USD and minimum variance (lw_identity) 20.4%.
+- **python-reviewer** (no critical or high findings; it verified the HAC, the bootstrap, the
+  calibration and the shadow accounting by derivation). Fixed (RED `d488950`, GREEN
+  `e11e2fc`):
+  - The holdout refuses `--refresh`. It checks the frozen vintage before any read and
+    refuses a cache that changes while loading.
+  - It reaches HOLDOUT_END's month, runs once (`--rerun` to repeat), and needs the tag as an
+    ancestor of HEAD (`refs/tags/`), whose commit it records.
+  - The root is the folder holding research/PLAN.md.
+  - Also: a finite null, a unit-root guard, NaN-safe selection, a named Holm family, a
+    manifest built from the cache without downloading, and an AST scan for every spelling
+    of `allow_holdout=True`.
+  - **Not done:** an external reference value from `bootTimeInference`. R is not installed,
+    so the HAC rests on the loop reference, the hand cases and the size check.
+- **`/code-review` (high): 8 findings, 7 fixed** (RED `3a5ed3b`, GREEN `aedd063`, plus
+  `0cffd64`):
+  - **The holdout now compares with the manifest committed at the tag.** Before, a dev
+    `--refresh` after the freeze rewrote the working manifest, and the holdout would then
+    see no drift.
+  - The one-shot record no longer depends on `--out`, and each run keeps its own sources.
+  - A dev run checks the cache before reading data, and `fetch` reuses `read_cached`.
+  - **A primary test is run once per (pair, block).** Before, `tests` and
+    `block_sensitivity` showed two Monte Carlo p-values for one test. This changed the dev
+    p-values by up to 0.026; every Sharpe difference and every other table is identical
+    between the two dev runs.
+  - The luck table reports the turnover ratio. The degenerate null went to the owner (above).
+  - `aedd063` went in with a test failing at random: the test zip carried a timestamp.
+    `0cffd64` pins it.
+- The manifest's dirty flag counts tracked changes only (`746a348`). The final dev run is on
+  `9e87fdb`, clean.
+- **Verification loop:** build, lock, mypy, ruff and format all pass. 1333 tests pass with
+  99.91% coverage. There are no secrets, invariants 2-3 hold, and `allow_holdout=True` appears
+  only in cli.py.
+- **Freeze:** PLAN.md marked FROZEN, `study.PRIMARY_ESTIMATOR = "lw_identity"`, and
+  `research/results/manifest.json` committed together in the last commit, which is tagged
+  `prereg-v1` locally.
+
+## 2026-10-09: step 7a, session 2 of 3 (luck benchmark, study, reproduce)
+
+- **Built:**
+  - `backtest/luck.py` (RED `c7b169d`, GREEN `c344831`):
+    - Turnover-matched Dirichlet(1) shadows, vectorized over the shadows.
+    - On their own targets they equal `engine.simulate` to 1e-12, costs included.
+    - Shadows whose turnover is capped trade no more than the strategy, and the shortfall
+      share is exact.
+    - `percentile` and `best_of`.
+  - **Bootstrap speed-up** (`7b60031`):
+    - Resamples are summed from precomputed circular block sums, O(T/b) instead of O(T).
+    - The draws are the same: a test compares it to resampling the rows, at blocks 1, 3
+      and 7.
+    - Calibration is about 42 s per pair at T = 188 and 2 min at T = 558 (it was 2 and 6).
+  - `risk.backtest.report(start=...)` (`2b939c7`): exceptions are counted from an evaluation
+    start, while the forecasts still use the earlier history.
+  - `study.py` (RED `a61d955`, GREEN `8970045`). **The RED commit came after the code: this
+    module and its tests were written in one pass.** It holds:
+    - the registry: the 17 strategies, the seed and the candidates
+    - the dev rule, the period months (the partial first month dropped) and seeded
+      generators
+    - `load` through the guarded loaders (RF taken on the asset days exactly)
+    - `run`, which makes 13 tables
+  - `cli.py reproduce`, `manifest.py`, and `config.HOLDOUT_END` / `PREREG_TAG` (RED
+    `ab72d21`, GREEN `d66aa6c`):
+    - **The holdout lock:** HOLDOUT_END and the estimator must be frozen, the tag must
+      exist, and PLAN.md must equal its tagged copy (LF-normalized). It is tested in a
+      temporary git repo.
+    - **The manifest:** per source, URL, header line, SHA-256, size and retrieval time; per
+      run, the command, time, estimator and git state; plus the packages and seed. It warns
+      on drift.
+    - The Step 0 stub-reproduce test was dropped (`7dfaaae`).
+- **Mutation runs:**
+  - Session 2: 19 planted bugs. 16 were caught at first.
+    - Three survived because the small synthetic run could not tell the variants apart: the
+      exploratory pairs on the ERC block, Holm over all for the primaries, and an unscaled
+      MDE.
+    - A test that every random part has its own seed label was added beforehand, for the
+      "one RNG stream" mutation.
+    - Targeted tests (`b397b62`): 19 of 19.
+  - Session 1's run was re-pointed at the new bootstrap code: 21 of 21.
+- **Timing, a full dev `reproduce` on the current cache** (written to the scratchpad):
+  - **571 s (9.5 min)**: under the 10-minute bar, so no SLSQP warm start (decision 12).
+  - 12 tables with the expected shapes:
+    - 32 tests
+    - 28 calibration rows
+    - 34 performance and 34 luck rows
+    - 60 VaR rows
+    - 21 shock rows
+    - 6 stress rows
+  - MDE was skipped because HOLDOUT_END is not set yet. No warnings.
+  - **Only the clock and the row counts were read; no number was looked at.** The recorded
+    dev analysis is session 3's, on the refreshed vintage.
+- Suite: 1310 passed, 99.8% coverage; ruff, format and mypy clean.
+
+## 2026-10-09: step 7a, session 1 of 3 (draft pre-registration, Sharpe-ratio inference)
+
+- **Plan approved** (`727ea80`): all twelve decisions as recommended, plus the
+  post-registration addendum.
+  - The owner asked whether data after 2026-08-31 could be used.
+    - The French files (12 and 49 industries, factors) end on 2026-08-31. The 49-industry
+      file downloaded on 2026-10-09 ends there too.
+    - The library's page lists August 2026 as its latest month.
+    - One more month would move the minimum variance MDE from about 0.450 to 0.449.
+    - Splicing in other data was ruled out: invariant 3, and different return series.
+    - Instead, months published after the tag can feed a descriptive addendum (PLAN.md §12).
+- **Draft `research/PLAN.md` committed first** (`0f3c664`), before any strategy was compared
+  on dev. The planning script printed no Sharpe ratio, mean, volatility or difference.
+- **PLAN.md §5 amended before any dev comparison** (`d8d8efd`): the authors' own R code (CRAN
+  `bootTimeInference`) settles what the paper leaves open.
+  - It uses the prewhitened **Parzen** kernel, not QS (the paper's footnote 8 says they
+    perform alike), with bandwidth 2.6614 (α n)^(1/5).
+  - The singular values of the prewhitening VAR(1) are capped at 0.97. The small-sample
+    factor is n/(n − 4) over the n = T − 1 residuals.
+  - Bootstrap resamples have ⌊T/b⌋ blocks (l·b rows) and are centred at their own moments.
+  - Calibration counts rejections of H0: Δ = Δ̂ on VAR(1) pseudo-series (intercept,
+    stationary-bootstrap residuals with mean block 5, burn-in 50).
+  - One difference is kept on purpose: the authors' Δ̂ uses the ddof = 1 standard
+    deviation, and this code uses population moments throughout, as the paper's f does.
+- **Built** (RED `bfb79ae`, GREEN `05a5f0a`, survivor tests `bedd6ce`):
+  - `report/inference.py`:
+    - `sharpe_ratio`, `sharpe_diff`, `diff_se`, `hac_psi`, `lw_test` and `calibrate_block`
+    - `jobson_korkie_memmel`, `holm`, `min_detectable_difference`, `ceq` and
+      `monthly_excess`
+  - `risk/backtest.kupiec_exact`, plus a `kupiec_exact_p` column in `report`.
+- **Tests** (58 for inference, 100% of the module):
+  - Hand values for the Sharpe ratios, the gradient, Parzen weights, the kernel sum, the
+    block Ψ*, the p-value, Holm, JK-Memmel, CEQ and the monthly compounding.
+  - **A loop-based reference HAC**, written from the formulas, matches `hac_psi` to 1e-10.
+  - **The size check:** iid normal pairs, T = 120, 300 tests at 5%, inside the 99% binomial
+    band.
+  - **Calibration:**
+    - It prefers longer blocks for AR(1) data with φ = 0.8.
+    - It tests the original estimate: H0 at 0 would reject nearly always.
+    - It drops the burn-in.
+  - **Mutation run:** 21 planted bugs.
+    - 19 were caught at first. The burn-in and the calibration's null survived until the two
+      targeted tests were added; then 21 of 21.
+    - The script now retries its file writes. A Windows lock once left a mutation in place,
+      and git restored it.
+- **Timing at study size** (T = 188 months):
+  - `lw_test` with M = 4999 takes 0.12 s.
+  - `calibrate_block` takes about 2 minutes per pair (K = 1000, 7 block sizes, M = 499), so
+    about 8 minutes for the four primary pairs on the holdout. The dev pairs are longer
+    (T = 558): session 2 measures it and decides whether that needs speeding up.
+- Suite: 1250 passed; ruff, format and mypy clean.
+
 ## 2026-10-09: step 6, session 2 of 2 (hypothetical shocks, dev check, review)
 
 - **Built** (RED `c15ff95`, GREEN `a8dfec5`), `stress/hypothetical.py`:

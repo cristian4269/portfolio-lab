@@ -20,7 +20,9 @@ statistic that rounds below 0 is 0.
 
 The chi-square p-values are asymptotic. With few expected exceptions the true size differs:
 a 5% Kupiec test rejects a correct 99% model over 250 days 9.5% of the time (5.4% at 95% over
-500 days), from the exact binomial distribution of x.
+500 days), from the exact binomial distribution of x. `kupiec_exact` gives that exact two-sided
+binomial p-value (scipy's `binomtest`: the outcomes no more likely than x), and `report` shows
+it next to the chi-square one (research/PLAN.md §10).
 """
 
 from collections.abc import Sequence
@@ -29,9 +31,9 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 from scipy.special import xlogy
-from scipy.stats import chi2
+from scipy.stats import binomtest, chi2
 
-from portfolio_lab._validate import as_floats, check_dates, return_series, tail_prob
+from portfolio_lab._validate import as_date, as_floats, check_dates, return_series, tail_prob
 from portfolio_lab.construct.covariance import EWMA_DECAY
 from portfolio_lab.risk.var import LEVELS, METHODS, WINDOW, forecast
 
@@ -45,6 +47,7 @@ __all__ = [
     "conditional_coverage",
     "exceptions",
     "kupiec",
+    "kupiec_exact",
     "report",
     "transitions",
 ]
@@ -59,6 +62,7 @@ _COLUMNS = (
     "rate",
     "kupiec_stat",
     "kupiec_p",
+    "kupiec_exact_p",
     "independence_stat",
     "independence_p",
     "cc_stat",
@@ -104,6 +108,13 @@ def kupiec(exc: pd.Series, level: float) -> LikelihoodRatio:
     p = tail_prob(level)
     flags = _flags(exc)
     return _kupiec(int(flags.sum()), len(flags), p)
+
+
+def kupiec_exact(exc: pd.Series, level: float) -> float:
+    """The exact two-sided binomial p-value of the exception count at rate 1 - level."""
+    p = tail_prob(level)
+    flags = _flags(exc)
+    return float(binomtest(int(flags.sum()), len(flags), p).pvalue)
 
 
 def transitions(exc: pd.Series) -> tuple[int, int, int, int]:
@@ -155,12 +166,15 @@ def report(
     methods: Sequence[str] = METHODS,
     window: int = WINDOW,
     decay: float = EWMA_DECAY,
+    start: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """Every backtest of every method's rolling forecasts, one row per (level, method).
 
-    `basel` is the zone of the last 250 days at 99%, and None at other levels or with fewer
-    days.
+    With `start`, only the forecast days on or after it count (an evaluation period); the
+    forecasts still use the history before it. `basel` is the zone of the last 250 days at
+    99%, and None at other levels or with fewer days.
     """
+    first = None if start is None else as_date(start, "start")
     if not levels:
         raise ValueError("levels must name at least one confidence level")
     if not methods:
@@ -171,6 +185,10 @@ def report(
         for method in methods:
             fc = forecast(returns, method=method, level=level, window=window, decay=decay)
             exc = exceptions(returns, fc["var"])
+            if first is not None:
+                exc = exc.loc[exc.index >= first]
+                if exc.empty:
+                    raise ValueError(f"no forecast day on or after start={start!r}")
             flags = exc.to_numpy()
             days, x = len(flags), int(flags.sum())
             uc, ind = kupiec(exc, level), christoffersen(exc)
@@ -181,7 +199,8 @@ def report(
                 else None
             )
             keys.append((level, method))
-            rows.append([days, x, p * days, x / days, *uc[:2], *ind[:2], *cc[:2], basel])
+            exact = kupiec_exact(exc, level)
+            rows.append([days, x, p * days, x / days, *uc[:2], exact, *ind[:2], *cc[:2], basel])
     index = pd.MultiIndex.from_tuples(keys, names=["level", "method"])
     table = pd.DataFrame(rows, index=index, columns=list(_COLUMNS))
     table["basel"] = pd.Series([row[-1] for row in rows], index=index, dtype=object)

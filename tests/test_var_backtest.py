@@ -297,6 +297,7 @@ def test_report_collects_every_test_for_every_method_and_level():
         "rate",
         "kupiec_stat",
         "kupiec_p",
+        "kupiec_exact_p",
         "independence_stat",
         "independence_p",
         "cc_stat",
@@ -315,6 +316,7 @@ def test_report_collects_every_test_for_every_method_and_level():
             assert row["expected"] == pytest.approx(600 * (1 - level))
             assert row["rate"] == pytest.approx(exc.mean())
             assert (row["kupiec_stat"], row["kupiec_p"]) == (uc.stat, uc.pvalue)
+            assert row["kupiec_exact_p"] == bt.kupiec_exact(exc, level)
             assert (row["independence_stat"], row["independence_p"]) == (ind.stat, ind.pvalue)
             assert (row["cc_stat"], row["cc_p"]) == (cc.stat, cc.pvalue)
             if level == 0.99:
@@ -330,9 +332,52 @@ def test_report_has_no_basel_zone_with_less_than_a_year():
     assert table.loc[(0.99, "historical"), "days"] == 200
 
 
+def test_report_counts_exceptions_from_start_with_forecasts_from_earlier_history():
+    r = pd.Series(np.random.default_rng(9).standard_t(4, 700) * 0.01, index=days(700))
+    start = days(700)[300]
+    table = bt.report(r, window=100, methods=("historical", "fhs"), levels=(0.99,), start=start)
+    for method in ("historical", "fhs"):
+        fc = v.forecast(r, method=method, level=0.99, window=100)
+        exc = bt.exceptions(r, fc["var"]).loc[start:]
+        row = table.loc[(0.99, method)]
+        assert row["days"] == 400
+        assert row["exceptions"] == exc.sum()
+        assert row["kupiec_p"] == bt.kupiec(exc, 0.99).pvalue
+        assert row["cc_p"] == bt.conditional_coverage(exc, 0.99).pvalue
+        assert row["basel"] == bt.basel_zone(exc.iloc[-250:], 0.99)
+
+
+def test_report_start_must_leave_days():
+    r = pd.Series(np.random.default_rng(9).normal(0, 0.01, 300), index=days(300))
+    with pytest.raises(ValueError, match="start"):
+        bt.report(r, window=100, levels=(0.99,), methods=("historical",), start="2030-01-01")
+
+
 def test_report_needs_levels_and_methods():
     r = pd.Series(np.random.default_rng(8).normal(0, 0.01, 300), index=days(300))
     with pytest.raises(ValueError, match="levels"):
         bt.report(r, window=100, levels=())
     with pytest.raises(ValueError, match="methods"):
         bt.report(r, window=100, methods=[])
+
+
+# --- exact Kupiec -----------------------------------------------------------------------------
+
+
+def test_kupiec_exact_by_hand():
+    # T = 4, x = 0, p = 0.5: P(X = 0) = P(X = 4) = 1/16 are the outcomes as unlikely, so 2/16.
+    assert bt.kupiec_exact(hits([0, 0, 0, 0]), 0.5 + 1e-12) == pytest.approx(0.125, rel=1e-9)
+
+
+@pytest.mark.parametrize(("x", "t", "level"), [(8, 250, 0.99), (0, 250, 0.99), (40, 500, 0.95)])
+def test_kupiec_exact_is_the_two_sided_binomial_test(x, t, level):
+    exc = spread(x, t)
+    expected = stats.binomtest(x, t, 1 - level).pvalue
+    assert bt.kupiec_exact(exc, level) == pytest.approx(expected, rel=1e-12)
+
+
+def test_kupiec_exact_checks_its_inputs():
+    with pytest.raises(ValueError, match="level"):
+        bt.kupiec_exact(hits([0, 1]), 0.3)
+    with pytest.raises(TypeError, match="Series"):
+        bt.kupiec_exact([0, 1], 0.99)
