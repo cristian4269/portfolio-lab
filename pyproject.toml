@@ -20,6 +20,11 @@ dependencies = [
 [project.scripts]
 portfolio-lab = "portfolio_lab.cli:main"
 
+[project.optional-dependencies]
+report = [
+    "matplotlib>=3.10",
+]
+
 [build-system]
 requires = ["uv_build>=0.12.20,<0.13.0"]
 build-backend = "uv_build"
@@ -27,6 +32,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "hypothesis>=6.168.3",
+    "matplotlib>=3.10",
     "mypy>=2.4.0",
     "pandas-stubs>=3.0.5.260914",
     "pytest>=9.1.1",

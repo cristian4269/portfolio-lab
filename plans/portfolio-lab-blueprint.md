@@ -273,7 +273,7 @@ Status: **done and merged 2026-10-09** (PR #8, merge commit b1468b8; 2 sessions;
 ---
 
 ## Step 7a: Pre-registration, dev analysis, luck benchmark, reproduce CLI  *(strongest model)*
-Status: **done 2026-10-11, pending PR** (3 sessions; plan `plans/step-7a-plan.md`; `research/PLAN.md` FROZEN and tagged `prereg-v1` locally; `report/inference.py`, `backtest/luck.py`, `study.py`, `cli.py reproduce`, `manifest.py`; 1341 unit tests, 99.94% coverage; HOLDOUT_END 2026-08-31; python-reviewer, `/code-review` (high, then xhigh) findings fixed, then re-frozen)
+Status: **done and merged 2026-10-11** (PR #9, merge commit e673afb; tag `prereg-v1` → 317d4c4, pushed; 3 sessions; plan `plans/step-7a-plan.md`; `research/PLAN.md` FROZEN; `report/inference.py`, `backtest/luck.py`, `study.py`, `cli.py reproduce`, `manifest.py`; 1341 unit tests, 99.94% coverage; HOLDOUT_END 2026-08-31; python-reviewer, `/code-review` (high, then xhigh) findings fixed, then re-frozen)
 
 **Context.** Same discipline as the owner's earlier study: write the plan
 before looking, fixed holdout, counted trials, one-shot holdout.
@@ -289,7 +289,7 @@ before looking, fixed holdout, counted trials, one-shot holdout.
 ---
 
 ## Step 7b: Holdout run, robustness, report  *(strongest model)*
-Status: not started
+Status: **done 2026-10-11, pending PR** (1 long session; plan `plans/step-7b-plan.md`; the one-shot holdout ran on `9ca40f4` with src identical to `prereg-v1`, recorded in `adccda8`; `robustness.py`, `report/figures.py`, `reproduce --robustness`, `portfolio-lab figures`; `research/REPORT.md` and 5 figures; reruns bit-identical; python-reviewer and `/code-review` (high) findings fixed)
 
 **Tasks**
 - Run the holdout **once** (`allow_holdout=True` in `reproduce` only) to `HOLDOUT_END`; log the run in NOTES.md.
@@ -358,10 +358,45 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 
 ## Change log
 
+- 2026-10-11: step 7b done (plan `plans/step-7b-plan.md`, all nine decisions approved;
+  details in NOTES.md).
+  - **The one-shot holdout:** `reproduce --holdout` ran once on `9ca40f4`, with src identical
+    to the tag and the frozen vintage. Its record was committed in `adccda8`.
+  - **No primary test rejects.** Every Holm-adjusted p is 1.00. Minimum variance against 1/N
+    is −0.041 (USD) and −0.026 (CAD); ERC is +0.012 and +0.029.
+  - **Power:** the realized MDE is 0.39-0.47 for minimum variance and 0.12-0.13 for ERC. ERC's
+    is twice the planned 0.06, because its holdout SE doubled.
+  - **Robustness** (registered, descriptive): windows 126/504, costs 0/10/20 bp, 49 industries
+    (all 49 from 1971-03-12), CAD hedged. One raw p of 24 is below 0.05 (ERC, 49 industries,
+    CAD).
+  - **Interface:**
+    - `robustness`: `run`, `universe`, `load_industries`, `cache_industries`, `role`,
+      `Industries`, `IND49_SHA256`.
+    - `report.figures`: `growth`, `drawdowns`, `sharpe_differences`, `weights`, `stress`,
+      `write`, `THEMES`.
+    - `cli`: `reproduce --robustness`, `portfolio-lab figures [--results] [--out]`.
+    - `manifest`: `ROBUSTNESS_SOURCES`, and `sources(table)`. `build` gains `extra_sources`,
+      `tables` and `holdout_tests`.
+    - matplotlib is the optional extra `report`.
+  - **The lock grew:**
+    - `--robustness` needs the recorded holdout, its tests table, and the 49-industry file
+      whose SHA-256 the plan fixed.
+    - A `--rerun` is recorded as `holdout_rerun`. A first-ever `--rerun` is refused.
+    - Each run records the SHA-256 of every table it wrote, and its own package versions.
+    - `study.py` is byte-identical to the tag.
+  - **Verified:**
+    - `--holdout --rerun` matches the one-shot exactly (17 tables, max difference 0).
+    - A changed vintage is refused by the holdout and robustness, and warned by a dev run.
+    - The tag precedes the holdout record in the history.
+  - **For Step 8:** the dashboard can read `research/results/robustness/monthly.csv` and
+    `weights.csv`. A fresh clone starts with `reproduce --refresh`, which also caches the
+    49-industry file.
+
 - 2026-10-11: step 7a done (3 sessions, plan `plans/step-7a-plan.md`, details in NOTES.md).
   - **Pre-registration:** `research/PLAN.md`.
     - The draft (`0f3c664`) came before any dev comparison.
-    - It is frozen in the commit tagged `prereg-v1` (local; the owner pushes it).
+    - It is frozen in the commit tagged `prereg-v1` (317d4c4; pushed 2026-10-11 after PR #9
+      merged as e673afb).
     - Four primary tests (minimum variance and ERC against 1/N, in USD and CAD), Holm at a
       5% family-wise error rate.
     - The Ledoit-Wolf (2008) bootstrap on monthly net excess returns, with Algorithm 3.1

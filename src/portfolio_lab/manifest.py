@@ -2,18 +2,20 @@
 
 - For each source file the study reads (`SOURCES`): its URL, its header line, and the SHA-256,
   size and retrieval time from the download cache's sidecar.
-- For each run (dev, holdout): the command, the time, the primary estimator, and the git
-  commit with a dirty flag.
+- For each run (dev, holdout, holdout_rerun, robustness): the command, the time, the primary
+  estimator, and the git commit with a dirty flag. The robustness run also records the
+  49-industry file it reads (`ROBUSTNESS_SOURCES`), which is not part of the frozen vintage.
 - The Python and package versions, NumPy's bit generator, the seed, DEV_END and HOLDOUT_END.
 
 `drift` names the files whose SHA-256 differs from an earlier manifest (a newer vintage), and
-`merge` keeps the other period's run when a period is run again.
+`merge` keeps the other runs when one is run again.
 """
 
 import io
 import platform
 import subprocess
 import zipfile
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
@@ -25,6 +27,7 @@ from portfolio_lab.data import boc, cache, fred, french, statcan
 __all__ = [
     "HEADER_CHARS",
     "RESULTS_MANIFEST",
+    "ROBUSTNESS_SOURCES",
     "SOURCES",
     "build",
     "drift",
@@ -43,6 +46,9 @@ SOURCES = {
     "ca_govt_long": statcan.data_url("v122487"),
     "ca_govt_10y": boc.observations_url("BD.CDN.10YR.DQ.YLD"),
 }
+# Read by the robustness run only (Step 7b), so recorded in that run and never part of the
+# vintage frozen at the tag; robustness.IND49_SHA256 fixes its content.
+ROBUSTNESS_SOURCES = {"ind49_daily": french.BASE_URL + french.DATASETS["ind49_daily"]}
 HEADER_CHARS = 200
 RESULTS_MANIFEST = "research/results/manifest.json"  # tracked, and rewritten by every run
 PACKAGES = ("numpy", "pandas", "scipy", "statsmodels", "portfolio-lab")
@@ -57,13 +63,14 @@ def header_line(content: bytes) -> str:
     return lines[0].strip()[:HEADER_CHARS] if lines else ""
 
 
-def sources() -> dict[str, dict[str, Any]]:
-    """The cached copy of every source: URL, header line, SHA-256, size, retrieval time.
+def sources(table: Mapping[str, str] = SOURCES) -> dict[str, dict[str, Any]]:
+    """The cached copy of every source of `table` (name -> URL; the study's by default): URL,
+    header line, SHA-256, size, retrieval time.
 
     Reads the cache only (never downloads); a source missing or failing its checksum raises.
     """
     out = {}
-    for name, url in SOURCES.items():
+    for name, url in table.items():
         meta = cache.cache_info(url)
         content = cache.read_cached(url)
         if meta is None or content is None:
@@ -90,15 +97,32 @@ def build(
     root: Path | None = None,
     tag_commit: str | None = None,
     changed_since_tag: list[str] | None = None,
+    extra_sources: dict[str, dict[str, Any]] | None = None,
+    tables: dict[str, str] | None = None,
+    holdout_tests: str | None = None,
 ) -> dict[str, Any]:
-    """The manifest of one run: `source_table` (default: `sources()` now) and the run, with the
-    git state (for a holdout: the tag's commit and the source files changed since it)."""
+    """The manifest of one run, keyed `period`: `source_table` (default: `sources()` now) and
+    the run, with the git state (for a holdout: the tag's commit and the source files changed
+    since it). The run's record also keeps its package versions, the SHA-256 of each table it
+    wrote (`tables`), files read outside the study's vintage (`extra_sources`), and for
+    robustness the SHA-256 of the holdout tests table it extended (`holdout_tests`).
+    """
     table = sources() if source_table is None else source_table
     git = _git_state(Path.cwd() if root is None else root)
     git["tag_commit"] = tag_commit
     git["changed_since_tag"] = changed_since_tag
     versions = {"python": platform.python_version()}
     versions |= {p: metadata.version(p) for p in PACKAGES}
+    run: dict[str, Any] = {
+        "command": command,
+        "created": datetime.now(UTC).isoformat(timespec="seconds"),
+        "estimator": estimator,
+        "git": git,
+        "sources": table,  # each run's own vintage (the top level is the latest run's)
+        "packages": versions,  # and its own environment, which later runs do not overwrite
+    }
+    optional = {"extra_sources": extra_sources, "tables": tables, "holdout_tests": holdout_tests}
+    run |= {k: v for k, v in optional.items() if v is not None}
     return {
         "schema": 1,
         "seed": study.SEED,
@@ -108,15 +132,7 @@ def build(
         "holdout_end": config.HOLDOUT_END,
         "packages": versions,
         "sources": table,
-        "runs": {
-            period: {
-                "command": command,
-                "created": datetime.now(UTC).isoformat(timespec="seconds"),
-                "estimator": estimator,
-                "git": git,
-                "sources": table,  # each run's own vintage (the top level is the latest run's)
-            }
-        },
+        "runs": {period: run},
     }
 
 

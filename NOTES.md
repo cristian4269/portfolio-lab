@@ -2,6 +2,150 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-11: step 7b, session 1 of 3 (plan, the one-shot holdout run)
+
+- **Plan approved** by the owner as written (`plans/step-7b-plan.md`, commit `9ca40f4`): all
+  nine decisions as recommended, including the one-shot holdout right after the plan commit.
+  - Grounding (dates and metadata only): after 1969-07-01 the 49 industries miss one cell
+    (Softw, 1971-03-11). The cached 49-industry file is not in the frozen vintage, so the plan
+    records its SHA-256 (`8f394fe3…40de`) before any holdout number.
+- **The holdout run, once:** `uv run portfolio-lab reproduce --holdout`.
+  - Started 2026-10-11 19:30:00 UTC, finished 19:34:57 (298 s, 4 calibration processes),
+    exit 0, no warnings. It wrote 11 tables to research/results/holdout/.
+  - The manifest's `runs.holdout`: commit `9ca40f4`, clean, `tag_commit` `317d4c4`
+    (prereg-v1), `changed_since_tag` empty, sources identical to the frozen vintage.
+  - 188 months, 2011-01 → 2026-08, both views.
+- **The four primary tests (PLAN.md §3): no rejection.** Every Holm-adjusted p is 1.0, so each
+  reads "no detectable difference at this power", never "equal". Annual Sharpe difference
+  against 1/N, its 95% CI, the calibrated block and the LW p:
+
+  | Pair | USD | CAD |
+  |---|---|---|
+  | Minimum variance | −0.041 [−0.32, 0.23], b = 2, p = 0.77 | −0.026 [−0.36, 0.31], b = 1, p = 0.88 |
+  | ERC | +0.012 [−0.071, 0.094], b = 1, p = 0.79 | +0.029 [−0.064, 0.122], b = 1, p = 0.54 |
+
+  - Jobson-Korkie-Memmel agrees (p = 0.44-0.88).
+  - The calibration's rejection rates are all at or below 4.4%, so the test is slightly
+    conservative here, as on dev.
+- **Performance** (holdout, net; monthly Sharpe × √12):
+  - Sharpe: 1/N 0.80 (USD) and 1.14 (CAD); minimum variance 0.76 and 1.11; ERC 0.81 and 1.17.
+  - Minimum variance in USD: volatility 13.8% against 16.7%, max drawdown −32.7% against
+    −36.7%, CAGR 10.3% against 12.7%, annual turnover 0.88 against 0.15.
+- **Exploratory:** the smallest raw p is 0.30 (ERC, EWMA, CAD). The smallest Holm-adjusted p
+  over the 32 comparisons is 1.0. Nothing exploratory is a finding.
+- **Luck:** best of 16 is p = 0.65 (USD) and 0.32 (CAD), not the dev's 0.000. Percentiles among
+  each portfolio's own shadows: 1/N 0.68 and 0.79, minimum variance 0.16 and 0.49, ERC 0.95 and
+  0.998.
+- **VaR backtests** (500-day window, 6 series):
+  - FHS passes Kupiec in all 6 at both levels, and conditional coverage in all 6 at 95%. At
+    99% no method passes conditional coverage (FHS with 1000 days passes in 1).
+  - Normal fails Kupiec at 99% in all 6. Every series is in the Basel green zone.
+- **Stress at the HOLDOUT_END holdings** (replay; the realized path in brackets), USD:
+  - COVID: 1/N −36.6% (−36.7%), minimum variance −36.1% (−32.6%), ERC −36.9% (−35.6%).
+  - 2022 rates: 1/N −10.5% (−12.8%), minimum variance −0.4% (−3.8%), ERC −3.9% (−10.4%).
+  - In CAD, the 2022 replay of minimum variance gains 4.0%.
+- **Robustness code** (test-first; `study.py` untouched):
+  - `robustness.py` (RED `80ac55a`, GREEN `f76924d`): the registered variants, the 49-industry
+    universe rule, the `primary` cross-check against the holdout's tests table, and the
+    `monthly` and `weights` series for the figures.
+  - `reproduce --robustness` (RED `03d0a38`, GREEN `a1389f5`):
+    - It runs under the holdout's lock, and only after the recorded one-shot holdout, on its
+      tests table.
+    - The 49-industry file must have the plan's SHA-256. It is recorded as the run's
+      `extra_sources`, outside the frozen vintage.
+    - A holdout `--rerun` is now recorded as `holdout_rerun`, never over the one-shot's record.
+- **The robustness run** on `a1389f5` (clean; 95 s): 6 tables.
+  - The manifest's `runs.robustness` names the three source files changed since the tag
+    (`cli.py`, `manifest.py`, `robustness.py`), as planned.
+  - The primary rows equal the holdout's tests table (the built-in check passed).
+  - The 49-industry universe: all 49 industries from 1971-03-12, none dropped.
+  - **The results** (annual Sharpe difference against 1/N; raw p at the holdout's block;
+    descriptive, no Holm):
+
+    | Variant | MV USD | MV CAD | ERC USD | ERC CAD |
+    |---|---|---|---|---|
+    | primary (252d, 5 bp) | −0.041 (0.77) | −0.026 (0.88) | +0.012 (0.79) | +0.029 (0.54) |
+    | window 126d | −0.053 (0.71) | −0.005 (0.98) | +0.010 (0.82) | +0.040 (0.42) |
+    | window 504d | −0.114 (0.40) | −0.168 (0.31) | +0.005 (0.91) | +0.010 (0.79) |
+    | cost 0 bp | −0.034 (0.81) | −0.018 (0.91) | +0.012 (0.77) | +0.029 (0.53) |
+    | cost 10 bp | −0.047 (0.74) | −0.033 (0.84) | +0.011 (0.78) | +0.029 (0.54) |
+    | cost 20 bp | −0.059 (0.68) | −0.049 (0.76) | +0.011 (0.80) | +0.028 (0.53) |
+    | 49 industries | +0.067 (0.65) | +0.133 (0.50) | +0.041 (0.15) | +0.080 (0.025) |
+
+    - One raw p of 24 is below 0.05: ERC on the 49 industries in CAD, whose 95% CI is
+      [0.011, 0.150]. With 24 descriptive tests about one is expected by chance, and PLAN.md
+      §6 registers robustness as "no new hypotheses". It is reported, not claimed.
+    - On the 49 industries, minimum variance turns over 1.4-1.6 a year (0.9 on 12), and its
+      volatility is 13.1% against 1/N's 17.9% (USD).
+  - **CAD hedged** (metrics only): 1/N's CAGR 12.7%, volatility 16.7%, max drawdown −36.7%;
+    minimum variance 10.3%, 13.8%, −32.8%. These are about the USD view's, as CIP implies,
+    with the CAD and US bill rates close on average over 2011-2026.
+- **Figures** (RED `1f75641`, GREEN `108fea6`, PNGs `fc157d2`):
+  - matplotlib is the optional extra `report`, and is also in the dev group.
+  - `report/figures.py` and `portfolio-lab figures`: five figures, each as a light and a dark
+    PNG.
+  - The palette was checked with the dataviz validator: slots 1-3 on every pair and slots 1-7
+    adjacent, in both modes. Aqua and yellow sit under 3:1 on the light surface, so the
+    report's tables are the relief.
+- **REPORT.md** (`8dbb3ab`): about 3850 words, 5 figures.
+  - Its numbers come from a scratch script that prints the tables from the CSVs.
+  - Two claims read off a chart were corrected against the tables before writing: health
+    care peaks at 42% (not "30-60%"), and Business equipment is held in a fifth of the trades.
+  - **New finding:** ERC's realized MDE is 0.12, twice the planned 0.06, because its holdout
+    SE doubled. Minimum variance's is 0.39-0.47 against 0.48-0.51 planned.
+- **Reproduction checks** (plan decision 8):
+  - **The rerun:** `--holdout --rerun` after all 7b code (245 s), then `--robustness`. All 17
+    tables match the one-shot's saved copy exactly (max difference 0), and 6 REPORT numbers
+    were spot-checked. The one-shot's record is unchanged; the rerun is `holdout_rerun`.
+  - **Drift, real data:** a fresh download of every source into a separate cache (2026-10-11
+    20:31 UTC) was byte-identical to the frozen vintage. Nothing newer exists yet, so the
+    dev run gave no warning, correctly.
+  - **Drift, a made vintage:** the last USD/CAD row was dropped in the separate cache.
+    - `--holdout --rerun` and `--robustness` refused before reading any data, naming `usdcad`.
+    - A dev run warned, naming `usdcad`. Its 13 tables equal the recorded ones, since the row
+      is after DEV_END.
+    - research/results and the real cache were untouched.
+- **python-reviewer** (no critical or high findings). Fixed (RED `7d3dd23`, GREEN `f19622d`):
+  - Each run records the SHA-256 of every table it wrote and its own package versions.
+    Robustness records the hash of the holdout tests table it extended. Before this, a rerun
+    that differed would have overwritten the one-shot's untracked tables without a trace.
+  - Robustness checks that every primary row is present and that every variant covers the
+    holdout's months. The primary check now covers `months` too.
+  - `universe()` refuses an empty universe, or less than 252 days of history. `role()` refuses
+    unknown names.
+  - `--rerun` is accepted only with `--holdout`. A manifest that is not a JSON object is a clean
+    error. The figures name the extra only when matplotlib is the missing module.
+  - The growth title comes from its table, and the primary row leads the forest plot.
+  - `_reproduce` and `robustness.run` are split into one helper per mode or part.
+  - **Not done** (cosmetic): moving `role()` to a lighter module, and the `ROLES` name used in
+    two modules.
+- **Final reruns** on `f19622d`: the holdout and robustness are again identical to the
+  one-shot (17 tables, max difference 0), and the figures redraw to the same bytes.
+- **`/code-review` (high): 9 findings, 7 fixed** (RED `81274bc` and `4004e7f`, GREEN
+  `0428ea9`):
+  - **A fresh clone could not run robustness.** `--robustness` reads only the cache, and
+    nothing cached the 49-industry file. A dev `--refresh` now caches it, and REPORT's
+    reproduce steps start with `--refresh`.
+  - A first-ever `--holdout --rerun` is refused.
+  - A missing matplotlib dependency (pillow, kiwisolver) names the report extra.
+  - One month-end check for every variant and view.
+  - `figures.weights` handles a single trade and gives a clear error without the view's
+    minimum variance.
+  - The help test goes through the CLI.
+  - **Skipped:**
+    - One `holdout_rerun` record is kept per manifest; git keeps every committed one.
+    - The sibling `test_study` import works in pytest's default mode.
+- The robustness rerun on the final code is identical to the one-shot again.
+- **Mutation run** (scratchpad `mutate7b.py`): 21 of 23 caught at first.
+  - The two survivors were test gaps: the "holdout recorded" refusal was masked by the next
+    check's message, and nothing checked that the weights stack adds up to 1.
+  - Both tests were tightened; now 23 of 23.
+- **Verification loop:** 1424+ tests at 99.95% coverage. Ruff, format and mypy are clean;
+  `uv build` and `uv lock --check` pass; no secrets in the diff.
+  - Invariants 1-6 hold. `allow_holdout=True` appears only in cli.py.
+  - `study.py` and PLAN.md are identical to `prereg-v1`, and the tag precedes the holdout
+    record in the history.
+
 ## 2026-10-11: step 7a, extra-high review and re-freeze (owner asked)
 
 - The owner asked for `/code-review` at xhigh effort over the whole branch: 11 findings.
