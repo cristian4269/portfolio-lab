@@ -2,7 +2,11 @@
 
 `reproduce` regenerates the pre-registered study's tables (research/PLAN.md):
 - by default the dev period, written to research/results/dev/;
-- with `--holdout`, the one-shot holdout, written to research/results/holdout/.
+- with `--holdout`, the one-shot holdout, written to research/results/holdout/ (a `--rerun`
+  is recorded apart, as `holdout_rerun`, so the one-shot's own record is never overwritten);
+- with `--robustness`, after the holdout, the registered robustness checks (`robustness`),
+  written to research/results/robustness/, under the same lock, and only on the 49-industry
+  file whose SHA-256 plans/step-7b-plan.md fixed.
 Each run updates research/results/manifest.json (the only result file in git), and warns when
 a source's SHA-256 differs from the one recorded there (a newer data vintage). The project
 root is the nearest folder, from the current one up, that holds research/PLAN.md.
@@ -32,7 +36,7 @@ from typing import Any
 
 import pandas as pd
 
-from portfolio_lab import __version__, config, manifest, study
+from portfolio_lab import __version__, config, manifest, robustness, study
 from portfolio_lab.data import HoldoutError
 
 RESULTS = Path("research/results")
@@ -56,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--holdout",
         action="store_true",
         help=f"run the one-shot holdout (needs the tag {PREREG_TAG} on research/PLAN.md)",
+    )
+    rep.add_argument(
+        "--robustness",
+        action="store_true",
+        help="run the registered robustness checks on the recorded holdout (Step 7b)",
     )
     rep.add_argument("--refresh", action="store_true", help="download every source again (dev)")
     rep.add_argument(
@@ -118,27 +127,55 @@ def _reproduce(args: argparse.Namespace) -> int:
     out = args.out if args.out.is_absolute() else root / args.out
     path = out / "manifest.json"
     old = _read_manifest(path)
-    tag_commit, changed = None, None
-    if args.holdout:
-        if args.refresh:
+    recorded = old is not None and "holdout" in old.get("runs", {})
+    tag_commit, changed, extra = None, None, None
+    if args.robustness:
+        if args.holdout:
             raise ReproduceError(
-                "--holdout runs on the frozen vintage, so --refresh is refused: refresh in a dev "
-                "run, which reports the drift"
+                "--robustness and --holdout are separate runs: the holdout first, then "
+                "--robustness on its results"
             )
-        if out.resolve() != (root / RESULTS).resolve():
+        tag_commit, current = _locked(args, root, out, "--robustness")
+        if not recorded:
+            raise HoldoutError(
+                f"robustness extends the one-shot holdout, which {path} does not record: run "
+                "`reproduce --holdout` first"
+            )
+        held_path = out / "holdout" / "tests.csv"
+        if not held_path.exists():
             raise ReproduceError(
-                f"--holdout writes to {RESULTS.as_posix()} only, where its one-shot record is "
-                "kept: drop --out"
+                f"no {held_path} (result tables are not committed): run `reproduce --holdout "
+                "--rerun` to regenerate the holdout's tables first"
             )
-        tag_commit = check_prereg(root)
-        _no_uncommitted_source(root)
-        current = _frozen_vintage(root, accept_drift=args.accept_drift)
-        if old is not None and "holdout" in old.get("runs", {}) and not args.rerun:
+        extra = _industries_vintage(accept_drift=args.accept_drift)
+        changed = _changed_since_tag(root)
+        period, key, end = "robustness", "robustness", config.HOLDOUT_END
+        assert end is not None  # checked by check_prereg
+        inputs = study.load(end=end, allow_holdout=True, refresh=False)
+        industries = robustness.load_industries(end=end, allow_holdout=True)
+        if manifest.sources() != current or (
+            manifest.sources(manifest.ROBUSTNESS_SOURCES) != extra
+        ):
+            raise HoldoutError("the cached data changed while loading: the vintage is not frozen")
+        assert study.PRIMARY_ESTIMATOR is not None  # checked by check_prereg
+        tables = robustness.run(
+            inputs,
+            pd.read_csv(held_path, index_col=["view", "strategy"]),
+            industries=industries,
+            end=end,
+            estimator=study.PRIMARY_ESTIMATOR,
+            allow_holdout=True,
+        )
+        command = "portfolio-lab reproduce --robustness"
+    elif args.holdout:
+        tag_commit, current = _locked(args, root, out, "--holdout")
+        if recorded and not args.rerun:
             raise HoldoutError(
                 f"the holdout has already been run once (see {path}): pass --rerun to reproduce it"
             )
         changed = _changed_since_tag(root)
         period, end = "holdout", config.HOLDOUT_END
+        key = "holdout_rerun" if recorded else "holdout"  # never over the one-shot's record
         assert end is not None  # checked by check_prereg
         inputs = study.load(end=end, allow_holdout=True, refresh=False)
         if manifest.sources() != current:
@@ -151,9 +188,9 @@ def _reproduce(args: argparse.Namespace) -> int:
             allow_holdout=True,
             settings=study.Settings(workers=_workers()),
         )
-        command = "portfolio-lab reproduce --holdout"
+        command = "portfolio-lab reproduce --holdout" + (" --rerun" if recorded else "")
     else:
-        period, end = "dev", config.DEV_END
+        period, key, end = "dev", "dev", config.DEV_END
         if not args.refresh:
             manifest.sources()  # every source cached and intact before any data is read
         inputs = study.load(end=end, allow_holdout=False, refresh=args.refresh)
@@ -173,13 +210,14 @@ def _reproduce(args: argparse.Namespace) -> int:
     for name, table in tables.items():
         table.to_csv(folder / f"{name}.csv", lineterminator="\n")
     new = manifest.build(
-        period=period,
+        period=key,
         command=command,
         estimator=str(tables["design"].loc["estimator", "value"]),
         source_table=current,
         root=root,
         tag_commit=tag_commit,
         changed_since_tag=changed,
+        extra_sources=extra,
     )
     merged = new if old is None else manifest.merge(old, new)
     path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8", newline="\n")
@@ -197,6 +235,42 @@ def _root() -> Path:
         f"no {PLAN.as_posix()} in {here} or above: run reproduce inside the portfolio-lab "
         "repository"
     )
+
+
+def _locked(
+    args: argparse.Namespace, root: Path, out: Path, flag: str
+) -> tuple[str, dict[str, dict[str, Any]]]:
+    """The holdout's lock, shared by `--holdout` and `--robustness`, all before any data is
+    read: the tag's commit and the frozen vintage of the cached sources."""
+    if args.refresh:
+        raise ReproduceError(
+            f"{flag} runs on the frozen vintage, so --refresh is refused: refresh in a dev run, "
+            "which reports the drift"
+        )
+    if out.resolve() != (root / RESULTS).resolve():
+        raise ReproduceError(
+            f"{flag} writes to {RESULTS.as_posix()} only, where the one-shot holdout is "
+            "recorded: drop --out"
+        )
+    tag_commit = check_prereg(root)
+    _no_uncommitted_source(root)
+    return tag_commit, _frozen_vintage(root, accept_drift=args.accept_drift)
+
+
+def _industries_vintage(*, accept_drift: bool) -> dict[str, dict[str, Any]]:
+    """The cached 49-industry file, which must be the one plans/step-7b-plan.md fixed before
+    the holdout ran (`robustness.IND49_SHA256`), unless the drift is accepted."""
+    extra = manifest.sources(manifest.ROBUSTNESS_SOURCES)
+    sha = extra["ind49_daily"]["sha256"]
+    if sha != robustness.IND49_SHA256:
+        message = (
+            f"the cached 49-industry file ({sha[:12]}) is not the one fixed in "
+            f"plans/step-7b-plan.md ({robustness.IND49_SHA256[:12]})"
+        )
+        if not accept_drift:
+            raise HoldoutError(f"{message}: pass --accept-drift to run on it anyway")
+        warnings.warn(f"{message}, so its rows may drift from the recorded ones", stacklevel=3)
+    return extra
 
 
 def _frozen_vintage(root: Path, *, accept_drift: bool) -> dict[str, dict[str, Any]]:
