@@ -358,6 +358,50 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 
 ## Change log
 
+- 2026-10-11: step 7a done (3 sessions, plan `plans/step-7a-plan.md`, details in NOTES.md).
+  - **Pre-registration:** `research/PLAN.md`.
+    - The draft (`0f3c664`) came before any dev comparison.
+    - It is frozen in the commit tagged `prereg-v1` (local; the owner pushes it).
+    - Four primary tests (minimum variance and ERC against 1/N, in USD and CAD), Holm at a
+      5% family-wise error rate.
+    - The Ledoit-Wolf (2008) bootstrap on monthly net excess returns, with Algorithm 3.1
+      block calibration.
+    - 16 strategies and 32 comparisons, with the trial disclosure.
+  - **Amendments to the blueprint's wording:**
+    - The block length is pre-registered as a rule (LW's calibration), not as a number.
+    - The HAC kernel is the authors' prewhitened Parzen (their `bootTimeInference` code), not
+      the paper's QS.
+  - **Interface:**
+    - `report.inference`: `sharpe_ratio`, `sharpe_diff`, `diff_se`, `hac_psi`, `lw_test`,
+      `calibrate_block`, `jobson_korkie_memmel`, `holm`, `min_detectable_difference`, `ceq`,
+      `monthly_excess`.
+    - `backtest.luck`: `shadows`, `percentile`, `best_of`.
+    - `study`: the registry (17 strategies, SEED 20261009), `load`, `run` (13 tables),
+      `PRIMARY_ESTIMATOR`.
+    - `cli reproduce [--holdout] [--refresh] [--accept-drift] [--rerun] [--out]`, and
+      `manifest`.
+    - `config.HOLDOUT_END` = 2026-08-31 and `PREREG_TAG`.
+    - `risk.backtest.kupiec_exact` and `report(start=)`; `cache.read_cached`.
+  - **The holdout lock:** frozen HOLDOUT_END and estimator; the tag an ancestor of HEAD;
+    PLAN.md identical to its tagged copy; the cache equal to the manifest at the tag; one shot.
+  - **Owner decisions:**
+    - 2026-10-09: all twelve as recommended, plus the post-registration addendum.
+    - 2026-10-10: keep the luck benchmark and state what it measures.
+  - **Dev results** (descriptive):
+    - The estimator rule chose lw_identity (a near tie).
+    - No primary difference with 1/N: every Holm-adjusted p is 1.0.
+    - The MDE at 188 months is about 0.5 for minimum variance and 0.06 for ERC.
+  - **Reviews fixed:**
+    - The holdout compared against a manifest that dev runs overwrite.
+    - Two p-values were reported for one test.
+    - Plus the vintage, coverage, one-shot and root checks, the null and unit-root guards,
+      and an AST holdout scan.
+  - **For 7b:**
+    - Run `reproduce --holdout` once, after the tag is pushed and the PR merged.
+    - Robustness: windows 126 and 504, costs 0, 10 and 20 bp, the hedged view, 49
+      industries.
+    - The 49-industry NaN policy is still open.
+
 - 2026-10-09: step 6 done (2 sessions, plan `plans/step-6-plan.md`, details in NOTES.md).
   - **Interface (`stress.historical`):**
     - `Scenario` and the read-only `SCENARIOS` (gfc, covid, rates, the dates above).

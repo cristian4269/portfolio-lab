@@ -2,6 +2,74 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-10/11: step 7a, session 3 of 3 (vintage, dev analysis, reviews, freeze)
+
+- **Vintage refreshed 2026-10-10 (01:24 UTC)** (decision 6):
+  - The French files' SHA-256 are unchanged from the 2026-10-02 cache, so no revision of
+    history: ff5 `7881223b`, momentum `ecf82b11`, 12 industries `cde98642`. The 49-industry
+    file also ends on 2026-08-31.
+  - USD/CAD now reaches 2026-10-02 and the Canadian rates 2026-10-08.
+  - **HOLDOUT_END = 2026-08-31** (`5b9144b`), 188 months.
+- **Dev analysis** (`reproduce`; 648 s, then 13 tables): the numbers are in PLAN.md §13.
+  - **Estimator rule:** lw_identity (12.71% against 12.77% sample and 12.82% LW constant
+    correlation). It is nearly a tie.
+  - **Primary pairs vs 1/N** (annual Sharpe difference, p):
+    - Minimum variance: −0.015 (0.88) in USD, +0.060 (0.61) in CAD.
+    - ERC: +0.011 (0.36) in USD, +0.014 (0.30) in CAD.
+    - All four Holm-adjusted p-values are 1.0.
+  - **Exploratory:** the smallest raw p is the momentum tilt at 0.5 (0.034 USD, 0.038 CAD).
+    The smallest Holm-adjusted p over the 32 comparisons is 1.0.
+  - **Calibration:** every rejection rate is at or below 5%, so the test is a little
+    conservative on dev. The blocks chosen are USD MV 2, USD ERC 1, CAD MV 2, CAD ERC 4.
+  - **MDE at 188 months:** minimum variance 0.48 / 0.57 (α 0.05 / Holm first step) in USD and
+    0.51 / 0.61 in CAD; ERC 0.057 / 0.068 and 0.059 / 0.071.
+  - **Luck: the null is degenerate for persistent tilts.**
+    - Shadows' Sharpe ratios cluster near 1/N's: in USD, median 0.39 and 95th percentile
+      0.41. Best of 16 is p = 0.000 in both views.
+    - **Owner decision (2026-10-10): keep the registered method, and state that it measures
+      "better than random rebalancing at the same turnover", not data snooping (Holm does
+      that).**
+    - The cap binds often only for EWMA minimum variance: shortfall 24-30%, turnover ratio
+      0.84-0.87 (capped variant 0.94-0.95). My grounding estimate of about 3% was wrong.
+  - VaR and stress match Steps 5a and 6:
+    - FHS passes Kupiec in every series, and every method's misses cluster at 95%.
+    - In the 2008 replay, 1/N loses 30.3% in USD and minimum variance (lw_identity) 20.4%.
+- **python-reviewer** (no critical or high findings; it verified the HAC, the bootstrap, the
+  calibration and the shadow accounting by derivation). Fixed (RED `d488950`, GREEN
+  `e11e2fc`):
+  - The holdout refuses `--refresh`. It checks the frozen vintage before any read and
+    refuses a cache that changes while loading.
+  - It reaches HOLDOUT_END's month, runs once (`--rerun` to repeat), and needs the tag as an
+    ancestor of HEAD (`refs/tags/`), whose commit it records.
+  - The root is the folder holding research/PLAN.md.
+  - Also: a finite null, a unit-root guard, NaN-safe selection, a named Holm family, a
+    manifest built from the cache without downloading, and an AST scan for every spelling
+    of `allow_holdout=True`.
+  - **Not done:** an external reference value from `bootTimeInference`. R is not installed,
+    so the HAC rests on the loop reference, the hand cases and the size check.
+- **`/code-review` (high): 8 findings, 7 fixed** (RED `3a5ed3b`, GREEN `aedd063`, plus
+  `0cffd64`):
+  - **The holdout now compares with the manifest committed at the tag.** Before, a dev
+    `--refresh` after the freeze rewrote the working manifest, and the holdout would then
+    see no drift.
+  - The one-shot record no longer depends on `--out`, and each run keeps its own sources.
+  - A dev run checks the cache before reading data, and `fetch` reuses `read_cached`.
+  - **A primary test is run once per (pair, block).** Before, `tests` and
+    `block_sensitivity` showed two Monte Carlo p-values for one test. This changed the dev
+    p-values by up to 0.026; every Sharpe difference and every other table is identical
+    between the two dev runs.
+  - The luck table reports the turnover ratio. The degenerate null went to the owner (above).
+  - `aedd063` went in with a test failing at random: the test zip carried a timestamp.
+    `0cffd64` pins it.
+- The manifest's dirty flag counts tracked changes only (`746a348`). The final dev run is on
+  `9e87fdb`, clean.
+- **Verification loop:** build, lock, mypy, ruff and format all pass. 1333 tests pass with
+  99.91% coverage. There are no secrets, invariants 2-3 hold, and `allow_holdout=True` appears
+  only in cli.py.
+- **Freeze:** PLAN.md marked FROZEN, `study.PRIMARY_ESTIMATOR = "lw_identity"`, and
+  `research/results/manifest.json` committed together in the last commit, which is tagged
+  `prereg-v1` locally.
+
 ## 2026-10-09: step 7a, session 2 of 3 (luck benchmark, study, reproduce)
 
 - **Built:**

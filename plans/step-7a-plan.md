@@ -354,6 +354,16 @@ it must come **after** the draft PLAN.md is committed. The numbers are under "Gr
   - A `--merge` merge keeps the commit, so the tag stays valid on main.
 - Ask the owner before pushing the branch and opening the PR, and separately before pushing
   the tag.
+- As built (2026-10-10/11, see NOTES.md):
+  - Vintage refreshed (French files unchanged); HOLDOUT_END 2026-08-31 (`5b9144b`).
+  - The dev rule chose lw_identity. No primary difference: all Holm-adjusted p-values are
+    1.0.
+  - The luck benchmark's null is degenerate for persistent tilts. The owner chose to keep it
+    and state what it measures (`746a348`, `9e87fdb`).
+  - python-reviewer fixes `d488950` / `e11e2fc`; `/code-review` fixes `3a5ed3b` / `aedd063`
+    / `0cffd64`.
+  - Verification loop passes. The final dev run is on `9e87fdb`. Then the freeze commit and
+    the local tag `prereg-v1`.
 
 ## Checks every session
 
