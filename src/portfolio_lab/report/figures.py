@@ -28,7 +28,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter, PercentFormatter
 
-from portfolio_lab.robustness import role
+from portfolio_lab.robustness import PRIMARY, role
 
 __all__ = [
     "FIGURES",
@@ -142,7 +142,9 @@ def growth(monthly: pd.DataFrame, *, theme: str = "light") -> Figure:
         _end_labels(fig, ax, t)
     axes[0, 0].set_ylabel("Growth of $1, net of costs", color=t.secondary, fontsize=FONT)
     _legend(fig, axes[0, 0], t)
-    _title(fig, t, "Growth of $1 over the holdout, January 2011 to August 2026")
+    months = pd.DatetimeIndex(monthly.index.get_level_values("month"))
+    span = f"{months.min():%B %Y} to {months.max():%B %Y}"  # from the table, not a literal
+    _title(fig, t, f"Growth of $1 over the holdout, {span}")
     return fig
 
 
@@ -172,6 +174,7 @@ def sharpe_differences(tests: pd.DataFrame, *, theme: str = "light") -> Figure:
     axes[0, 1].sharex(axes[0, 0])
     axes[1, 1].sharex(axes[1, 0])
     variants = list(dict.fromkeys(tests.index.get_level_values("variant")))
+    variants.sort(key=lambda v: v != PRIMARY)  # the primary test first, whatever the order
     y = np.arange(len(variants))
     for row, r in enumerate(ROLES[1:]):
         for col, view in enumerate(VIEWS):

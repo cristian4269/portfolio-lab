@@ -75,17 +75,22 @@ def universe(assets: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The returns the 49-industry run uses (decision 5), and a table of the rule's outcome.
 
     An industry with a missing day from HOLDOUT_START on is dropped. The rest start on the day
-    after the last day on which any of them is missing before the holdout.
+    after the last day on which any of them is missing before the holdout, which must leave a
+    full estimation window (`st.WINDOW` days) of history.
     """
     holdout = np.asarray(assets.index >= pd.Timestamp(HOLDOUT_START))
     dropped = [c for c in assets.columns if assets.loc[holdout, c].isna().any()]
     kept = assets.drop(columns=dropped)
+    if kept.columns.empty:
+        raise ValueError(f"no industry is complete over the holdout: all {len(dropped)} miss a day")
     before = kept.loc[~holdout]
     gaps = before.index[before.isna().any(axis=1).to_numpy()]
     used = kept.loc[kept.index > gaps[-1]] if len(gaps) else kept
-    if not (used.index < pd.Timestamp(HOLDOUT_START)).any():
+    history = int((used.index < pd.Timestamp(HOLDOUT_START)).sum())
+    if history < st.WINDOW:
         raise ValueError(
-            "no day before the holdout has every industry: the 49-industry run needs history"
+            f"only {history} days before the holdout have every industry: the 49-industry run "
+            f"needs {st.WINDOW}"
         )
     table = pd.DataFrame(
         {
@@ -124,71 +129,21 @@ def run(
     """Every robustness table (see the module doc). `holdout_tests` is the holdout's `tests`
     table, indexed by (view, strategy); `industries=None` leaves the 49 industries out."""
     pair = study.primary(estimator)
-    calibrated = holdout_tests["block"].astype(int)
-    blocks = {(v, role(n)): int(calibrated[(v, n)]) for v in study.TESTED_VIEWS for n in pair}
-
-    def compare(view: View, window: int = st.WINDOW) -> dict[str, Result]:
-        group = [st.equal_weight(), st.min_variance(estimator, window=window)]
-        group.append(st.erc(estimator, window=window))
-        return engine.compare(
-            group, view, end=end, allow_holdout=allow_holdout, cost_bps=study.COST_BPS
-        )
-
-    base = {v: compare(inputs.views[v]) for v in study.TESTED_VIEWS}
-    variants: dict[str, dict[str, dict[str, Result]]] = {PRIMARY: base}
-    for w in WINDOWS:
-        variants[f"window {w}d"] = {v: compare(inputs.views[v], w) for v in study.TESTED_VIEWS}
-    for c in COSTS:
-        variants[f"cost {c:g}bp"] = {
-            v: {
-                n: engine.reprice(r, inputs.views[v], cost_bps=c, allow_holdout=allow_holdout)
-                for n, r in res.items()
-            }
-            for v, res in base.items()
-        }
-    if industries is not None:
-        variants["49 industries"] = {v: compare(industries.views[v]) for v in study.TESTED_VIEWS}
-    hedged = {HEDGED_VIEW: compare(inputs.views[HEDGED_VIEW])}
-
-    test_rows, perf_parts = [], []
+    blocks = _blocks(holdout_tests, pair)
+    variants, hedged = _variants(
+        inputs, industries, estimator=estimator, end=end, allow_holdout=allow_holdout
+    )
+    months = {v: _monthly_excess(res).index for v, res in variants[PRIMARY].items()}
+    test_rows: list[dict[str, object]] = []
+    perf_parts = []
     for variant, results in [*variants.items(), (HEDGED, hedged)]:
         monthly = {v: _monthly_excess(res) for v, res in results.items()}
+        _check_months(variant, monthly, months)
         perf = study._performance(results, monthly, inputs)
         perf["role"] = [role(n) for n in perf.index.get_level_values("strategy")]
         perf_parts.append(pd.concat({variant: perf}, names=["variant"]))
-        if variant == HEDGED:
-            continue
-        for v, m in monthly.items():
-            for name in m.columns:
-                if name == study.BENCHMARK:
-                    continue
-                kind = role(name)
-                b = blocks[(v, kind)]
-                labels = ("holdout",) if variant == PRIMARY else ("robustness", variant)
-                res = inf.lw_test(
-                    m[name],
-                    m[study.BENCHMARK],
-                    block=b,
-                    resamples=resamples,
-                    rng=study.rng_for(*labels, v, name, "test", b),
-                )
-                test_rows.append(
-                    {
-                        "variant": variant,
-                        "view": v,
-                        "strategy": name,
-                        "role": kind,
-                        "months": len(m),
-                        "diff": res.diff * _YEAR,
-                        "se": res.se * _YEAR,
-                        "ci_low": res.ci_low * _YEAR,
-                        "ci_high": res.ci_high * _YEAR,
-                        "block": b,
-                        "p": res.pvalue,
-                        "sharpe": inf.sharpe_ratio(m[name]) * _YEAR,
-                        "sharpe_benchmark": inf.sharpe_ratio(m[study.BENCHMARK]) * _YEAR,
-                    }
-                )
+        if variant != HEDGED:  # the hedged view's excess return is the USD one: no test
+            test_rows += _test_rows(variant, monthly, blocks, resamples)
     tests = pd.DataFrame(test_rows).set_index(["variant", "view", "strategy"])
     _check_primary(tests, holdout_tests)
 
@@ -209,16 +164,130 @@ def run(
     }
     if industries is not None:
         tables["universe49"] = industries.universe
-    tables["monthly"] = _series({**base, **hedged})
-    tables["weights"] = _weights(base, pair)
+    tables["monthly"] = _series({**variants[PRIMARY], **hedged})
+    tables["weights"] = _weights(variants[PRIMARY], pair)
     return tables
 
 
 def role(name: str) -> str:
-    """A portfolio's role by its name: "1/N", "min variance" or "ERC"."""
+    """A portfolio's role by its name: "1/N", "min variance" or "ERC" (whatever its window,
+    estimator or cap); any other name raises."""
     if name == study.BENCHMARK:
         return "1/N"
-    return ROLES[0] if name.startswith("min variance") else ROLES[1]
+    for kind in ROLES:
+        if name.startswith(f"{kind} ("):
+            return kind
+    raise ValueError(f"{name!r} has no role here: only 1/N, minimum variance and ERC have one")
+
+
+# --- helpers ----------------------------------------------------------------------------------
+
+type Runs = dict[str, dict[str, Result]]  # view -> strategy name -> backtest
+
+
+def _blocks(holdout_tests: pd.DataFrame, pair: tuple[str, str]) -> dict[tuple[str, str], int]:
+    """The holdout's calibrated block of each primary (view, role)."""
+    keys = [(v, n) for v in study.TESTED_VIEWS for n in pair]
+    missing = [k for k in keys if k not in holdout_tests.index]
+    if missing:
+        raise ValueError(
+            f"the holdout's tests table has no row for {missing}: robustness must run on the "
+            "holdout it extends"
+        )
+    calibrated = holdout_tests["block"].astype(int)
+    return {(v, role(n)): int(calibrated[(v, n)]) for v, n in keys}
+
+
+def _variants(
+    inputs: study.Inputs,
+    industries: Industries | None,
+    *,
+    estimator: str,
+    end: str | pd.Timestamp,
+    allow_holdout: bool,
+) -> tuple[dict[str, Runs], Runs]:
+    """Every variant's backtests (the primary first), and the hedged view's."""
+
+    def compare(view: View, window: int = st.WINDOW) -> dict[str, Result]:
+        group = [
+            st.equal_weight(),
+            st.min_variance(estimator, window=window),
+            st.erc(estimator, window=window),
+        ]
+        return engine.compare(
+            group, view, end=end, allow_holdout=allow_holdout, cost_bps=study.COST_BPS
+        )
+
+    base = {v: compare(inputs.views[v]) for v in study.TESTED_VIEWS}
+    variants: dict[str, Runs] = {PRIMARY: base}
+    for w in WINDOWS:
+        variants[f"window {w}d"] = {v: compare(inputs.views[v], w) for v in study.TESTED_VIEWS}
+    for c in COSTS:
+        variants[f"cost {c:g}bp"] = {
+            v: {
+                n: engine.reprice(r, inputs.views[v], cost_bps=c, allow_holdout=allow_holdout)
+                for n, r in res.items()
+            }
+            for v, res in base.items()
+        }
+    if industries is not None:
+        variants["49 industries"] = {v: compare(industries.views[v]) for v in study.TESTED_VIEWS}
+    return variants, {HEDGED_VIEW: compare(inputs.views[HEDGED_VIEW])}
+
+
+def _test_rows(
+    variant: str,
+    monthly: Mapping[str, pd.DataFrame],
+    blocks: Mapping[tuple[str, str], int],
+    resamples: int,
+) -> list[dict[str, object]]:
+    """One variant's LW test of each strategy against 1/N, per view, at the holdout's block."""
+    rows: list[dict[str, object]] = []
+    labels = ("holdout",) if variant == PRIMARY else ("robustness", variant)
+    for v, m in monthly.items():
+        for name in m.columns:
+            if name == study.BENCHMARK:
+                continue
+            kind = role(name)
+            b = blocks[(v, kind)]
+            res = inf.lw_test(
+                m[name],
+                m[study.BENCHMARK],
+                block=b,
+                resamples=resamples,
+                rng=study.rng_for(*labels, v, name, "test", b),
+            )
+            rows.append(
+                {
+                    "variant": variant,
+                    "view": v,
+                    "strategy": name,
+                    "role": kind,
+                    "months": len(m),
+                    "diff": res.diff * _YEAR,
+                    "se": res.se * _YEAR,
+                    "ci_low": res.ci_low * _YEAR,
+                    "ci_high": res.ci_high * _YEAR,
+                    "block": b,
+                    "p": res.pvalue,
+                    "sharpe": inf.sharpe_ratio(m[name]) * _YEAR,
+                    "sharpe_benchmark": inf.sharpe_ratio(m[study.BENCHMARK]) * _YEAR,
+                }
+            )
+    return rows
+
+
+def _check_months(
+    variant: str, monthly: Mapping[str, pd.DataFrame], months: Mapping[str, pd.Index]
+) -> None:
+    """Every variant must cover the primary's holdout months (a shorter file would not)."""
+    for v, m in monthly.items():
+        expected = months.get(v, months["CAD"])  # the hedged view lives on the CAD days
+        if not m.index.equals(expected):
+            raise ValueError(
+                f"the {variant} variant covers {len(m)} {v} months, not the holdout's "
+                f"{len(expected)}: every variant must cover the same months"
+            )
 
 
 def _monthly_excess(results: Mapping[str, Result]) -> pd.DataFrame:
@@ -251,12 +320,12 @@ def _weights(results: Mapping[str, Mapping[str, Result]], pair: tuple[str, str])
 
 def _check_primary(tests: pd.DataFrame, holdout_tests: pd.DataFrame) -> None:
     """The primary rows must be the holdout's own tests (a stale or edited table fails)."""
-    cols = ["diff", "se", "ci_low", "ci_high", "p"]
+    cols = ["months", "diff", "se", "ci_low", "ci_high", "p"]
     is_primary = tests.index.get_level_values("variant") == PRIMARY
     mine = tests.loc[is_primary, cols].droplevel("variant")
-    held = holdout_tests.reindex(mine.index)[cols]  # a missing row is NaN, which fails below
+    held = holdout_tests.loc[mine.index, cols]  # every row is there (`_blocks` checked)
     for col in cols:
-        pairs = zip(mine.index, mine[col].to_numpy(), held[col].to_numpy(), strict=True)
+        pairs = zip(mine.index, mine[col].to_numpy(float), held[col].to_numpy(float), strict=True)
         for key, here, there in pairs:
             if not math.isclose(here, there, rel_tol=_SAME, abs_tol=_SAME):
                 raise ValueError(

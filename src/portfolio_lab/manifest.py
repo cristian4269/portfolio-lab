@@ -98,10 +98,14 @@ def build(
     tag_commit: str | None = None,
     changed_since_tag: list[str] | None = None,
     extra_sources: dict[str, dict[str, Any]] | None = None,
+    tables: dict[str, str] | None = None,
+    holdout_tests: str | None = None,
 ) -> dict[str, Any]:
     """The manifest of one run, keyed `period`: `source_table` (default: `sources()` now) and
     the run, with the git state (for a holdout: the tag's commit and the source files changed
-    since it). `extra_sources`, files outside the study's vintage, go in the run's record only.
+    since it). The run's record also keeps its package versions, the SHA-256 of each table it
+    wrote (`tables`), files read outside the study's vintage (`extra_sources`), and for
+    robustness the SHA-256 of the holdout tests table it extended (`holdout_tests`).
     """
     table = sources() if source_table is None else source_table
     git = _git_state(Path.cwd() if root is None else root)
@@ -115,9 +119,10 @@ def build(
         "estimator": estimator,
         "git": git,
         "sources": table,  # each run's own vintage (the top level is the latest run's)
+        "packages": versions,  # and its own environment, which later runs do not overwrite
     }
-    if extra_sources is not None:
-        run["extra_sources"] = extra_sources
+    optional = {"extra_sources": extra_sources, "tables": tables, "holdout_tests": holdout_tests}
+    run |= {k: v for k, v in optional.items() if v is not None}
     return {
         "schema": 1,
         "seed": study.SEED,

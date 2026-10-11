@@ -29,14 +29,16 @@ does so only after these checks, all before any data is read:
 """
 
 import argparse
+import hashlib
 import importlib
+import io
 import json
 import os
 import subprocess
 import sys
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pandas as pd
 
@@ -75,7 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument(
         "--accept-drift",
         action="store_true",
-        help="run the holdout on data that differ from the frozen vintage (warns)",
+        help="run the holdout or robustness on data that differ from the frozen vintage, or on "
+        "a 49-industry file other than the one the plan fixed (warns)",
     )
     rep.add_argument("--rerun", action="store_true", help="run a holdout already recorded again")
     rep.add_argument(
@@ -114,6 +117,8 @@ def _figures(args: argparse.Namespace) -> int:
     try:  # matplotlib is optional: the report extra
         figures = importlib.import_module("portfolio_lab.report.figures")
     except ModuleNotFoundError as err:
+        if (err.name or "").split(".")[0] != "matplotlib":
+            raise  # a missing core dependency is a broken install, not a missing extra
         raise ReproduceError(
             f"the figures need {err.name}: install the report extra (`uv sync --extra report`)"
         ) from err
@@ -152,107 +157,152 @@ def check_prereg(root: Path) -> str:
     return manifest.git_output(root, "rev-parse", f"{ref}^{{commit}}").decode().strip()
 
 
+class _Run(NamedTuple):
+    """What one reproduce mode computed, for the shared write and manifest record."""
+
+    period: str  # the results folder
+    key: str  # the manifest's run key
+    command: str
+    tables: dict[str, pd.DataFrame]
+    sources: dict[str, dict[str, Any]]
+    tag_commit: str | None = None
+    changed: list[str] | None = None
+    extra: dict[str, dict[str, Any]] | None = None
+    holdout_tests: str | None = None  # the SHA-256 of the holdout table robustness extended
+
+
 def _reproduce(args: argparse.Namespace) -> int:
     root = _root()
     out = args.out if args.out.is_absolute() else root / args.out
     path = out / "manifest.json"
     old = _read_manifest(path)
-    recorded = old is not None and "holdout" in old.get("runs", {})
-    tag_commit, changed, extra = None, None, None
+    if args.rerun and not args.holdout:
+        raise ReproduceError("--rerun repeats the recorded holdout: use it with --holdout only")
+    if args.robustness and args.holdout:
+        raise ReproduceError(
+            "--robustness and --holdout are separate runs: the holdout first, then "
+            "--robustness on its results"
+        )
     if args.robustness:
-        if args.holdout:
-            raise ReproduceError(
-                "--robustness and --holdout are separate runs: the holdout first, then "
-                "--robustness on its results"
-            )
-        tag_commit, current = _locked(args, root, out, "--robustness")
-        if not recorded:
-            raise HoldoutError(
-                f"robustness extends the one-shot holdout, which {path} does not record: run "
-                "`reproduce --holdout` first"
-            )
-        held_path = out / "holdout" / "tests.csv"
-        if not held_path.exists():
-            raise ReproduceError(
-                f"no {held_path} (result tables are not committed): run `reproduce --holdout "
-                "--rerun` to regenerate the holdout's tables first"
-            )
-        extra = _industries_vintage(accept_drift=args.accept_drift)
-        changed = _changed_since_tag(root)
-        period, key, end = "robustness", "robustness", config.HOLDOUT_END
-        assert end is not None  # checked by check_prereg
-        inputs = study.load(end=end, allow_holdout=True, refresh=False)
-        industries = robustness.load_industries(end=end, allow_holdout=True)
-        if manifest.sources() != current or (
-            manifest.sources(manifest.ROBUSTNESS_SOURCES) != extra
-        ):
-            raise HoldoutError("the cached data changed while loading: the vintage is not frozen")
-        assert study.PRIMARY_ESTIMATOR is not None  # checked by check_prereg
-        tables = robustness.run(
-            inputs,
-            pd.read_csv(held_path, index_col=["view", "strategy"]),
-            industries=industries,
-            end=end,
-            estimator=study.PRIMARY_ESTIMATOR,
-            allow_holdout=True,
-        )
-        command = "portfolio-lab reproduce --robustness"
+        run = _robustness(args, root, out, path, old)
     elif args.holdout:
-        tag_commit, current = _locked(args, root, out, "--holdout")
-        if recorded and not args.rerun:
-            raise HoldoutError(
-                f"the holdout has already been run once (see {path}): pass --rerun to reproduce it"
-            )
-        changed = _changed_since_tag(root)
-        period, end = "holdout", config.HOLDOUT_END
-        key = "holdout_rerun" if recorded else "holdout"  # never over the one-shot's record
-        assert end is not None  # checked by check_prereg
-        inputs = study.load(end=end, allow_holdout=True, refresh=False)
-        if manifest.sources() != current:
-            raise HoldoutError("the cached data changed while loading: the vintage is not frozen")
-        tables = study.run(
-            inputs,
-            period=period,
-            end=end,
-            estimator=study.PRIMARY_ESTIMATOR,
-            allow_holdout=True,
-            settings=study.Settings(workers=_workers()),
-        )
-        command = "portfolio-lab reproduce --holdout" + (" --rerun" if recorded else "")
+        run = _holdout(args, root, out, path, old)
     else:
-        period, key, end = "dev", "dev", config.DEV_END
-        if not args.refresh:
-            manifest.sources()  # every source cached and intact before any data is read
-        inputs = study.load(end=end, allow_holdout=False, refresh=args.refresh)
-        current = manifest.sources()
-        _warn_drift(old, current, str(path))
-        tables = study.run(
-            inputs,
-            period=period,
-            end=end,
-            allow_holdout=False,
-            holdout_months=_holdout_months(),
-            settings=study.Settings(workers=_workers()),
-        )
-        command = "portfolio-lab reproduce"
-    folder = out / period
+        run = _dev(args, path, old)
+    folder = out / run.period
     folder.mkdir(parents=True, exist_ok=True)
-    for name, table in tables.items():
-        table.to_csv(folder / f"{name}.csv", lineterminator="\n")
+    written = {}  # each table's SHA-256, so the record names exactly what this run wrote
+    for name, table in run.tables.items():
+        file = folder / f"{name}.csv"
+        table.to_csv(file, lineterminator="\n")
+        written[file.name] = hashlib.sha256(file.read_bytes()).hexdigest()
     new = manifest.build(
-        period=key,
-        command=command,
-        estimator=str(tables["design"].loc["estimator", "value"]),
-        source_table=current,
+        period=run.key,
+        command=run.command,
+        estimator=str(run.tables["design"].loc["estimator", "value"]),
+        source_table=run.sources,
         root=root,
-        tag_commit=tag_commit,
-        changed_since_tag=changed,
-        extra_sources=extra,
+        tag_commit=run.tag_commit,
+        changed_since_tag=run.changed,
+        extra_sources=run.extra,
+        tables=written,
+        holdout_tests=run.holdout_tests,
     )
     merged = new if old is None else manifest.merge(old, new)
     path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8", newline="\n")
-    print(f"wrote {len(tables)} tables to {folder} and the manifest to {path}")
+    print(f"wrote {len(run.tables)} tables to {folder} and the manifest to {path}")
     return 0
+
+
+def _dev(args: argparse.Namespace, path: Path, old: dict[str, Any] | None) -> _Run:
+    if not args.refresh:
+        manifest.sources()  # every source cached and intact before any data is read
+    inputs = study.load(end=config.DEV_END, allow_holdout=False, refresh=args.refresh)
+    current = manifest.sources()
+    _warn_drift(old, current, str(path))
+    tables = study.run(
+        inputs,
+        period="dev",
+        end=config.DEV_END,
+        allow_holdout=False,
+        holdout_months=_holdout_months(),
+        settings=study.Settings(workers=_workers()),
+    )
+    return _Run("dev", "dev", "portfolio-lab reproduce", tables, current)
+
+
+def _holdout(
+    args: argparse.Namespace, root: Path, out: Path, path: Path, old: dict[str, Any] | None
+) -> _Run:
+    tag_commit, current = _locked(args, root, out, "--holdout")
+    recorded = _recorded(old)
+    if recorded and not args.rerun:
+        raise HoldoutError(
+            f"the holdout has already been run once (see {path}): pass --rerun to reproduce it"
+        )
+    changed = _changed_since_tag(root)
+    end = config.HOLDOUT_END
+    assert end is not None  # checked by check_prereg
+    inputs = study.load(end=end, allow_holdout=True, refresh=False)
+    if manifest.sources() != current:
+        raise HoldoutError("the cached data changed while loading: the vintage is not frozen")
+    tables = study.run(
+        inputs,
+        period="holdout",
+        end=end,
+        estimator=study.PRIMARY_ESTIMATOR,
+        allow_holdout=True,
+        settings=study.Settings(workers=_workers()),
+    )
+    if recorded:  # a rerun is recorded apart, never over the one-shot's record
+        command = "portfolio-lab reproduce --holdout --rerun"
+        return _Run("holdout", "holdout_rerun", command, tables, current, tag_commit, changed)
+    command = "portfolio-lab reproduce --holdout"
+    return _Run("holdout", "holdout", command, tables, current, tag_commit, changed)
+
+
+def _robustness(
+    args: argparse.Namespace, root: Path, out: Path, path: Path, old: dict[str, Any] | None
+) -> _Run:
+    tag_commit, current = _locked(args, root, out, "--robustness")
+    if not _recorded(old):
+        raise HoldoutError(
+            f"robustness extends the one-shot holdout, which {path} does not record: run "
+            "`reproduce --holdout` first"
+        )
+    held_path = out / "holdout" / "tests.csv"
+    if not held_path.exists():
+        raise ReproduceError(
+            f"no {held_path} (result tables are not committed): run `reproduce --holdout "
+            "--rerun` to regenerate the holdout's tables first"
+        )
+    extra = _industries_vintage(accept_drift=args.accept_drift)
+    changed = _changed_since_tag(root)
+    end, estimator = config.HOLDOUT_END, study.PRIMARY_ESTIMATOR
+    assert end is not None and estimator is not None  # checked by check_prereg
+    inputs = study.load(end=end, allow_holdout=True, refresh=False)
+    industries = robustness.load_industries(end=end, allow_holdout=True)
+    if manifest.sources() != current or (manifest.sources(manifest.ROBUSTNESS_SOURCES) != extra):
+        raise HoldoutError("the cached data changed while loading: the vintage is not frozen")
+    raw = held_path.read_bytes()  # hashed as read, so the record names the table it extended
+    tables = robustness.run(
+        inputs,
+        pd.read_csv(io.BytesIO(raw), index_col=["view", "strategy"]),
+        industries=industries,
+        end=end,
+        estimator=estimator,
+        allow_holdout=True,
+    )
+    command = "portfolio-lab reproduce --robustness"
+    sha = hashlib.sha256(raw).hexdigest()
+    return _Run(
+        "robustness", "robustness", command, tables, current, tag_commit, changed, extra, sha
+    )
+
+
+def _recorded(old: dict[str, Any] | None) -> bool:
+    """Whether the manifest records the one-shot holdout."""
+    return old is not None and "holdout" in old.get("runs", {})
 
 
 def _root() -> Path:
@@ -340,11 +390,13 @@ def _read_manifest(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        loaded: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        loaded = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as err:
         raise ReproduceError(
             f"{path} is not valid JSON ({err}): restore it from git before reproducing"
         ) from err
+    if not isinstance(loaded, dict):
+        raise ReproduceError(f"{path} is not a JSON object: restore it from git before reproducing")
     return loaded
 
 
