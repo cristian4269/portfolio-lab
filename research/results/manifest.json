@@ -191,10 +191,10 @@
     },
     "robustness": {
       "command": "portfolio-lab reproduce --robustness",
-      "created": "2026-10-11T21:09:09+00:00",
+      "created": "2026-10-11T21:23:58+00:00",
       "estimator": "lw_identity",
       "git": {
-        "commit": "f19622db7a349918c170cb26d7d31ebeb6793bd0",
+        "commit": "0428ea93bf2eb473d45b3a57d38a43e04354bad2",
         "dirty": false,
         "tag_commit": "317d4c45828f996a5e6d3971496622a0f8113d68",
         "changed_since_tag": [
