@@ -273,7 +273,7 @@ Status: **done and merged 2026-10-09** (PR #8, merge commit b1468b8; 2 sessions;
 ---
 
 ## Step 7a: Pre-registration, dev analysis, luck benchmark, reproduce CLI  *(strongest model)*
-Status: not started
+Status: **done 2026-10-11, pending PR** (3 sessions; plan `plans/step-7a-plan.md`; `research/PLAN.md` FROZEN and tagged `prereg-v1` locally; `report/inference.py`, `backtest/luck.py`, `study.py`, `cli.py reproduce`, `manifest.py`; 1333 unit tests, 99.91% coverage; HOLDOUT_END 2026-08-31; python-reviewer and `/code-review` findings fixed)
 
 **Context.** Same discipline as the owner's earlier study: write the plan
 before looking, fixed holdout, counted trials, one-shot holdout.
