@@ -273,7 +273,7 @@ Status: **done and merged 2026-10-09** (PR #8, merge commit b1468b8; 2 sessions;
 ---
 
 ## Step 7a: Pre-registration, dev analysis, luck benchmark, reproduce CLI  *(strongest model)*
-Status: **done 2026-10-11, pending PR** (3 sessions; plan `plans/step-7a-plan.md`; `research/PLAN.md` FROZEN and tagged `prereg-v1` locally; `report/inference.py`, `backtest/luck.py`, `study.py`, `cli.py reproduce`, `manifest.py`; 1341 unit tests, 99.94% coverage; HOLDOUT_END 2026-08-31; python-reviewer, `/code-review` (high, then xhigh) findings fixed, then re-frozen)
+Status: **done and merged 2026-10-11** (PR #9, merge commit e673afb; tag `prereg-v1` → 317d4c4, pushed; 3 sessions; plan `plans/step-7a-plan.md`; `research/PLAN.md` FROZEN; `report/inference.py`, `backtest/luck.py`, `study.py`, `cli.py reproduce`, `manifest.py`; 1341 unit tests, 99.94% coverage; HOLDOUT_END 2026-08-31; python-reviewer, `/code-review` (high, then xhigh) findings fixed, then re-frozen)
 
 **Context.** Same discipline as the owner's earlier study: write the plan
 before looking, fixed holdout, counted trials, one-shot holdout.
@@ -361,7 +361,8 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 - 2026-10-11: step 7a done (3 sessions, plan `plans/step-7a-plan.md`, details in NOTES.md).
   - **Pre-registration:** `research/PLAN.md`.
     - The draft (`0f3c664`) came before any dev comparison.
-    - It is frozen in the commit tagged `prereg-v1` (local; the owner pushes it).
+    - It is frozen in the commit tagged `prereg-v1` (317d4c4; pushed 2026-10-11 after PR #9
+      merged as e673afb).
     - Four primary tests (minimum variance and ERC against 1/N, in USD and CAD), Holm at a
       5% family-wise error rate.
     - The Ledoit-Wolf (2008) bootstrap on monthly net excess returns, with Algorithm 3.1
