@@ -2,6 +2,35 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-12: step 9, session 2 (public repo, deploy, done)
+
+- **PR A** (#13) merged as f419674; CI was green.
+- **G4:** the repo is public (`gh repo edit --visibility public`), with eight topics. The CI
+  badge renders "passing".
+- **G3:** the owner deployed on Streamlit Community Cloud at
+  https://portfolio-lab-demo.streamlit.app/ (`main`, `app/streamlit_app.py`, Python 3.13).
+  - **The install worked:** the app imports `portfolio_lab`, so Cloud installed
+    `app/requirements.txt` with `-e .` from the repo root. That settles python-reviewer's two
+    deploy-time mediums.
+  - **Checked in the browser:**
+    - every tab, in the USD and CAD views, with no exception;
+    - Performance: 1/N 12.72% CAGR, 16.7% volatility, Sharpe 0.80; minimum variance 13.83%,
+      0.76; ERC 0.81;
+    - Risk: 99% FHS, 43 exceptions against 39, Kupiec p 0.52;
+    - Factors (CAD): the USD/CAD and 10-year terms included;
+    - About: the Board's H.10 citation.
+  - **Load:** a new session on the running server showed the title in 3.9 s and the first
+    charts in 8.5 s. A cold start after sleep was not measured.
+- **The deploy committed `.devcontainer/devcontainer.json` to `main`** (805f66c), through the
+  owner's account and personal email.
+  - **As generated, it could not work:** Python 3.11 against the project's 3.13, and a root
+    `requirements.txt` that does not exist.
+  - It also broke invariant 2's literal check (a tracked `.json`).
+  - PR B makes it use the 3.13 image and `app/requirements.txt`. Invariant 2 now allows
+    `.devcontainer/`.
+- **Embedded browser panes:** screenshots time out while the app window is hidden. Measuring
+  the dataframe canvas (554 px wide, drawn at 2x) confirmed the Factors table rendered.
+
 ## 2026-10-12: step 9, session 1 (README, scrub, deploy requirements, audit)
 
 - **Plan** `plans/step-9-plan.md`, approved as written (D1-D8).

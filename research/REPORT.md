@@ -373,7 +373,8 @@ The table gives the annual Sharpe difference against 1/N, with the raw p in brac
 - **An external check** of the prewhitened HAC against the authors' R code.
 - **The dashboard** (done in Step 8, after this report; this line updated 2026-10-12): the
   same tables, interactive, in
-  `app/streamlit_app.py`. The [README](../README.md) shows how to run it.
+  `app/streamlit_app.py`, live at https://portfolio-lab-demo.streamlit.app/. The
+  [README](../README.md) shows how to run it locally.
 - **More power:** a longer or international sample, where the pre-registration would have to
   start again, before looking.
 

@@ -1,7 +1,8 @@
 # Step 9 plan: README, docs, final audit, publish
 
-**Status: APPROVED by the owner on 2026-10-12, as written** (all eight decisions as
-recommended). Read it with the blueprint's Step 9 section. Branch `step-9-publish` (first commit `b535815`: the blueprint marks Step 8 merged,
+**Status: DONE 2026-10-12.** Approved by the owner on 2026-10-12, as written (all eight
+decisions as recommended). PR A #13 merged; the repo is public (G4); the dashboard is live at
+https://portfolio-lab-demo.streamlit.app/ (G3); PR B adds the link. Read it with the blueprint's Step 9 section. Branch `step-9-publish` (first commit `b535815`: the blueprint marks Step 8 merged,
 with its design pass, PR #12). Default model, 2 sessions, MVP.
 
 ## Grounding 2026-10-12

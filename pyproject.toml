@@ -20,6 +20,7 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/cristian4269/portfolio-lab"
 Report = "https://github.com/cristian4269/portfolio-lab/blob/main/research/REPORT.md"
+Dashboard = "https://portfolio-lab-demo.streamlit.app/"
 
 [project.scripts]
 portfolio-lab = "portfolio_lab.cli:main"

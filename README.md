@@ -9,7 +9,8 @@ Financial Studies* 22(5)), with risk-model validation.
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-<!-- DEMO-LINK: added after the Streamlit deploy (Step 9, PR B) -->
+**Live dashboard: [portfolio-lab-demo.streamlit.app](https://portfolio-lab-demo.streamlit.app/)**
+(free hosting: after 12 hours without a visit it sleeps, and the next visit wakes it).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/dashboard-dark.png">
@@ -81,8 +82,9 @@ the way.
 
 ## The dashboard
 
-An interactive view of the study in Streamlit, with five tabs: **Performance**, **Risk**,
-**Factors**, **Stress** and **About**.
+An interactive view of the study in Streamlit,
+[live on Streamlit Community Cloud](https://portfolio-lab-demo.streamlit.app/), with five
+tabs: **Performance**, **Risk**, **Factors**, **Stress** and **About**.
 
 - **Registered results are fixed.** A strip above the tabs shows the four pre-registered
   tests as they ran once on the holdout. It does not move with the controls.
