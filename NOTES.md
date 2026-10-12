@@ -10,9 +10,9 @@ Running log of decisions, data quirks and findings. Newest first.
 - **The ranking pass corrected one audit claim and found one REPORT error,** both checked in
   the code and the report:
   - The audit said the Risk tab opens on historical; it opens on filtered historical at 99%.
-    At 99%, §8 has that model failing conditional coverage in 6 of 6 series, so the default view contradicts the
-    risk headline. The fix (PR 2) is a table of every method at both levels, not a new
-    default.
+    At 99%, §8 has that model failing conditional coverage in 6 of 6 series, so the default
+    view contradicts the risk headline. The fix (PR 2) is a table of every method at both
+    levels, not a new default.
   - REPORT §8 said no model's 99% exceptions are free of clustering, but its own table has
     FHS on 1000 days passing conditional coverage in 1 of 6 series. Reworded, dated.
 - **PR 1** (README, REPORT; wording only, no number changed):
