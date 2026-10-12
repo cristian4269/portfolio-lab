@@ -27,10 +27,11 @@ advice.
 - **The robustness checks tell the same story.** Of 24 descriptive robustness tests, one
   has a raw p below 0.05 (ERC on the 49 industries, CAD), about what chance gives.
 - **The risk models were tested too (§8).** Of four one-day VaR methods, only filtered
-  historical simulation gets the 95% exceptions at the right rate and without clustering, in
-  all 6 series; every series is in the Basel green zone. In the stress windows, minimum
-  variance's final holdings lost least in the 2008 crisis and the 2022 rate shock (−26.5% and
-  −0.4%, against 1/N's −30.3% and −10.5%), and about as much as 1/N in the COVID crash.
+  historical simulation (on a 500- or a 1000-day window) gets the 95% exceptions at the right
+  rate and without clustering, in all 6 series; every series is in the Basel green zone. In
+  the USD stress replays, minimum variance's final holdings lost least in the 2008 crisis and
+  the 2022 rate shock (−26.5% and −0.4%, against 1/N's −30.3% and −10.5%), and about as much
+  as 1/N in the COVID crash.
 
 ## 2. Question and pre-registration
 
@@ -43,8 +44,8 @@ diversification" (*Review of Financial Studies* 22(5)).
 - **The extensions:** shrinkage covariance estimators, ERC, a CAD view, transaction costs, a
   time-series-robust Sharpe test, a luck benchmark, and risk-model validation.
 - **Prior knowledge** (declared in PLAN.md §11): both the owner and the AI assistant (Claude
-  Code) knew in advance that 1/N is hard to beat and that the low-volatility anomaly exists. The holdout
-  guards against tuning on these series, not against that knowledge.
+  Code) knew in advance that 1/N is hard to beat and that the low-volatility anomaly exists.
+  The holdout guards against tuning on these series, not against that knowledge.
 
 **The timeline** (git history; times are Eastern):
 
@@ -417,8 +418,8 @@ uv run portfolio-lab figures                       # research/figures/
 
 ## Revisions
 
-**2026-10-12, after publication.** Wording only: no number changed, and every number added
-repeats one from §8.
+**2026-10-12, after publication.** Wording only: no result changed. Every result added (in
+§1) repeats one from §8; §4's count spells out the strategy total.
 - The byline (author, AI assistance, dates).
 - §1: a bullet for the risk models and the stress tests, from §8.
 - §2 and §11: the assistant is named as an AI coding assistant. §11's "both authors" became

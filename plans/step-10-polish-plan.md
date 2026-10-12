@@ -4,12 +4,15 @@
 read-only audit of every surface. The product-owner agent ranked the findings, and the main
 session checked its corrections.
 
-**The owner's decisions (2026-10-12):**
-- The byline is "Cristian Ciorba, Finance student at HEC Montréal", with a LinkedIn link.
+**Given by the owner (2026-10-12):** all four PRs in order; the byline "Cristian Ciorba,
+Finance student at HEC Montréal", with a LinkedIn link.
+
+**Defaults applied until the owner says otherwise:**
 - LICENSE and pyproject keep the handle.
 - The PDF goes in `docs/` and is attached to the release.
 - No French one-pager.
-- The AI sentence is used as drafted, without the unconfirmed "chose the question".
+- The AI sentence is used as drafted, without the unconfirmed "chose the question". The owner
+  reviews it before the push.
 
 **Target readers.**
 - **(a)** A recruiter for quant research / asset management or risk management, skimming for

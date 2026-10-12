@@ -7,9 +7,10 @@ Running log of decisions, data quirks and findings. Newest first.
 - **Audit** `plans/step-10-polish-plan.md`: read only, 31 findings ranked by the
   product-owner agent for quant research and risk readers. The owner approved all four PRs, in
   order.
-- **Two of my audit claims were wrong,** caught by the ranking pass and checked in the code:
-  - The Risk tab opens on filtered historical at 99%, not on historical. At 99%, §8 has that
-    model failing conditional coverage in 6 of 6 series, so the default view contradicts the
+- **The ranking pass corrected one audit claim and found one REPORT error,** both checked in
+  the code and the report:
+  - The audit said the Risk tab opens on historical; it opens on filtered historical at 99%.
+    At 99%, §8 has that model failing conditional coverage in 6 of 6 series, so the default view contradicts the
     risk headline. The fix (PR 2) is a table of every method at both levels, not a new
     default.
   - REPORT §8 said no model's 99% exceptions are free of clustering, but its own table has

@@ -36,15 +36,16 @@ Holdout: January 2011 to August 2026, 188 months, run once. Details in
    differences of about 0.4-0.5 for minimum variance and about 0.12 for ERC, so a null was the
    expected outcome. It does not show that the strategies are equal.
 4. **Only filtered historical simulation forecasts the 95% VaR well.** Of four one-day VaR
-   methods, it alone gets the 95% exceptions at the right rate and without clustering, in all
-   6 series (three portfolios, two currency views). At 99% no method passes Christoffersen's
+   methods, it alone (on a 500- or a 1000-day window) gets the 95% exceptions at the right
+   rate and without clustering, in all 6 series (three portfolios, two currency views). At 99% no method passes Christoffersen's
    conditional coverage test in more than 1 of 6 series, though every series stays in the
    Basel green zone ([REPORT §8](research/REPORT.md#8-risk-model-validation-var-backtests-and-stress)).
 
 ## What this demonstrates
 
 - **Research design.** A pre-registered test with a one-shot holdout that the code enforces:
-  the holdout command refuses to run unless the plan matches its git tag
+  the holdout command refuses to run unless the plan matches its git tag, the data match the
+  frozen vintage, and no holdout run is recorded yet
   ([REPORT §2](research/REPORT.md#2-question-and-pre-registration)).
 - **Statistical inference.** Ledoit and Wolf's (2008) studentized block bootstrap of Sharpe
   ratio differences, Holm's correction, and a power analysis stated before the holdout and
@@ -146,9 +147,10 @@ portfolio-lab was built with Claude Code, Anthropic's AI coding assistant. The a
 proposed the plans and wrote most of the code and tests. Cristian Ciorba chose the design among
 its proposals, approved each step's plan before any code was written, and approved every push,
 merge and the pre-registration freeze. Those decisions are logged in [`plans/`](plans/) and
-[NOTES.md](NOTES.md). The results do not rest on trusting either of them: every financial
-formula is tested against a hand-computed or textbook value, and one command regenerates the
-report.
+[NOTES.md](NOTES.md). The checks are meant to carry the weight instead of trust in either of
+them: every financial formula is tested against a hand-computed or textbook value, one command
+regenerates the report, and [REPORT §10](research/REPORT.md#10-what-failed-or-changed) lists
+what could not be checked externally.
 
 ## Limitations
 
