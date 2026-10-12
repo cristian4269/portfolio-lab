@@ -3,6 +3,7 @@
 import dataclasses
 import hashlib
 import re
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -746,3 +747,16 @@ def test_display_names_by_hand():
 def test_display_names_are_unique_over_the_registry():
     names = [db.display_name(s.name) for s in study.strategies()]
     assert len(set(names)) == len(names) == 17
+
+
+# --- the committed bundle -------------------------------------------------------------------------
+
+
+def test_the_committed_bundle_reads():
+    """The bundle the deployed app opens, read from the committed bytes: every SHA-256 that
+    design.csv lists holds, so a checkout that changed them fails here, not on the host."""
+    bundle = db.read(Path(__file__).resolve().parents[1] / "app" / "data")
+    names = {s.name for s in study.strategies()}
+    assert set(bundle.returns) == {"USD", "CAD", "CAD_HEDGED"}
+    for frame in bundle.returns.values():
+        assert set(frame.columns) == names | {"rf", "market"}
