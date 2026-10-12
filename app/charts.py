@@ -10,6 +10,7 @@ import altair as alt
 import numpy as np
 import pandas as pd
 
+from portfolio_lab import dashboard as db
 from portfolio_lab.report.palette import THEMES, Theme
 
 FONT = '"Source Sans 3", "Source Sans Pro", sans-serif'
@@ -75,6 +76,49 @@ def lines(
 
     chart = alt.layer(drawn, rule, points, ends, labels).properties(height=HEIGHT)
     return _finish(chart, t)
+
+
+def var_chart(path: pd.DataFrame, color: str, t: Theme, *, label: str) -> alt.LayerChart:
+    """A strategy's daily returns (a muted 1 px line) above its rolling loss limit, -VaR (a 2 px
+    line in the strategy's color), with each exception, a loss past the VaR, as an ink dot."""
+    drawn = db.thin(pd.DataFrame({"r": path["return"], "v": -path["var"]}), "min")
+    names = {"r": "Daily return", "v": label}
+    long = drawn.rename_axis("day").reset_index().melt("day", var_name="key", value_name="value")
+    long["series"] = long["key"].map(names)
+    domain = list(names.values())
+    x = alt.X("day:T", title=None, axis=alt.Axis(format="%Y", labelOverlap=True))
+    y = alt.Y("value:Q", title="Daily return", axis=alt.Axis(format=".0%"))
+    lines_ = (
+        alt.Chart(long)
+        .mark_line(strokeJoin="round", strokeCap="round")
+        .encode(
+            x=x,
+            y=y,
+            color=alt.Color(
+                "series:N",
+                scale=alt.Scale(domain=domain, range=[t.muted, color]),
+                legend=alt.Legend(title=None, orient="bottom", columns=1, symbolType="stroke"),
+            ),
+            strokeWidth=alt.StrokeWidth(
+                "series:N", scale=alt.Scale(domain=domain, range=[1, 2]), legend=None
+            ),
+        )
+    )
+    hits = path.loc[path["exception"]].rename_axis("day").reset_index()
+    dots = (
+        alt.Chart(hits)
+        .mark_point(filled=True, size=64, color=t.ink, stroke=t.surface, strokeWidth=2, opacity=1)
+        .encode(
+            x="day:T",
+            y=alt.Y("return:Q"),
+            tooltip=[
+                alt.Tooltip("day:T", title="Exception", format="%b %d, %Y"),
+                alt.Tooltip("return:Q", title="Return", format=".2%"),
+                alt.Tooltip("var:Q", title="VaR", format=".2%"),
+            ],
+        )
+    )
+    return _finish(alt.layer(lines_, dots).properties(height=HEIGHT), t)
 
 
 def _clear_labels(last: pd.DataFrame, plotted: pd.Series, log: bool) -> list[str]:
