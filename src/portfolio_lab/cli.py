@@ -229,7 +229,7 @@ def _reproduce(args: argparse.Namespace) -> int:
     )
     merged = new if old is None else manifest.merge(old, new)
     path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8", newline="\n")
-    print(f"wrote {len(run.tables)} tables to {folder} and the manifest to {path}")
+    print(f"wrote {len(written)} files to {folder} and the manifest to {path}")
     return 0
 
 
