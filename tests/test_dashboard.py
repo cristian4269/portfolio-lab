@@ -404,3 +404,39 @@ def test_check_needs_every_holdout_month(bundle, references):
     short = monthly.drop(index=hedged.index[-1])
     with pytest.raises(ValueError, match="covers 144 holdout months here and 143"):
         db.check(bundle, performance, short)
+
+
+# --- the charts' series ------------------------------------------------------------------------
+
+
+def test_growth_and_drawdowns_by_hand():
+    days = pd.bdate_range("2020-01-01", periods=3)
+    net = pd.DataFrame({"s": [0.10, -0.50, 0.20]}, index=days)
+    assert db.growth(net)["s"].tolist() == pytest.approx([1.10, 0.55, 0.66])
+    assert db.drawdowns(net)["s"].tolist() == pytest.approx([0.0, -0.5, -0.4])
+
+
+def test_thin_keeps_short_series_and_samples_long_ones():
+    days = pd.bdate_range("2000-01-03", "2020-12-31")
+    frame = pd.DataFrame({"s": np.arange(len(days), dtype=float)}, index=days)
+    assert db.thin(frame.iloc[:500], "last").equals(frame.iloc[:500])  # daily fits
+    weekly = db.thin(frame.iloc[:3000], "last")
+    assert len(weekly) <= db.MAX_POINTS and weekly["s"].iloc[-1] == 2999.0  # the last close
+    monthly = db.thin(frame, "min")
+    assert len(monthly) == 252 and monthly["s"].iloc[0] == 0.0  # each month's worst point
+    assert monthly.index[0] == pd.Timestamp("2000-01-31")  # its last day of data
+
+
+def test_thin_refuses_an_unknown_rule():
+    frame = pd.DataFrame({"s": [1.0]}, index=pd.bdate_range("2020-01-01", periods=1))
+    with pytest.raises(ValueError, match="how"):
+        db.thin(frame, "mean")
+
+
+def test_slots_keep_each_strategys_color():
+    first = db.slots(["a", "b", "c"], {})
+    assert first == {"a": 0, "b": 1, "c": 2}
+    assert db.slots(["a", "c"], first) == {"a": 0, "c": 2}  # c keeps its color
+    assert db.slots(["a", "c", "d"], {"a": 0, "c": 2}) == {"a": 0, "c": 2, "d": 1}
+    with pytest.raises(ValueError, match="at most 3"):
+        db.slots(["a", "b", "c", "d"], {})
