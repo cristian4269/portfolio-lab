@@ -31,7 +31,9 @@ Running log of decisions, data quirks and findings. Newest first.
   - **FRED's full terms** bar storing, caching or archiving FRED content and giving it to
     third parties. They make no exception for public-domain series.
   - `DEXCAUS` is the Board's H.10 series, which the Board's own site says is public domain.
-  - **An owner decision before publishing:** the bundle's USD/CAD returns.
+  - **Owner decision:** keep the bundle's USD/CAD returns and cite the Board's H.10 release,
+    retrieved via FRED, in the README, DATA_SOURCES and the About tab. The owner accepts the
+    residual risk under FRED's terms, as with G1.
 - **Fresh-clone audit (D8)**, on `d89d8d4`:
   - `uv sync --locked --all-groups`, then 1509 passed at 99.96% coverage (13 min).
   - `--holdout --rerun` from the clean checkout gave all 11 tables identical to the recorded

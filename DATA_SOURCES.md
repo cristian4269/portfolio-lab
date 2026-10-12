@@ -39,8 +39,13 @@ Each source is cited in the dashboard's About tab as below.
   own site says its information "is in the public domain and may be copied and distributed
   without permission", and asks that the Board be cited.
 - **What this touches:** the local download cache, and the dashboard bundle's daily USD/CAD
-  returns, which are committed and become public with the repo or the app. The owner decides
-  before publishing (Step 9). The decision is recorded here.
+  returns, which are committed and become public with the repo or the app.
+- **Owner decision, 2026-10-12: keep it and cite the Board.**
+  - The bundle keeps the daily USD/CAD returns, shared as the Board's public-domain H.10 data.
+    The README and the dashboard's About tab cite the Board's H.10 release, retrieved via
+    FRED.
+  - No FRED file is committed; the download cache stays on the owner's machine.
+  - The owner accepts the residual risk under FRED's own terms, as with G1.
 
 ## Series
 

@@ -371,9 +371,12 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
     - `docs/career/` (local).
   - **Hosting corrected:** a Community Cloud app from a private repo can be made public, so
     G3 and G4 are asked together but answered separately (D5).
-  - **Open before publishing:** FRED's full terms bar storing and redistributing FRED content.
-    `DEXCAUS` is the Board's public-domain H.10 series, and the bundle holds its daily returns.
-    The owner decides.
+  - **Owner decision (FRED terms):** keep the series and cite the Board.
+    - FRED's full terms bar storing and redistributing FRED content.
+    - `DEXCAUS` is the Board's public-domain H.10 series, and the bundle holds its daily
+      returns.
+    - The bundle keeps them, cited to the Board's H.10 release retrieved via FRED. The owner
+      accepts the residual risk, as with G1.
   - **Fresh-clone audit:** 1509 tests at 99.96%; the holdout rerun from a clean checkout
     matched all 11 tables; a cold download matched the frozen vintage (7 of 7 sources).
 

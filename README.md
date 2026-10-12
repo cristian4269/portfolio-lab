@@ -174,9 +174,9 @@ factors, USD/CAD returns and Canadian yield changes. Terms and citations:
 - **[Kenneth R. French Data Library][french]:** 12 industry portfolios (49 for robustness),
   Fama-French five factors and momentum, daily. Copyright notice only, no explicit reuse
   terms; cited.
-- **[FRED](https://fred.stlouisfed.org/legal/):** USD/CAD (`DEXCAUS`, the Federal Reserve
-  Board's H.10 noon rates). Public domain, citation requested; FRED's own terms on storing
-  and sharing its content are discussed in DATA_SOURCES.md.
+- **[Federal Reserve Board](https://www.federalreserve.gov/releases/h10/), via
+  [FRED](https://fred.stlouisfed.org/legal/):** USD/CAD, the H.10 noon buying rates
+  (`DEXCAUS`). Public domain, cited to the Board; DATA_SOURCES.md notes FRED's own terms.
 - **[Bank of Canada](https://www.bankofcanada.ca/terms/) (Valet API):** the 10-year benchmark
   yield. Attribution required, with a note of any change.
 - **[Statistics Canada](https://www.statcan.gc.ca/en/reference/licence):** the 3-month
