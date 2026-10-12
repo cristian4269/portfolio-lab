@@ -60,6 +60,7 @@ __all__ = [
     "VIEWS",
     "MAX_CHARTED",
     "MAX_POINTS",
+    "MIN_MONTHS",
     "Bundle",
     "beta_table",
     "betas",
@@ -94,6 +95,8 @@ WEEKS = 52  # a weekly alpha to an annual one
 DESIGN_KEYS = ("estimator", "end", "cost_bps", "strategies")
 MAX_CHARTED = EVERY_PAIR  # lines can cross, so every pair of colors must stay apart
 MAX_POINTS = 2000  # per series on a chart; the tables use every day
+MIN_MONTHS = 12  # annual figures from less than a year would mislead (Sharpe needs 6)
+FILE_KEY = "file:"  # design.csv lists every other file of the bundle with its SHA-256
 
 _SAME = 1e-12  # the bundle must give back the recorded tables to rounding
 PERFORMANCE_COLUMNS = (  # study._performance's columns, which `performance` computes
@@ -208,15 +211,19 @@ def write(
 ) -> dict[str, str]:
     """Write the bundle into `folder`, with `copies` (relative path -> bytes) as they are, and
     return each file's SHA-256. Gzip files carry no time stamp, so the same bundle gives the
-    same bytes. Any other CSV file in `folder` (an older bundle's) is removed."""
-    files = {"design.csv": _csv(bundle.design)}
+    same bytes. Any other CSV file in `folder` (an older bundle's) is removed. design.csv is
+    written last and lists every other file's SHA-256, so `read` refuses a bundle whose
+    writing stopped part way."""
+    files: dict[str, bytes] = {}
     for v in VIEWS:
         files[f"returns_{v}.csv.gz"] = _gz(_csv(bundle.returns[v]))
         files[f"turnover_{v}.csv.gz"] = _gz(_csv(bundle.turnover[v]))
     files["weights.csv.gz"] = _gz(_csv(bundle.weights))
     files["factors.csv.gz"] = _gz(_csv(bundle.factors))
     files |= dict(copies or {})
-    for name, content in files.items():
+    listed = pd.DataFrame({"value": {f"{FILE_KEY}{n}": _sha(c) for n, c in files.items()}})
+    files["design.csv"] = _csv(pd.concat([bundle.design, listed]).rename_axis("key"))
+    for name, content in files.items():  # design.csv last: it vouches for the others
         path = folder / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
@@ -224,12 +231,14 @@ def write(
         stale = old.relative_to(folder).as_posix() not in files
         if stale and old.is_file() and old.name.endswith((".csv", ".csv.gz")):
             old.unlink()
-    return {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
+    return {name: _sha(content) for name, content in files.items()}
 
 
 def read(folder: Path) -> Bundle:
-    """The bundle `write` wrote into `folder`, checked against the schema: every file present,
-    the registry's strategies only and the same ones everywhere, finite values."""
+    """The bundle `write` wrote into `folder`, checked against the schema (every file
+    present, the registry's strategies only and the same ones everywhere, 1/N among them,
+    finite values) and against the SHA-256s design.csv lists. The frames are read-only: the
+    app shares one copy between its sessions."""
 
     def need(name: str) -> Path:
         path = folder / name
@@ -240,6 +249,11 @@ def read(folder: Path) -> Bundle:
         return path
 
     design = pd.read_csv(need("design.csv"), index_col="key", dtype=str)
+    is_file = design.index.str.startswith(FILE_KEY)
+    listed = {str(k)[len(FILE_KEY) :]: str(v) for k, v in design.loc[is_file, "value"].items()}
+    design = design.loc[~is_file]
+    if not listed:
+        raise ValueError("design.csv lists no files: run `portfolio-lab reproduce --dashboard`")
     missing = [k for k in DESIGN_KEYS if k not in design.index]
     if missing:
         raise ValueError(f"design.csv has no {missing}")
@@ -268,6 +282,8 @@ def read(folder: Path) -> Bundle:
             raise ValueError(f"{file} has trade days that are not days of returns_{v}.csv.gz")
         returns[v], turnover[v] = frame, traded
     assert names is not None  # VIEWS is not empty
+    if study.BENCHMARK not in names:
+        raise ValueError(f"the bundle has no {study.BENCHMARK!r}, the dashboard's benchmark")
     if str(len(names)) != design.loc["strategies", "value"]:
         raise ValueError(
             f"design.csv says {design.loc['strategies', 'value']} strategies, the files hold "
@@ -283,12 +299,18 @@ def read(folder: Path) -> Bundle:
         t: pd.read_csv(need(f"holdout/{t}.csv"), float_precision="round_trip")
         for t in HOLDOUT_TABLES
     }
+    for name, want in listed.items():
+        if _sha(need(name).read_bytes()) != want:
+            raise ValueError(
+                f"{name} is not the file design.csv lists: the bundle was written only in "
+                "part; run `portfolio-lab reproduce --dashboard` again"
+            )
     return Bundle(
         design=design,
-        returns=returns,
-        turnover=turnover,
-        weights=weights,
-        factors=factors,
+        returns={v: _frozen(f) for v, f in returns.items()},
+        turnover={v: _frozen(f) for v, f in turnover.items()},
+        weights=_frozen(weights),
+        factors=_frozen(factors),
         tables=tables,
     )
 
@@ -320,11 +342,13 @@ def net_at(gross: pd.DataFrame, turnover: pd.DataFrame, cost_bps: float) -> pd.D
     return pd.DataFrame(out, index=gross.index, columns=gross.columns)
 
 
-def net(bundle: Bundle, view: str, cost_bps: float) -> pd.DataFrame:
-    """Every strategy's daily net returns in `view` at `cost_bps`."""
+def net(
+    bundle: Bundle, view: str, cost_bps: float, names: Sequence[str] | None = None
+) -> pd.DataFrame:
+    """The daily net returns in `view` at `cost_bps` of `names` (every strategy by default)."""
     _check_view(view)
-    names = bundle.strategies
-    return net_at(bundle.returns[view][names], bundle.turnover[view], cost_bps)
+    chosen = bundle.strategies if names is None else list(names)
+    return net_at(bundle.returns[view][chosen], bundle.turnover[view][chosen], cost_bps)
 
 
 def months(bundle: Bundle, view: str) -> pd.PeriodIndex:
@@ -362,8 +386,14 @@ def performance(
         raise ValueError(f"benchmark must be one of {BENCHMARKS}, got {benchmark!r}")
     rate = engine._cost_rate(cost_bps)
     returns, traded = bundle.returns[view], bundle.turnover[view]
-    nets = net(bundle, view, cost_bps)
     days = np.asarray((returns.index >= start) & (returns.index <= end))
+    covered = pd.DatetimeIndex(returns.index[days]).to_period("M").nunique()
+    if covered < MIN_MONTHS:
+        raise ValueError(
+            f"performance needs at least {MIN_MONTHS} months of returns, got {covered}: "
+            "annual figures from less than a year would mislead"
+        )
+    nets = net(bundle, view, cost_bps, list(dict.fromkeys([*names, study.BENCHMARK])))
     trades = np.asarray((traded.index >= start) & (traded.index <= end))
     rf = returns.loc[days, RF]
     bench = returns.loc[days, MARKET] if benchmark == MARKET else nets.loc[days, study.BENCHMARK]
@@ -545,7 +575,7 @@ def scenario_days(days: pd.Index, scenario: hs.Scenario) -> np.ndarray:
 def realized(bundle: Bundle, view: str, names: Sequence[str], *, cost_bps: float) -> pd.DataFrame:
     """Each strategy's own path through every registered stress window it covers, at
     `cost_bps` (Step 6's `outcome`: P&L, worst day, drawdown), by (scenario, strategy)."""
-    nets = net(bundle, view, cost_bps)
+    nets = net(bundle, view, cost_bps, names)
     rows, keys = [], []
     for s in hs.SCENARIOS.values():
         inside = scenario_days(nets.index, s)
@@ -560,11 +590,25 @@ def realized(bundle: Bundle, view: str, names: Sequence[str], *, cost_bps: float
 # --- the charts' series -----------------------------------------------------------------------
 
 
-def holdings(bundle: Bundle, view: str, name: str, *, top: int = 6) -> pd.DataFrame:
+def holdings(
+    bundle: Bundle,
+    view: str,
+    name: str,
+    *,
+    top: int = 6,
+    start: pd.Timestamp | None = None,
+    end: pd.Timestamp | None = None,
+) -> pd.DataFrame:
     """A strategy's targets by trade date: its `top` industries by average weight, largest
-    first, and the rest folded into OTHER (a stack of at most `top` + 1 bands)."""
+    first, and the rest folded into OTHER (a stack of at most `top` + 1 bands). With `start`
+    and `end`, the trades between them and the one in force at `start`."""
     w = bundle.weights.xs((view, name), level=["view", "strategy"])
     assert isinstance(w, pd.DataFrame)  # two of three levels: the rest stays a frame
+    traded = pd.DatetimeIndex(w.index)
+    before = traded[traded <= start] if start is not None else traded[:1]
+    first = before[-1] if len(before) else traded[0]
+    last = traded[-1] if end is None else end
+    w = w.loc[np.asarray((traded >= first) & (traded <= last))]
     order = w.mean().sort_values(ascending=False, kind="stable").index
     kept = [str(c) for c in order[:top]]
     out = w[kept].copy()
@@ -628,7 +672,7 @@ def _excess(
     end: pd.Timestamp,
 ) -> pd.DataFrame:
     """The strategies' daily net returns over the dates, less the view's risk-free rate."""
-    nets = net(bundle, view, cost_bps)
+    nets = net(bundle, view, cost_bps, names)
     days = np.asarray((nets.index >= start) & (nets.index <= end))
     return nets.loc[days, list(names)].sub(bundle.returns[view].loc[days, RF], axis=0)
 
@@ -652,6 +696,17 @@ def _same(here: float, there: float, what: str, where: str) -> None:
     both_nan = math.isnan(here) and math.isnan(there)
     if not both_nan and not math.isclose(here, there, rel_tol=_SAME, abs_tol=_SAME):
         raise ValueError(f"{what} is {here!r} in the bundle and {there!r} in {where}")
+
+
+def _frozen(frame: pd.DataFrame) -> pd.DataFrame:
+    """The frame on a read-only copy of its values: writing into it raises."""
+    values = frame.to_numpy(dtype=float, copy=True)
+    values.flags.writeable = False
+    return pd.DataFrame(values, index=frame.index, columns=frame.columns, copy=False)
+
+
+def _sha(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
 
 
 def _csv(frame: pd.DataFrame) -> bytes:

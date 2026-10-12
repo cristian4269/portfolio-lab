@@ -707,3 +707,20 @@ def test_holdings_in_a_window_start_with_the_weights_in_force():
         bundle, "USD", "s", start=pd.Timestamp("2020-02-15"), end=pd.Timestamp("2020-03-31")
     )
     assert list(held.index) == list(traded[1:])  # February's targets held on 15 February
+
+
+def test_read_returns_read_only_frames(written):
+    back = db.read(written)
+    with pytest.raises(ValueError, match="read-only"):
+        back.returns["USD"].iloc[0, 2] = 99.0
+    copy = back.returns["USD"].copy()
+    copy.iloc[0, 2] = 99.0  # a copy is the caller's to change
+    assert back.returns["USD"].iloc[0, 2] != 99.0
+
+
+def test_read_refuses_a_design_that_lists_no_files(written):
+    design = pd.read_csv(written / "design.csv", index_col="key", dtype=str)
+    kept = design.loc[~design.index.str.startswith("file:")]
+    kept.to_csv(written / "design.csv", lineterminator="\n")
+    with pytest.raises(ValueError, match="lists no files"):
+        db.read(written)
