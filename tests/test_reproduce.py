@@ -831,3 +831,13 @@ def test_dashboard_refuses_holdout_tables_unlike_the_recorded_ones(dash, repo, c
     assert cli.main(["reproduce", "--dashboard"]) == 2
     err = capsys.readouterr().err
     assert "tests.csv" in err and "--rerun" in err and "build" not in dash
+
+
+def test_dashboard_refuses_a_robustness_table_unlike_the_recorded_one(dash, repo, capsys):
+    path = repo / "research" / "results" / "manifest.json"
+    m = json.loads(path.read_text())
+    m["runs"].setdefault("robustness", {}).setdefault("tables", {})["monthly.csv"] = "0" * 64
+    path.write_text(json.dumps(m))
+    assert cli.main(["reproduce", "--dashboard"]) == 2
+    err = capsys.readouterr().err
+    assert "monthly.csv" in err and "--robustness" in err and "build" not in dash

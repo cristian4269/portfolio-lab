@@ -644,3 +644,66 @@ def test_holdings_keep_an_industry_named_other_apart_from_the_fold():
     held = db.holdings(bundle, "USD", "s", top=1)
     assert list(held.columns) == ["Other", db.OTHER]  # French's "Other" industry, then the rest
     assert held.iloc[0].tolist() == pytest.approx([0.7, 0.3])
+
+
+# --- /code-review fixes ---------------------------------------------------------------------------
+
+
+def test_read_needs_one_over_n(bundle, tmp_path):
+    names = [n for n in bundle.strategies if n != study.BENCHMARK]
+    without = dataclasses.replace(
+        bundle,
+        returns={v: f.drop(columns=study.BENCHMARK) for v, f in bundle.returns.items()},
+        turnover={v: f[names] for v, f in bundle.turnover.items()},
+        design=bundle.design.assign(value=bundle.design["value"].replace({"3": "2"})),
+    )
+    db.write(without, tmp_path, copies=copies())
+    with pytest.raises(ValueError, match="1/N"):
+        db.read(tmp_path)
+
+
+def test_read_detects_a_bundle_written_only_in_part(bundle, tmp_path):
+    db.write(bundle, tmp_path, copies=copies())
+    old = (tmp_path / "turnover_USD.csv.gz").read_bytes()
+    later = dataclasses.replace(bundle, turnover={v: f * 2 for v, f in bundle.turnover.items()})
+    db.write(later, tmp_path, copies=copies())
+    (tmp_path / "turnover_USD.csv.gz").write_bytes(old)  # as if this file was never replaced
+    with pytest.raises(ValueError, match="turnover_USD.csv.gz"):
+        db.read(tmp_path)
+
+
+def test_net_for_some_strategies_is_the_same_numbers(bundle):
+    some = bundle.strategies[1:]
+    pd.testing.assert_frame_equal(
+        db.net(bundle, "CAD", 7.0, some), db.net(bundle, "CAD", 7.0)[some]
+    )
+
+
+def test_performance_needs_a_year(bundle):
+    with pytest.raises(ValueError, match="12 months"):
+        db.performance(
+            bundle,
+            "USD",
+            bundle.strategies,
+            cost_bps=5.0,
+            start=pd.Timestamp("2015-01-01"),
+            end=pd.Timestamp("2015-06-30"),
+        )
+
+
+def test_holdings_in_a_window_start_with_the_weights_in_force():
+    traded = pd.DatetimeIndex(["2020-01-02", "2020-02-03", "2020-03-02"], name="traded")
+    w = pd.DataFrame({"A": [0.6, 0.5, 0.4], "B": [0.4, 0.5, 0.6]}, index=traded)
+    weights = pd.concat({("USD", "s"): w}, names=["view", "strategy", "traded"])
+    bundle = db.Bundle(
+        design=pd.DataFrame(),
+        returns={},
+        turnover={},
+        weights=weights,
+        factors=pd.DataFrame(),
+        tables={},
+    )
+    held = db.holdings(
+        bundle, "USD", "s", start=pd.Timestamp("2020-02-15"), end=pd.Timestamp("2020-03-31")
+    )
+    assert list(held.index) == list(traded[1:])  # February's targets held on 15 February
