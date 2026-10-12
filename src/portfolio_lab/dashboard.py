@@ -55,16 +55,19 @@ __all__ = [
     "FACTOR_COLUMNS",
     "HOLDOUT_TABLES",
     "MARKET",
+    "OTHER",
     "RF",
     "VIEWS",
     "MAX_CHARTED",
     "MAX_POINTS",
     "Bundle",
+    "beta_table",
     "betas",
     "build",
     "check",
     "drawdowns",
     "growth",
+    "holdings",
     "months",
     "net",
     "net_at",
@@ -85,12 +88,26 @@ RF = "rf"
 MARKET = "market"
 BENCHMARKS = (MARKET, study.BENCHMARK)
 FACTOR_COLUMNS = (*fa.FACTORS, "RF", fa.FX, fa.DY)
-HOLDOUT_TABLES = ("tests", "stress", "stress_realized", "shocks")
+HOLDOUT_TABLES = ("tests", "stress", "shocks")  # the app recomputes stress_realized live
+OTHER = "Other"  # the folded band of `holdings`
+WEEKS = 52  # a weekly alpha to an annual one
 DESIGN_KEYS = ("estimator", "end", "cost_bps", "strategies")
 MAX_CHARTED = EVERY_PAIR  # lines can cross, so every pair of colors must stay apart
 MAX_POINTS = 2000  # per series on a chart; the tables use every day
 
 _SAME = 1e-12  # the bundle must give back the recorded tables to rounding
+PERFORMANCE_COLUMNS = (  # study._performance's columns, which `performance` computes
+    *metrics.METRICS,
+    "tracking_error",
+    "information_ratio",
+    "sharpe_monthly",
+    "ceq_monthly",
+    "cvar_95_daily",
+    "annual_turnover",
+    "annual_cost",
+    "days",
+    "months",
+)
 # pyarrow's CSV reader rounds every float correctly (exact, like float()) and is several times
 # faster than pandas' exact parser; it comes with Streamlit, so the app has it.
 _FAST_CSV = importlib.util.find_spec("pyarrow") is not None
@@ -191,7 +208,7 @@ def write(
 ) -> dict[str, str]:
     """Write the bundle into `folder`, with `copies` (relative path -> bytes) as they are, and
     return each file's SHA-256. Gzip files carry no time stamp, so the same bundle gives the
-    same bytes."""
+    same bytes. Any other CSV file in `folder` (an older bundle's) is removed."""
     files = {"design.csv": _csv(bundle.design)}
     for v in VIEWS:
         files[f"returns_{v}.csv.gz"] = _gz(_csv(bundle.returns[v]))
@@ -203,6 +220,10 @@ def write(
         path = folder / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
+    for old in sorted(folder.rglob("*")):  # an older bundle's tables would be read as current
+        stale = old.relative_to(folder).as_posix() not in files
+        if stale and old.is_file() and old.name.endswith((".csv", ".csv.gz")):
+            old.unlink()
     return {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
 
 
@@ -376,6 +397,11 @@ def check(bundle: Bundle, held_performance: pd.DataFrame, held_monthly: pd.DataF
     names = bundle.strategies
     for v in study.TESTED_VIEWS:
         keys = [(v, n) for n in names]
+        if set(held_performance.columns) != set(PERFORMANCE_COLUMNS):
+            raise ValueError(
+                f"the holdout's performance table has the columns {list(held_performance.columns)}"
+                f", the dashboard computes {list(PERFORMANCE_COLUMNS)}: they must be the same"
+            )
         missing = [k for k in keys if k not in held_performance.index]
         if missing:
             raise ValueError(
@@ -464,13 +490,29 @@ def betas(
     end: pd.Timestamp,
 ) -> pd.DataFrame:
     """Step 5b's weekly factor betas of each strategy's excess net returns over the days from
-    `start` to `end`: FF5 + momentum in USD and CAD hedged, plus the USD/CAD return and the
-    Canadian 10-year yield change in CAD (`factors.macro_betas`, all partial)."""
+    `start` to `end`: FF5 + momentum in USD and CAD hedged, plus the USD/CAD return in CAD and,
+    for a window that starts once the daily Canadian 10-year yield exists (2001), its change
+    (`factors.macro_betas`, all partial). An earlier window leaves the yield out rather than
+    shrink to its days; the table's `start` and `end` give the sample."""
     excess = _excess(bundle, view, names, cost_bps, start, end)
     f = bundle.factors
-    if view == "CAD":
+    if view != "CAD":
+        return fa.factor_betas(excess, f, frequency="weekly")
+    first_dy = f[fa.DY].first_valid_index()
+    if first_dy is not None and excess.index[0] >= first_dy:
         return fa.macro_betas(excess, f[fa.DY], f[fa.FX], f, frequency="weekly")
-    return fa.factor_betas(excess, f, frequency="weekly")
+    return fa.factor_betas(excess, f, fx=f[fa.FX], frequency="weekly")
+
+
+def beta_table(table: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """`betas`' long table as two frames by strategy, the terms in their order: the
+    coefficients, with the weekly alpha made annual (x 52), and the t-statistics."""
+    long = table.reset_index()
+    terms = list(dict.fromkeys(long["term"]))
+    coef = long.pivot_table(index="asset", columns="term", values="coef", sort=False)[terms]
+    tstat = long.pivot_table(index="asset", columns="term", values="t", sort=False)[terms]
+    coef["alpha"] = coef["alpha"] * WEEKS
+    return coef, tstat
 
 
 def rolling_betas(
@@ -484,7 +526,9 @@ def rolling_betas(
     window: int = fa.ROLLING_WINDOW,
 ) -> pd.DataFrame:
     """Daily factor betas over each trailing `window` of days (with the USD/CAD return in
-    CAD), from the history before `start` so the first row is `start`'s, through `end`."""
+    CAD), through `end`. The history before `start` fills the first window, so the rows start
+    on `start`, or on the first full window when the data begin less than `window` days
+    before it."""
     first = bundle.returns[view].index[0]
     excess = _excess(bundle, view, [name], cost_bps, first, end)[name]
     fx = bundle.factors[fa.FX] if view == "CAD" else None
@@ -514,6 +558,20 @@ def realized(bundle: Bundle, view: str, names: Sequence[str], *, cost_bps: float
 
 
 # --- the charts' series -----------------------------------------------------------------------
+
+
+def holdings(bundle: Bundle, view: str, name: str, *, top: int = 6) -> pd.DataFrame:
+    """A strategy's targets by trade date: its `top` industries by average weight, largest
+    first, and the rest folded into OTHER (a stack of at most `top` + 1 bands)."""
+    w = bundle.weights.xs((view, name), level=["view", "strategy"])
+    assert isinstance(w, pd.DataFrame)  # two of three levels: the rest stays a frame
+    order = w.mean().sort_values(ascending=False, kind="stable").index
+    kept = [str(c) for c in order[:top]]
+    out = w[kept].copy()
+    rest = [c for c in w.columns if c not in kept]
+    if rest:
+        out[OTHER] = w[rest].sum(axis=1)
+    return out
 
 
 def growth(net: pd.DataFrame) -> pd.DataFrame:
@@ -605,11 +663,9 @@ def _gz(content: bytes) -> bytes:
 
 
 def _read(path: Path, index: list[str]) -> pd.DataFrame:
-    """A bundle file with every float exactly as written: pyarrow's reader when installed,
-    else pandas' exact parser (several times slower)."""
-    content = path.read_bytes()
-    if path.suffix == ".gz":
-        content = gzip.decompress(content)
+    """A gzip bundle file with every float exactly as written: pyarrow's reader when
+    installed, else pandas' exact parser (several times slower)."""
+    content = gzip.decompress(path.read_bytes())
     dates = [i for i in index if i in ("day", "traded")]
     if _FAST_CSV:
         frame = pd.read_csv(io.BytesIO(content), engine="pyarrow")
