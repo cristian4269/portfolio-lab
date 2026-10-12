@@ -724,3 +724,25 @@ def test_read_refuses_a_design_that_lists_no_files(written):
     kept.to_csv(written / "design.csv", lineterminator="\n")
     with pytest.raises(ValueError, match="lists no files"):
         db.read(written)
+
+
+# --- readable names -------------------------------------------------------------------------------
+
+
+def test_display_names_by_hand():
+    assert db.display_name("1/N") == "1/N"
+    assert db.display_name("min variance (lw_identity, 252d)") == "Min variance · LW identity"
+    assert (
+        db.display_name("min variance (lw_constant_correlation, 252d, cap 0.25)")
+        == "Min variance · LW const. corr. · cap 25%"
+    )
+    assert db.display_name("ERC (ewma, 252d)") == "ERC · EWMA"
+    assert db.display_name("ERC (sample, 126d)") == "ERC · sample · 126d"  # not the usual window
+    assert db.display_name("momentum tilt (strength 0.5) on 1/N") == "Momentum tilt · 0.5"
+    assert db.display_name("low-vol tilt (strength 1, 252d) on 1/N") == "Low-vol tilt · 1"
+    assert db.display_name("something else") == "something else"  # unknown names pass through
+
+
+def test_display_names_are_unique_over_the_registry():
+    names = [db.display_name(s.name) for s in study.strategies()]
+    assert len(set(names)) == len(names) == 17

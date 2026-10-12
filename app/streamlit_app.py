@@ -5,6 +5,9 @@ Run from the repository root: `uv run --group app streamlit run app/streamlit_ap
 It reads the bundle that `portfolio-lab reproduce --dashboard` wrote into app/data/
 (`PORTFOLIO_LAB_APP_DATA` points elsewhere, as the tests do) and computes everything else with
 the library's pure functions. It never loads the raw data or opens the holdout itself.
+
+The page leads with the registered result, which never changes with the controls, then the
+descriptive tabs, which follow them.
 """
 
 import os
@@ -23,12 +26,14 @@ from portfolio_lab.risk import var
 from portfolio_lab.stress import historical as hs
 
 DATA_ENV = "PORTFOLIO_LAB_APP_DATA"
-VIEWS = {
+VIEWS = {"USD": "USD", "CAD": "CAD", "CAD_HEDGED": "CAD hedged"}
+VIEW_NAMES = {
     "USD": "USD investor",
     "CAD": "Canadian investor, unhedged",
     "CAD_HEDGED": "Canadian investor, hedged",
 }
-BENCHMARK_LABELS = {db.MARKET: "Fama-French market", study.BENCHMARK: "1/N"}
+BENCHMARK_LABELS = {db.MARKET: "Market", study.BENCHMARK: "1/N"}
+BENCHMARK_NAMES = {db.MARKET: "Fama-French market", study.BENCHMARK: "1/N"}
 CACHE = {"max_entries": 32, "ttl": 3600}  # a bounded cache: the host has little memory
 TOP_HOLDINGS = 7  # the palette's adjacent-pair slots; the rest fold into one neutral band
 METHODS = {
@@ -83,7 +88,7 @@ class Choice:
     cost: float
     benchmark: str
     level: float
-    colors: dict[str, str]
+    colors: dict[str, str]  # by display name
     theme: Theme
 
 
@@ -167,7 +172,12 @@ def stress_outcomes(folder: str, view: str, names: tuple[str, ...], cost: float)
     return db.realized(bundle(folder), view, list(names), cost_bps=cost)
 
 
-# --- the tabs ---------------------------------------------------------------------------------
+# --- shared pieces -----------------------------------------------------------------------------
+
+
+def shown(names: pd.Index | list[str]) -> list[str]:
+    """Strategy names as the page shows them."""
+    return [db.display_name(str(n)) for n in names]
 
 
 def numbers(frame: pd.DataFrame, formats: dict[str, str], **kwargs: object) -> None:
@@ -178,14 +188,101 @@ def numbers(frame: pd.DataFrame, formats: dict[str, str], **kwargs: object) -> N
 
 
 def metrics_table(table: pd.DataFrame) -> None:
-    shown = table[list(METRICS)].rename(columns={k: v[0] for k, v in METRICS.items()})
-    numbers(shown, dict(METRICS.values()))
+    table = table[list(METRICS)].rename(columns={k: v[0] for k, v in METRICS.items()})
+    table.index = pd.Index(shown(table.index), name="Strategy")
+    numbers(table, dict(METRICS.values()))
+
+
+def _signed(value: float) -> str:
+    """A signed difference to 3 places, with a true minus sign as the charts draw it."""
+    return f"{value:+.3f}".replace("-", "−")
+
+
+def _day(value: object) -> str:
+    """A date as YYYY-MM-DD, whether it comes as a timestamp or a string."""
+    return str(pd.Timestamp(str(value)).date())
+
+
+# --- the registered result ---------------------------------------------------------------------
+
+
+def registered(b: db.Bundle, c: Choice) -> None:
+    """The four pre-registered tests, as they ran once on the holdout: they do not move with
+    the controls, and the page says so."""
+    tests = b.tables["tests"]
+    rows = tests.loc[tests["family"] == "primary"].copy()
+    rows["label"] = [
+        f"{db.display_name(s).split(' · ')[0]} · {v}"
+        for s, v in zip(rows["strategy"], rows["view"], strict=True)
+    ]
+    rejected = int(rows["reject_primary"].astype(bool).sum())
+    holm = rows["holm_primary"]
+    holm_text = (
+        f"every Holm-adjusted p is {holm.iloc[0]:.2f}"
+        if holm.min() == holm.max()
+        else f"Holm-adjusted p from {holm.min():.2f} to {holm.max():.2f}"
+    )
+    zero = (rows["ci_low"] <= 0) & (rows["ci_high"] >= 0)
+    with st.container(border=True):
+        st.badge("Registered · run once on the holdout · fixed", icon=":material/lock:")
+        plot, words = st.columns([3, 2], vertical_alignment="center")
+        with plot:
+            st.altair_chart(charts.forest(rows, c.theme), theme=None)
+        with words:
+            verdict = (
+                "No registered test rejects."
+                if rejected == 0
+                else (f"{rejected} of the {len(rows)} registered tests reject.")
+            )
+            st.markdown(f"**{verdict}**")
+            intervals = (
+                "every 95% interval contains zero"
+                if zero.all()
+                else f"{int(zero.sum())} of the {len(rows)} 95% intervals contain zero"
+            )
+            st.markdown(
+                f"Annual Sharpe ratio differences against 1/N run from "
+                f"{_signed(rows['diff'].min())} to {_signed(rows['diff'].max())}; {intervals}, "
+                f"and {holm_text}."
+            )
+            st.caption(
+                f"Holdout {pd.Timestamp(HOLDOUT_START):%b %Y} to "
+                f"{pd.Timestamp(str(b.design['value']['end'])):%b %Y} "
+                f"({int(rows['months'].iloc[0])} months), {b.design['value']['cost_bps']} bp per "
+                "side, pre-registered in research/PLAN.md."
+            )
+        if c.view not in study.TESTED_VIEWS:
+            st.caption(
+                "The hedged view has no test: its excess return is the USD one (research/PLAN.md "
+                "§2). Everything about it below is descriptive."
+            )
+        with st.expander("The registered table"):
+            table = pd.DataFrame(
+                {
+                    "Test": rows["label"],
+                    "Sharpe difference": rows["diff"],
+                    "95% CI low": rows["ci_low"],
+                    "95% CI high": rows["ci_high"],
+                    "Block (months)": rows["block"],
+                    "p (Ledoit-Wolf)": rows["p"],
+                    "Holm p": rows["holm_primary"],
+                }
+            )
+            numbers(
+                table,
+                {col: "%.3f" for col in table.columns[1:]} | {"Block (months)": "%d"},
+                hide_index=True,
+            )
+
+
+# --- the tabs ---------------------------------------------------------------------------------
 
 
 def performance_tab(b: db.Bundle, c: Choice) -> None:
     all_nets = nets(c.folder, c.view, c.cost)
     days = (all_nets.index >= c.start) & (all_nets.index <= c.end)
     picked = all_nets.loc[days, c.charted]
+    picked.columns = shown(picked.columns)
     st.subheader("Growth of $1, net of costs")
     log = st.toggle("Log scale", value=len(picked) / 252 > 25)
     growth = db.thin(db.growth(picked), "last")
@@ -208,15 +305,14 @@ def performance_tab(b: db.Bundle, c: Choice) -> None:
     st.caption(
         f"Daily net returns at {c.cost:g} bp per side. Sharpe (monthly) is the study's measure: "
         "monthly excess returns, annualized by the square root of 12. Tracking error and "
-        f"information ratio are against the {BENCHMARK_LABELS[c.benchmark]}."
+        f"information ratio are against the {BENCHMARK_NAMES[c.benchmark]}."
     )
     holdings_section(b, c)
-    registered_tests(b, c.view)
 
 
 def holdings_section(b: db.Bundle, c: Choice) -> None:
     st.subheader("Holdings")
-    name = st.selectbox("Strategy", c.charted, key="holdings_strategy")
+    name = st.selectbox("Strategy", c.charted, format_func=db.display_name, key="holdings_strategy")
     held = db.holdings(b, c.view, name, top=TOP_HOLDINGS, start=c.start, end=c.end)
     colors = list(c.theme.series[: min(len(held.columns), TOP_HOLDINGS)])
     if db.OTHER in held.columns:
@@ -230,43 +326,15 @@ def holdings_section(b: db.Bundle, c: Choice) -> None:
     )
 
 
-def registered_tests(b: db.Bundle, view: str) -> None:
-    st.subheader("The registered tests")
-    if view not in study.TESTED_VIEWS:
-        st.caption(
-            "The hedged view has no test: its excess return is the USD one (research/PLAN.md "
-            "§2). Its metrics above are descriptive."
-        )
-        return
-    tests = b.tables["tests"]
-    rows = tests.loc[(tests["view"] == view) & (tests["family"] == "primary")]
-    shown = pd.DataFrame(
-        {
-            "Strategy": rows["strategy"],
-            "Sharpe difference vs 1/N": rows["diff"],
-            "95% CI low": rows["ci_low"],
-            "95% CI high": rows["ci_high"],
-            "Block (months)": rows["block"],
-            "p (Ledoit-Wolf)": rows["p"],
-            "Holm p": rows["holm_primary"],
-        }
-    )
-    numbers(
-        shown,
-        {col: "%.3f" for col in shown.columns[1:]} | {"Block (months)": "%d"},
-        hide_index=True,
-    )
-    st.caption(
-        "Pre-registered in research/PLAN.md and run once on the holdout (Jan 2011 to Aug 2026, "
-        "5 bp, annual Sharpe ratios from monthly returns). They do not change with the "
-        "controls: everything else on this page is descriptive."
-    )
-
-
 def risk_tab(c: Choice) -> None:
-    name = st.selectbox("Strategy", c.charted, key="risk_strategy")
-    method = st.radio(
-        "Method", list(METHODS), format_func=METHODS.__getitem__, horizontal=True, index=3
+    name = st.selectbox("Strategy", c.charted, format_func=db.display_name, key="risk_strategy")
+    method = st.segmented_control(
+        "Method",
+        list(METHODS),
+        format_func=METHODS.__getitem__,
+        default="fhs",
+        required=True,
+        key="method",
     )
     try:
         path, row = var_backtest(c.folder, c.view, name, c.cost, method, c.level, c.start, c.end)
@@ -280,9 +348,9 @@ def risk_tab(c: Choice) -> None:
     two.metric("Kupiec p (exact)", f"{row['kupiec_exact_p']:.2f}")
     three.metric("Independence p", f"{row['independence_p']:.2f}")
     four.metric("Conditional coverage p", f"{row['cc_p']:.2f}")
+    color = c.colors[db.display_name(name)]
     st.altair_chart(
-        charts.var_chart(path, c.colors[name], c.theme, label=f"Loss limit (-VaR {level})"),
-        theme=None,
+        charts.var_chart(path, color, c.theme, label=f"Loss limit (-VaR {level})"), theme=None
     )
     st.caption(
         f"Each dot is an exception: a day whose loss went past that day's {level} VaR. Over "
@@ -308,8 +376,9 @@ def factors_tab(c: Choice) -> None:
         return
     coef, tstat = db.beta_table(table)
     st.subheader("Factor betas")
+    rows = pd.Index(shown(coef.index), name="Strategy")
     numbers(
-        coef.rename(columns=TERMS).rename_axis("Strategy"),
+        coef.rename(columns=TERMS).set_axis(rows),
         {TERMS["alpha"]: "percent"} | {TERMS[t]: "%.2f" for t in coef.columns if t != "alpha"},
     )
     fit = table.xs("alpha", level="term")
@@ -320,7 +389,7 @@ def factors_tab(c: Choice) -> None:
             if "dy" in coef.columns
             else "; the daily 10-year yield starts in 2001, so it is left out of this window. "
         )
-    r2 = ", ".join(f"{n} {r:.2f}" for n, r in fit["r2"].items())
+    r2 = ", ".join(f"{db.display_name(str(n))} {r:.2f}" for n, r in fit["r2"].items())
     st.caption(
         "Weekly excess returns (Wednesday to Wednesday) on the Fama-French five factors and "
         "momentum, all at once, so each beta holds the others fixed (Step 5b). "
@@ -330,7 +399,7 @@ def factors_tab(c: Choice) -> None:
     )
     with st.expander("t-statistics (Newey-West)"):
         numbers(
-            tstat.rename(columns=TERMS).rename_axis("Strategy"),
+            tstat.rename(columns=TERMS).set_axis(rows),
             {TERMS[t]: "%.1f" for t in tstat.columns},
         )
     st.subheader("Rolling betas, 252 days")
@@ -342,7 +411,10 @@ def factors_tab(c: Choice) -> None:
         format_func=TERMS.__getitem__,
     )
     frame = pd.DataFrame(
-        {n: rolling(c.folder, c.view, n, c.cost, c.start, c.end)[term] for n in c.charted}
+        {
+            db.display_name(n): rolling(c.folder, c.view, n, c.cost, c.start, c.end)[term]
+            for n in c.charted
+        }
     )
     chart = charts.lines(
         db.thin(frame, "last"), c.colors, c.theme, y_title=f"{TERMS[term]} beta", y_format=".2f"
@@ -351,42 +423,50 @@ def factors_tab(c: Choice) -> None:
     st.caption("Daily regressions over each trailing year, a description rather than a forecast.")
 
 
-def _day(value: object) -> str:
-    """A date as YYYY-MM-DD, whether it comes as a timestamp or a string."""
-    return str(pd.Timestamp(str(value)).date())
-
-
 def stress_tab(b: db.Bundle, c: Choice) -> None:
     all_nets = nets(c.folder, c.view, c.cost)
     covered = [s for s in SCENARIOS if db.scenario_days(all_nets.index, hs.SCENARIOS[s]).any()]
     if not covered:
         st.info("The data hold none of the registered stress windows.")
         return
-    scenario = st.radio("Scenario", covered, format_func=SCENARIOS.__getitem__, horizontal=True)
+    scenario = st.segmented_control(
+        "Scenario",
+        covered,
+        format_func=SCENARIOS.__getitem__,
+        default=covered[0],
+        required=True,
+        key="scenario",
+    )
     s = hs.SCENARIOS[scenario]
     st.caption(s.note)
     inside = db.scenario_days(all_nets.index, s)
     st.subheader("What each strategy went through")
-    growth = db.growth(all_nets.loc[inside, c.charted])
+    window = all_nets.loc[inside, c.charted]
+    window.columns = shown(window.columns)
     chart = charts.lines(
-        growth, c.colors, c.theme, y_title="Value of $1", y_format="$,.2f", x_format="%b %d"
+        db.growth(window),
+        c.colors,
+        c.theme,
+        y_title="Value of $1",
+        y_format="$,.2f",
+        x_format="%b %d",
     )
     st.altair_chart(chart, theme=None)
     realized = stress_outcomes(c.folder, c.view, tuple(c.charted), c.cost).xs(
         scenario, level="scenario"
     )
+    realized = realized[["pnl", "worst_day", "worst_date", "max_drawdown", "days"]].rename(
+        columns={
+            "pnl": "P&L",
+            "worst_day": "Worst day",
+            "worst_date": "On",
+            "max_drawdown": "Max drawdown",
+            "days": "Days",
+        }
+    )
+    realized.index = pd.Index(shown(realized.index), name="Strategy")
     numbers(
-        realized[["pnl", "worst_day", "worst_date", "max_drawdown", "days"]]
-        .rename(
-            columns={
-                "pnl": "P&L",
-                "worst_day": "Worst day",
-                "worst_date": "On",
-                "max_drawdown": "Max drawdown",
-                "days": "Days",
-            }
-        )
-        .rename_axis("Strategy"),
+        realized,
         {"P&L": "percent", "Worst day": "percent", "Max drawdown": "percent", "Days": "%d"},
     )
     st.caption(
@@ -398,12 +478,12 @@ def stress_tab(b: db.Bundle, c: Choice) -> None:
     replay = b.tables["stress"]
     rows = replay.loc[(replay["view"] == c.view) & (replay["scenario"] == scenario)]
     numbers(
-        rows[["portfolio", "pnl", "worst_day", "max_drawdown"]].rename(
-            columns={
-                "portfolio": "Portfolio",
-                "pnl": "P&L",
-                "worst_day": "Worst day",
-                "max_drawdown": "Max drawdown",
+        pd.DataFrame(
+            {
+                "Portfolio": shown(list(rows["portfolio"])),
+                "P&L": rows["pnl"].to_numpy(),
+                "Worst day": rows["worst_day"].to_numpy(),
+                "Max drawdown": rows["max_drawdown"].to_numpy(),
             }
         ),
         {"P&L": "percent", "Worst day": "percent", "Max drawdown": "percent"},
@@ -416,14 +496,14 @@ def stress_tab(b: db.Bundle, c: Choice) -> None:
     shocks = b.tables["shocks"]
     rows = shocks.loc[(shocks["view"] == c.view) & (shocks["span"] == "holdout")]
     numbers(
-        rows[["asset", "shock", "move", "beta", "pnl", "pnl_se"]].rename(
-            columns={
-                "asset": "Portfolio",
-                "shock": "Shock",
-                "move": "Move",
-                "beta": "Beta",
-                "pnl": "P&L",
-                "pnl_se": "P&L standard error",
+        pd.DataFrame(
+            {
+                "Portfolio": shown(list(rows["asset"])),
+                "Shock": rows["shock"].to_numpy(),
+                "Move": rows["move"].to_numpy(),
+                "Beta": rows["beta"].to_numpy(),
+                "P&L": rows["pnl"].to_numpy(),
+                "P&L standard error": rows["pnl_se"].to_numpy(),
             }
         ),
         {"Move": "percent", "Beta": "%.2f", "P&L": "percent", "P&L standard error": "percent"},
@@ -436,9 +516,6 @@ def stress_tab(b: db.Bundle, c: Choice) -> None:
 
 
 def about_tab(b: db.Bundle) -> None:
-    tests = b.tables["tests"]
-    rejected = int(tests.loc[tests["family"] == "primary", "reject_primary"].astype(bool).sum())
-    verdict = "None rejects." if rejected == 0 else f"{rejected} of them reject."
     st.subheader("What this is")
     st.markdown(
         'A replication and extension of DeMiguel, Garlappi and Uppal (2009), "Optimal versus '
@@ -452,9 +529,9 @@ def about_tab(b: db.Bundle) -> None:
         "- **Backtest.** Monthly rebalancing on the last trading day, traded at the next close, "
         "5 bp per side by default. Covariances use Ledoit-Wolf shrinkage over 252 days.\n"
         "- **Test.** Ledoit and Wolf's (2008) bootstrap of the Sharpe ratio difference against "
-        f"1/N, with Holm's correction over the four primary tests. {verdict}\n"
-        "- **Everything else here is descriptive.** Other dates, costs and strategies show what "
-        "happened, not what the test found."
+        "1/N, with Holm's correction over the four primary tests.\n"
+        "- **Everything outside the registered panel is descriptive.** Other dates, costs and "
+        "strategies show what happened, not what the test found."
     )
     st.subheader("Data")
     st.markdown(
@@ -479,15 +556,27 @@ def about_tab(b: db.Bundle) -> None:
 
 def controls(b: db.Bundle, folder: str, t: Theme) -> Choice:
     with st.sidebar:
-        st.header("Controls")
-        view = st.radio("Investor", list(VIEWS), format_func=VIEWS.__getitem__, key="view")
+        st.subheader("Investor")
+        view = st.segmented_control(
+            "Currency view",
+            list(VIEWS),
+            format_func=VIEWS.__getitem__,
+            default="USD",
+            required=True,
+            key="view",
+            help="USD: a US investor. CAD: a Canadian investor holding the same US assets, "
+            "unhedged or with the currency hedged.",
+        )
+        st.subheader("Strategies")
         charted = st.multiselect(
-            f"Strategies on the charts (up to {db.MAX_CHARTED})",
+            f"Up to {db.MAX_CHARTED} on the charts",
             b.strategies,
             default=primary(b),
+            format_func=db.display_name,
             max_selections=db.MAX_CHARTED,
             key="charted",
         )
+        st.subheader("Period and costs")
         months = list(db.months(b, view))
         first = max(pd.Period(HOLDOUT_START, "M"), months[0])
         chosen = st.select_slider(
@@ -498,27 +587,35 @@ def controls(b: db.Bundle, folder: str, t: Theme) -> Choice:
             key=f"months_{view}",
         )
         cost = float(st.slider("Trading cost (bp per side)", 0, 50, int(db.COST_BPS), key="cost"))
-        benchmark = st.radio(
+        st.subheader("Risk")
+        benchmark = st.segmented_control(
             "Tracking error against",
             list(BENCHMARK_LABELS),
             format_func=BENCHMARK_LABELS.__getitem__,
-            horizontal=True,
+            default=db.MARKET,
+            required=True,
+            key="benchmark",
         )
-        level = st.radio(
-            "VaR level", var.LEVELS, index=1, format_func=lambda x: f"{x:.0%}", horizontal=True
+        level = st.segmented_control(
+            "VaR level",
+            var.LEVELS,
+            format_func=lambda x: f"{x:.0%}",
+            default=var.LEVELS[-1],
+            required=True,
+            key="level",
         )
     slots = db.slots(charted, st.session_state.get("slots", {}))
     st.session_state["slots"] = slots
     return Choice(
         folder=folder,
-        view=view,
+        view=str(view),
         charted=charted,
         start=chosen[0].start_time,
         end=chosen[1].end_time,
         cost=cost,
-        benchmark=benchmark,
+        benchmark=str(benchmark),
         level=float(level),
-        colors={n: t.series[s] for n, s in slots.items()},
+        colors={db.display_name(n): t.series[s] for n, s in slots.items()},
         theme=t,
     )
 
@@ -535,27 +632,34 @@ def main() -> None:
         st.stop()
     c = controls(b, folder, charts.theme(getattr(st.context.theme, "type", None)))
 
+    st.caption("portfolio-lab · a replication of DeMiguel, Garlappi and Uppal (2009)")
     st.title("Optimal versus naive diversification")
-    st.caption(
-        "A replication and extension of DeMiguel, Garlappi and Uppal (2009) for a Canadian "
-        f"investor: {len(b.strategies)} long-only strategies on the 12 Fama-French industries, "
-        "monthly rebalancing, costs, and a pre-registered test. A research exercise, not "
-        "investment advice."
+    st.markdown(
+        f"Do {len(b.strategies) - 1} long-only strategies built from the 12 Fama-French "
+        "industries beat an equal split (1/N) after costs, for a US and a Canadian investor? "
+        "A research exercise, not investment advice."
     )
-    if c.start < pd.Timestamp(HOLDOUT_START):
-        st.caption(
-            "The months before January 2011 were used to design the study. The pre-registered "
-            "test covers January 2011 to August 2026."
-        )
-    tabs = st.tabs(["Performance", "Risk", "Factors", "Stress", "About"])
-    with tabs[4]:
-        about_tab(b)
+    registered(b, c)
+
     months = (c.end.year - c.start.year) * 12 + c.end.month - c.start.month + 1
     problem = None
     if not c.charted:
         problem = "Choose at least one strategy in the controls."
     elif months < db.MIN_MONTHS:
         problem = f"Choose at least {db.MIN_MONTHS} months: annual figures need a full year."
+    st.badge(
+        f"Descriptive · {VIEW_NAMES[c.view]} · {c.start:%b %Y} to {c.end:%b %Y} · {c.cost:g} bp",
+        icon=":material/tune:",
+        color="gray",
+    )
+    if c.start < pd.Timestamp(HOLDOUT_START):
+        st.caption(
+            "The months before January 2011 were used to design the study; the registered test "
+            "covers January 2011 to August 2026."
+        )
+    tabs = st.tabs(["Performance", "Risk", "Factors", "Stress", "About"])
+    with tabs[4]:
+        about_tab(b)
     if problem:
         for tab in tabs[:4]:
             with tab:
