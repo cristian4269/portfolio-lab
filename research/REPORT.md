@@ -1,5 +1,10 @@
 # Optimal versus naive diversification for a Canadian investor: the holdout report
 
+**Cristian Ciorba**, Finance student at HEC Montréal
+([LinkedIn](https://www.linkedin.com/in/cristian-ciorba-6a70b0381)). Built with Claude Code, an
+AI coding assistant ([how](../README.md#how-it-was-built)). Written 2026-10-11, last revised
+2026-10-12 ([Revisions](#revisions)).
+
 **Pre-registered** in [`research/PLAN.md`](PLAN.md), frozen at the tag `prereg-v1` (commit
 `317d4c4`) before any holdout number existed. **Holdout:** January 2011 to August 2026, 188
 months, run once on 2026-10-11. Every number here comes from `uv run portfolio-lab reproduce`
@@ -21,6 +26,11 @@ advice.
   is the expected outcome and does not show that the strategies are equal.
 - **The robustness checks tell the same story.** Of 24 descriptive robustness tests, one
   has a raw p below 0.05 (ERC on the 49 industries, CAD), about what chance gives.
+- **The risk models were tested too (§8).** Of four one-day VaR methods, only filtered
+  historical simulation gets the 95% exceptions at the right rate and without clustering, in
+  all 6 series; every series is in the Basel green zone. In the stress windows, minimum
+  variance's final holdings lost least in the 2008 crisis and the 2022 rate shock (−26.5% and
+  −0.4%, against 1/N's −30.3% and −10.5%), and about as much as 1/N in the COVID crash.
 
 ## 2. Question and pre-registration
 
@@ -32,8 +42,8 @@ This replicates and extends DeMiguel, Garlappi and Uppal (2009), "Optimal versus
 diversification" (*Review of Financial Studies* 22(5)).
 - **The extensions:** shrinkage covariance estimators, ERC, a CAD view, transaction costs, a
   time-series-robust Sharpe test, a luck benchmark, and risk-model validation.
-- **Prior knowledge** (declared in PLAN.md §11): both the owner and the assistant knew in
-  advance that 1/N is hard to beat and that the low-volatility anomaly exists. The holdout
+- **Prior knowledge** (declared in PLAN.md §11): both the owner and the AI assistant (Claude
+  Code) knew in advance that 1/N is hard to beat and that the low-volatility anomaly exists. The holdout
   guards against tuning on these series, not against that knowledge.
 
 **The timeline** (git history; times are Eastern):
@@ -87,8 +97,8 @@ changed since the tag.
     It was chosen on dev data by the lowest minimum variance volatility, a rule that never
     looks at a mean or a Sharpe ratio. The three candidates nearly tied: 12.71%, 12.77%
     and 12.82%.
-  - **Sixteen strategies in all,** with capped, EWMA and tilt variants. The non-primary ones
-    are exploratory.
+  - **Sixteen strategies besides 1/N (seventeen with it),** with capped, EWMA and tilt
+    variants. The non-primary ones are exploratory.
 - **The backtest:**
   - Rebalancing is monthly, estimated through the close of the last trading day and traded
     at the next close.
@@ -235,8 +245,9 @@ is:
 
 - **Filtered historical simulation is the only model whose 95% exceptions arrive at the right
   rate and without clustering,** as on dev.
-- **At 99%,** the normal model fails in every series. No model's 99% exceptions are free of
-  clustering.
+- **At 99%,** the normal model fails Kupiec's test in every series, and clustering is the
+  rule: only filtered historical simulation on 1000 days passes conditional coverage, in 1 of
+  6 series.
 - **Every series is in the Basel green zone.**
 
 **Stress** (PLAN.md §10):
@@ -354,9 +365,11 @@ The table gives the annual Sharpe difference against 1/N, with the raw p in brac
     or a basket, and it has no market impact.
   - The unhedged Canadian pays no currency conversion cost, and the hedged one no hedging
     cost.
-- **Known history.** The holdout years were lived through by both authors. The pre-registration
-  rules out tuning on these series, not knowing that 2011-2026 was a strong, technology-led US
-  market.
+- **Known history.** The owner and the AI assistant both knew the holdout years in broad
+  strokes. The pre-registration rules out tuning on these series, not knowing that 2011-2026
+  was a strong, technology-led US market.
+- **Expected shortfall is not backtested.** ES is forecast beside VaR (and shown in the
+  dashboard), but only the VaR exceptions are backtested here.
 - **One vintage.** French revises the library when CRSP updates. The numbers hold for the
   frozen vintage; a newer one warns and may drift.
 - **One design.** Long-only, monthly, 12 industries. DeMiguel et al. also study short sales,
@@ -371,6 +384,8 @@ The table gives the annual Sharpe difference against 1/N, with the raw p in brac
   French library publishes after the tag, reported apart and descriptive only. It waits for
   enough new months to say anything.
 - **An external check** of the prewhitened HAC against the authors' R code.
+- **An expected shortfall backtest,** for example Acerbi and Székely's (2014) tests, reported
+  as exploratory.
 - **The dashboard** (done in Step 8, after this report; this line updated 2026-10-12): the
   same tables, interactive, in
   `app/streamlit_app.py`, live at https://portfolio-lab-demo.streamlit.app/. The
@@ -399,3 +414,17 @@ uv run portfolio-lab figures                       # research/figures/
   - Result tables are not committed, only the manifest and the figures.
 - **Not investment advice.** This is a research exercise on historical data; past
   differences in risk-adjusted returns say nothing certain about future ones.
+
+## Revisions
+
+**2026-10-12, after publication.** Wording only: no number changed, and every number added
+repeats one from §8.
+- The byline (author, AI assistance, dates).
+- §1: a bullet for the risk models and the stress tests, from §8.
+- §2 and §11: the assistant is named as an AI coding assistant. §11's "both authors" became
+  "the owner and the AI assistant".
+- §4: "Sixteen strategies in all" became "sixteen besides 1/N (seventeen with it)".
+- §8: the 99% sentence now matches its table. It had said no model's 99% exceptions are free
+  of clustering; filtered historical simulation on 1000 days passes conditional coverage in
+  1 of 6 series.
+- §11 and §12: expected shortfall is not backtested; an ES backtest is a next step.
