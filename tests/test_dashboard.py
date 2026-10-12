@@ -1,5 +1,6 @@
 """The dashboard's bundle and its pure functions (Step 8, plans/step-8-plan.md D1-D6)."""
 
+import dataclasses
 import hashlib
 import re
 
@@ -468,7 +469,8 @@ def test_var_backtest_is_the_studys_on_the_holdout(bundle, study_tables):
         for method, level in (("historical", 0.99), ("fhs", 0.95)):
             path, row = db.var_backtest(series, method=method, level=level, start=start, end=end)
             theirs = held.loc[(view, name, study.VAR_WINDOW, level, method)]
-            for col in ("days", "exceptions", "kupiec_p", "kupiec_exact_p", "independence_p"):
+            cols = ("days", "exceptions", "kupiec_p", "kupiec_exact_p", "independence_p", "cc_p")
+            for col in cols:
                 assert row[col] == pytest.approx(theirs[col], rel=1e-12, abs=1e-12), col
             assert list(path.columns) == ["return", "var", "es", "exception"]
             assert path.index[0] >= start and path.index[-1] == series.index[-1]
@@ -520,6 +522,8 @@ def test_realized_stress_is_the_studys(bundle, study_tables):
             assert row["pnl"] == pytest.approx(theirs["pnl"], rel=1e-12)
             assert row["max_drawdown"] == pytest.approx(theirs["max_drawdown"], rel=1e-12)
             assert row["days"] == theirs["days"]
+            assert row["worst_day"] == pytest.approx(theirs["worst_day"], rel=1e-12)
+            assert row["worst_date"] == theirs["worst_date"]
         assert set(mine.index.get_level_values("scenario")) == {"gfc", "covid", "rates"}
 
 
@@ -547,3 +551,79 @@ def test_read_gives_the_same_bundle_with_or_without_pyarrow(written, monkeypatch
         pd.testing.assert_frame_equal(fast.turnover[v], slow.turnover[v], check_exact=True)
     pd.testing.assert_frame_equal(fast.weights, slow.weights, check_exact=True)
     pd.testing.assert_frame_equal(fast.factors, slow.factors, check_exact=True)
+
+
+# --- review fixes -------------------------------------------------------------------------------
+
+
+def with_late_dy(bundle, first="2015-01-02"):
+    """The bundle with the 10-year yield change missing before `first`, as the real one is
+    before 2001 (the daily series starts then)."""
+    factors = bundle.factors.copy()
+    factors.loc[factors.index < pd.Timestamp(first), fa.DY] = np.nan
+    return dataclasses.replace(bundle, factors=factors)
+
+
+def test_cad_betas_leave_the_yield_out_of_windows_that_start_before_it(bundle):
+    late = with_late_dy(bundle)
+    names = bundle.strategies[:2]
+    early = db.betas(
+        late, "CAD", names, cost_bps=5.0, start=pd.Timestamp("2012-01-01"), end=pd.Timestamp(END)
+    )
+    assert "dy" not in set(early.index.get_level_values("term"))
+    assert "fx" in set(early.index.get_level_values("term"))
+    first = pd.to_datetime(early["start"]).min()
+    assert first < pd.Timestamp("2012-01-31")  # the whole window, not from the yield's start
+    later = db.betas(
+        late, "CAD", names, cost_bps=5.0, start=pd.Timestamp("2015-02-01"), end=pd.Timestamp(END)
+    )
+    assert "dy" in set(later.index.get_level_values("term"))
+
+
+def test_beta_table_annualizes_the_weekly_alpha_by_hand():
+    index = pd.MultiIndex.from_product([["s"], ["alpha", "Mkt-RF"]], names=["asset", "term"])
+    table = pd.DataFrame({"coef": [0.001, 0.9], "t": [2.0, 30.0]}, index=index)
+    coef, tstat = db.beta_table(table)
+    assert coef.loc["s", "alpha"] == pytest.approx(0.052)  # 0.1% a week, 52 weeks
+    assert coef.loc["s", "Mkt-RF"] == 0.9 and tstat.loc["s", "alpha"] == 2.0
+    assert list(coef.columns) == ["alpha", "Mkt-RF"]
+
+
+def test_holdings_keep_the_largest_industries_and_fold_the_rest():
+    traded = pd.DatetimeIndex(["2020-01-02", "2020-02-03"], name="traded")
+    w = pd.DataFrame(
+        {"A": [0.5, 0.3], "B": [0.3, 0.5], "C": [0.15, 0.1], "D": [0.05, 0.1]}, index=traded
+    )
+    weights = pd.concat({("USD", "s"): w}, names=["view", "strategy", "traded"])
+    bundle = db.Bundle(
+        design=pd.DataFrame(),
+        returns={},
+        turnover={},
+        weights=weights,
+        factors=pd.DataFrame(),
+        tables={},
+    )
+    held = db.holdings(bundle, "USD", "s", top=2)
+    assert list(held.columns) == ["A", "B", db.OTHER]  # by average weight, largest first
+    assert held[db.OTHER].tolist() == pytest.approx([0.2, 0.2])
+    assert np.allclose(held.sum(axis=1), 1.0)
+    assert list(db.holdings(bundle, "USD", "s", top=6).columns) == ["A", "B", "C", "D"]
+
+
+def test_check_refuses_a_performance_table_with_other_columns(bundle, references):
+    performance, monthly = references
+    with pytest.raises(ValueError, match="columns"):
+        db.check(bundle, performance.drop(columns="calmar"), monthly)
+    with pytest.raises(ValueError, match="columns"):
+        db.check(bundle, performance.assign(extra=1.0), monthly)
+
+
+def test_write_removes_files_of_an_older_bundle(bundle, tmp_path):
+    (tmp_path / "holdout").mkdir()
+    (tmp_path / "holdout" / "stress_realized.csv").write_text("old")
+    (tmp_path / "returns_EUR.csv.gz").write_bytes(b"old")
+    (tmp_path / "README.md").write_text("kept: not a bundle file")
+    db.write(bundle, tmp_path, copies=copies())
+    assert not (tmp_path / "holdout" / "stress_realized.csv").exists()
+    assert not (tmp_path / "returns_EUR.csv.gz").exists()
+    assert (tmp_path / "README.md").exists()
