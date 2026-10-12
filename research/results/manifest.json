@@ -372,10 +372,10 @@
     },
     "dashboard": {
       "command": "portfolio-lab reproduce --dashboard",
-      "created": "2026-10-12T01:20:29+00:00",
+      "created": "2026-10-12T01:33:20+00:00",
       "estimator": "lw_identity",
       "git": {
-        "commit": "cddb1828d11ee27643269095be373a4b53887b1c",
+        "commit": "af7d6b7d455f09cc9096f5cec2914cd9bb7fcaf7",
         "dirty": false,
         "tag_commit": "317d4c45828f996a5e6d3971496622a0f8113d68",
         "changed_since_tag": [
@@ -448,7 +448,6 @@
         "portfolio-lab": "0.1.0"
       },
       "tables": {
-        "design.csv": "eee6a026980aaf585f51f005c23772344affe7d47e4e5cd457bc47179d45ed2d",
         "returns_USD.csv.gz": "079f41cb9bd5af479b281753d25c65defd38bad63ecd497d4264e731b47d9bbb",
         "turnover_USD.csv.gz": "0926b932407e29c53d34a007300cd65180c52757f648ec6869d1e36723bdb23c",
         "returns_CAD.csv.gz": "8ef68dd958e77abe816930b5021f62d3b45f51c04106269244aa59d024dcef98",
@@ -459,7 +458,8 @@
         "factors.csv.gz": "6824b71b940da4606661e74c58c9383ca614adb67b90032b32c3449f1c808195",
         "holdout/tests.csv": "6feddd2efb6855e1b24f2b7151455b7ba2b879d3e78bc045dd3faeff9591b702",
         "holdout/stress.csv": "eaf188b47012e689fe9d489ad48235d16cf85f2afa9c29c096e73ac4b7cc7bef",
-        "holdout/shocks.csv": "89e9c11daba5836c52ada5aaccc3c5cab2b893a7bb2b45207f6a915662045137"
+        "holdout/shocks.csv": "89e9c11daba5836c52ada5aaccc3c5cab2b893a7bb2b45207f6a915662045137",
+        "design.csv": "48c6061ffb0b321840ac70fdc9967fa4f5e6c77c33ca9a7f103de349c0d03290"
       }
     }
   }
