@@ -27,6 +27,7 @@ pure except `build`, which backtests through the guarded engine.
 
 import gzip
 import hashlib
+import importlib.util
 import io
 import math
 from collections.abc import Mapping, Sequence
@@ -90,6 +91,9 @@ MAX_CHARTED = EVERY_PAIR  # lines can cross, so every pair of colors must stay a
 MAX_POINTS = 2000  # per series on a chart; the tables use every day
 
 _SAME = 1e-12  # the bundle must give back the recorded tables to rounding
+# pyarrow's CSV reader rounds every float correctly (exact, like float()) and is several times
+# faster than pandas' exact parser; it comes with Streamlit, so the app has it.
+_FAST_CSV = importlib.util.find_spec("pyarrow") is not None
 _YEAR = math.sqrt(12)
 
 
@@ -601,11 +605,18 @@ def _gz(content: bytes) -> bytes:
 
 
 def _read(path: Path, index: list[str]) -> pd.DataFrame:
+    """A bundle file with every float exactly as written: pyarrow's reader when installed,
+    else pandas' exact parser (several times slower)."""
+    content = path.read_bytes()
+    if path.suffix == ".gz":
+        content = gzip.decompress(content)
     dates = [i for i in index if i in ("day", "traded")]
+    if _FAST_CSV:
+        frame = pd.read_csv(io.BytesIO(content), engine="pyarrow")
+        for col in dates:
+            # the unit pandas gives parsed dates (as `parse_dates` does), not seconds
+            frame[col] = pd.to_datetime(frame[col], format="%Y-%m-%d").dt.as_unit("us")
+        return frame.set_index(index)
     return pd.read_csv(
-        io.BytesIO(path.read_bytes()),
-        compression="gzip" if path.suffix == ".gz" else None,
-        index_col=index,
-        parse_dates=dates,
-        float_precision="round_trip",
+        io.BytesIO(content), index_col=index, parse_dates=dates, float_precision="round_trip"
     )

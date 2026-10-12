@@ -534,3 +534,16 @@ def test_realized_skips_the_windows_outside_the_data(short_inputs):
     short = db.build(short_inputs, end="2009-06-30", estimator="sample", strategies=group())
     table = db.realized(short, "USD", [study.BENCHMARK], cost_bps=5.0)
     assert set(table.index.get_level_values("scenario")) == {"gfc"}  # covid and rates are later
+
+
+def test_read_gives_the_same_bundle_with_or_without_pyarrow(written, monkeypatch):
+    pytest.importorskip("pyarrow")
+    monkeypatch.setattr(db, "_FAST_CSV", True)
+    fast = db.read(written)
+    monkeypatch.setattr(db, "_FAST_CSV", False)
+    slow = db.read(written)
+    for v in db.VIEWS:
+        pd.testing.assert_frame_equal(fast.returns[v], slow.returns[v], check_exact=True)
+        pd.testing.assert_frame_equal(fast.turnover[v], slow.turnover[v], check_exact=True)
+    pd.testing.assert_frame_equal(fast.weights, slow.weights, check_exact=True)
+    pd.testing.assert_frame_equal(fast.factors, slow.factors, check_exact=True)
