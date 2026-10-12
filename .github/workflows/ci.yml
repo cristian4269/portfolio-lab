@@ -17,6 +17,13 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --locked --all-groups
+      - name: Deploy requirements match the lock
+        # app/requirements.txt is what Streamlit Community Cloud installs; comments aside, it
+        # must equal a fresh export of uv.lock (regenerate with the command in its header).
+        run: >-
+          diff <(grep -v '^ *#' app/requirements.txt)
+          <(uv export --locked --no-dev --group app --no-hashes --format requirements-txt
+          | grep -v '^ *#')
       - name: Lint
         run: |
           uv run ruff check .
