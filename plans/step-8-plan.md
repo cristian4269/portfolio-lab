@@ -112,8 +112,9 @@ Default model, 3 sessions, cut-able.
    - The export check covers what has a recorded reference:
      - all 17 strategies in USD and CAD, against `performance.csv`;
      - the primary three in CAD hedged, against the robustness series.
-   - **The sidebar shows at most 6 strategies at once,** so each gets its own palette color
-     (D7). The default is the primary three.
+   - ~~The sidebar shows at most 6 strategies at once.~~ **Changed in session 1 (see D7):**
+     the charts compare at most 3 strategies, and the metrics table can show all 17 at the
+     current settings. The default is the primary three.
    - Alternative: only the primary three. The bundle is smaller and the dashboard simpler.
 3. **D3. Invariant 2 is amended to allow `app/data/` and to catch `.gz`.**
    - Today's check misses `.csv.gz`.
@@ -155,8 +156,13 @@ Default model, 3 sessions, cut-able.
      validated in both modes.
    - The palette follows `st.context.theme.type`. The charts use the full container width
      and work at phone width.
-   - The palette has 7 validated slots: 6 for the selected strategies (D2's cap) and 1 for
-     the benchmark's reference line. No two lines share a color.
+   - ~~The palette has 7 validated slots: 6 for the selected strategies (D2's cap) and 1 for
+     the benchmark's reference line.~~ **Changed in session 1:** the validator, run on every
+     pair (lines can cross), passes only slots 1-3 in both modes. With 4 or more, the dark
+     slots 1 and 7 sit at a normal-vision dE of 9.8 and the light slots 2 and 4 at 13.7, both
+     below the hard floor of 15. So the charts compare at most 3 strategies
+     (`dashboard.MAX_CHARTED`), each keeping its color as others come and go
+     (`dashboard.slots`). No market reference line is drawn.
    - Alternative: Plotly. Better hover, but one more dependency of about 15 MB.
 8. **D8. The layout: the logic lives in `src/portfolio_lab/dashboard.py`; `app/` is a thin
    UI.**
@@ -213,7 +219,7 @@ Default model, 3 sessions, cut-able.
   - With `AppTest` on a synthetic bundle (`PORTFOLIO_LAB_APP_DATA` points to a temp folder),
     every tab renders without an exception.
   - The cost slider changes the CAGR shown.
-  - A seventh strategy cannot be selected.
+  - A fourth strategy cannot be charted.
 
 ## Files to change
 

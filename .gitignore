@@ -23,3 +23,6 @@ research/results/*
 
 # Private career notes (CV bullet, pitch, interview prep) stay local
 docs/career/
+
+# Local Claude Code settings (preview launch config, worktrees)
+.claude/

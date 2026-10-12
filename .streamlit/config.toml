@@ -1,0 +1,20 @@
+# The dashboard's Streamlit settings (app/streamlit_app.py). The surfaces and ink are the ones
+# the chart palette was validated against (src/portfolio_lab/report/palette.py).
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "viewer"
+
+[theme.light]
+primaryColor = "#2a78d6"
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#f2f1ed"
+textColor = "#0b0b0b"
+
+[theme.dark]
+primaryColor = "#3987e5"
+backgroundColor = "#1a1a19"
+secondaryBackgroundColor = "#242423"
+textColor = "#ffffff"

@@ -25,8 +25,37 @@ Running log of decisions, data quirks and findings. Newest first.
   after the G1 change.
   - The dashboard reads a committed bundle in `app/data/`, written by `reproduce --dashboard`
     under the holdout lock, which checks its own 5 bp series against the holdout's tables.
-  - All 17 strategies in all three views, at most 6 shown at once.
+  - All 17 strategies in all three views. The charts compare at most 3 (changed from the
+    plan's 6, see below); the metrics table can show all 17.
   - Invariant 2 amended: `.gz` added to the check, `app/data/` allowed.
+- **The bundle** (`reproduce --dashboard`, 2026-10-12 00:05 UTC on `40e3a69`, 2 min, exit 0,
+  committed in `69095c1`):
+  - 17 strategies x 3 views, daily from 1964-07-02 (USD) and 1972-01-04 (CAD, CAD hedged) to
+    2026-08-31, plus factors, turnover, weights and the four registered holdout tables. 9.9 MB.
+  - The check passed: every strategy's 5 bp holdout metrics in USD and CAD equal
+    `performance.csv`, and the hedged monthly series equal the robustness run's, to 1e-12.
+    `net_at` gives back the engine's net returns bit for bit (0, 5 and 20 bp in the tests).
+  - The run warns that src changed since the tag (it names the 7b and 8 files) and records
+    them; the dirty flag now leaves `app/data/` out, like the manifest.
+  - Reading it takes about 2 s (exact float parsing); importing scipy and statsmodels on
+    Windows adds about 4 s on a cold start.
+- **The charts compare at most 3 strategies, not the plan's 6** (plan D2 and D7 amended).
+  The dataviz validator on every pair (lines cross) passes only slots 1-3 in both modes; with 4
+  or more the dark slots 1 and 7 sit at dE 9.8 and the light slots 2 and 4 at 13.7, under the
+  hard floor of 15. The metrics table can show all 17 at the current settings.
+- **The palette moved to `report/palette.py`** (no matplotlib), so the app can import it;
+  `report.figures` re-exports `Theme` and `THEMES` unchanged.
+- **The app's first version** (`app/streamlit_app.py`, `app/charts.py`, `.streamlit/config.toml`):
+  sidebar (investor view, strategies, months, cost, benchmark), the Performance tab (growth of
+  $1, drawdowns, metrics, the registered tests), an About tab with the citations. Checked in the
+  browser: 1/N 12.72% CAGR and 16.7% volatility, minimum variance's registered difference
+  −0.041 [−0.315, 0.234], as in the REPORT.
+  - End labels that would collide are dropped (the legend and tooltip carry them), and the log
+    scale is on by default only past 25 years.
+  - Streamlit keeps imported modules from the app folder loaded: restart the server after
+    editing `app/charts.py`.
+  - Patch scripts on Windows: write with `newline="\n"`; never put backticks in a
+    double-quoted `uv run python -c "..."` (bash runs them).
 
 ## 2026-10-11: step 7b, session 1 of 3 (plan, the one-shot holdout run)
 
