@@ -471,7 +471,7 @@ def test_var_backtest_is_the_studys_on_the_holdout(bundle, study_tables):
             for col in ("days", "exceptions", "kupiec_p", "kupiec_exact_p", "independence_p"):
                 assert row[col] == pytest.approx(theirs[col], rel=1e-12, abs=1e-12), col
             assert list(path.columns) == ["return", "var", "es", "exception"]
-            assert path.index[0] >= start and path.index[-1] == end
+            assert path.index[0] >= start and path.index[-1] == series.index[-1]
             assert int(path["exception"].sum()) == row["exceptions"]
             assert (path["exception"] == (path["return"] < -path["var"])).all()
 
@@ -528,3 +528,9 @@ def test_scenario_days_are_the_window_after_its_start():
     mask = db.scenario_days(days, hs.SCENARIOS["gfc"])
     picked = days[mask]
     assert picked[0] == pd.Timestamp("2008-09-02") and picked[-1] == pd.Timestamp("2008-11-28")
+
+
+def test_realized_skips_the_windows_outside_the_data(short_inputs):
+    short = db.build(short_inputs, end="2009-06-30", estimator="sample", strategies=group())
+    table = db.realized(short, "USD", [study.BENCHMARK], cost_bps=5.0)
+    assert set(table.index.get_level_values("scenario")) == {"gfc"}  # covid and rates are later

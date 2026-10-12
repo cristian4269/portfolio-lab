@@ -17,10 +17,12 @@ The net return at any cost is exact from the gross return and the turnover (`net
 trade the weights are exactly the target whatever the cost, so the drift does not depend on it.
 `check` refuses a bundle whose 5 bp series do not give back the holdout's own tables, and
 `performance` is the study's performance table for any view, strategies, dates, cost and
-benchmark. For the charts: `growth`, `drawdowns`, `thin` (at most `MAX_POINTS` per series) and
-`slots`, which keeps each charted strategy's color while others come and go (at most
-`MAX_CHARTED`, the palette's every-pair slots). Everything here is pure except `build`, which
-backtests through the guarded engine.
+benchmark. The risk tabs: `var_backtest` (rolling VaR and ES with their backtests), `betas` and
+`rolling_betas` (Step 5b's partial factor betas), and `realized` (each strategy through the
+registered stress windows, `scenario_days`). For the charts: `growth`, `drawdowns`, `thin` (at
+most `MAX_POINTS` per series) and `slots`, which keeps each charted strategy's color while
+others come and go (at most `MAX_CHARTED`, the palette's every-pair slots). Everything here is
+pure except `build`, which backtests through the guarded engine.
 """
 
 import gzip
@@ -28,7 +30,7 @@ import hashlib
 import io
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -41,8 +43,10 @@ from portfolio_lab.construct.strategy import Strategy
 from portfolio_lab.report import inference as inf
 from portfolio_lab.report import metrics
 from portfolio_lab.report.palette import EVERY_PAIR
+from portfolio_lab.risk import backtest as bt
 from portfolio_lab.risk import factors as fa
 from portfolio_lab.risk import var
+from portfolio_lab.stress import historical as hs
 
 __all__ = [
     "BENCHMARKS",
@@ -55,6 +59,7 @@ __all__ = [
     "MAX_CHARTED",
     "MAX_POINTS",
     "Bundle",
+    "betas",
     "build",
     "check",
     "drawdowns",
@@ -64,8 +69,12 @@ __all__ = [
     "net_at",
     "performance",
     "read",
+    "realized",
+    "rolling_betas",
+    "scenario_days",
     "slots",
     "thin",
+    "var_backtest",
     "write",
 ]
 
@@ -406,6 +415,100 @@ def check(bundle: Bundle, held_performance: pd.DataFrame, held_monthly: pd.DataF
                     _same(here, there, what, "the robustness monthly series")
 
 
+# --- risk, factors and stress ----------------------------------------------------------------
+
+
+def var_backtest(
+    returns: pd.Series,
+    *,
+    method: str,
+    level: float,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    window: int = study.VAR_WINDOW,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """The rolling one-day VaR and ES of `returns` (Step 5a's `forecast`, from the history
+    before each day) on the days from `start` to `end`, and their backtest (`backtest.report`):
+    - a frame by day: the return, the VaR and ES (positive losses), and whether the loss went
+      past the VaR (an exception);
+    - the report's row for `method` at `level` over those days.
+    Days after `end` are left out first, so nothing later is read.
+    """
+    r = returns.loc[returns.index <= end]
+    if len(r) <= window or r.index[window] > end or not (r.index[window:] >= start).any():
+        raise ValueError(
+            f"no forecast day from {start.date()} to {end.date()}: the first forecast needs "
+            f"{window} days of history"
+        )
+    fc = var.forecast(r, method=method, level=level, window=window)
+    exc = bt.exceptions(r, fc["var"])
+    path = pd.DataFrame(
+        {"return": r.reindex(fc.index), "var": fc["var"], "es": fc["es"], "exception": exc}
+    )
+    path = path.loc[path.index >= start]
+    report = bt.report(r, levels=(level,), methods=(method,), window=window, start=start)
+    return path, report.iloc[0]
+
+
+def betas(
+    bundle: Bundle,
+    view: str,
+    names: Sequence[str],
+    *,
+    cost_bps: float,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> pd.DataFrame:
+    """Step 5b's weekly factor betas of each strategy's excess net returns over the days from
+    `start` to `end`: FF5 + momentum in USD and CAD hedged, plus the USD/CAD return and the
+    Canadian 10-year yield change in CAD (`factors.macro_betas`, all partial)."""
+    excess = _excess(bundle, view, names, cost_bps, start, end)
+    f = bundle.factors
+    if view == "CAD":
+        return fa.macro_betas(excess, f[fa.DY], f[fa.FX], f, frequency="weekly")
+    return fa.factor_betas(excess, f, frequency="weekly")
+
+
+def rolling_betas(
+    bundle: Bundle,
+    view: str,
+    name: str,
+    *,
+    cost_bps: float,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    window: int = fa.ROLLING_WINDOW,
+) -> pd.DataFrame:
+    """Daily factor betas over each trailing `window` of days (with the USD/CAD return in
+    CAD), from the history before `start` so the first row is `start`'s, through `end`."""
+    first = bundle.returns[view].index[0]
+    excess = _excess(bundle, view, [name], cost_bps, first, end)[name]
+    fx = bundle.factors[fa.FX] if view == "CAD" else None
+    rolled = fa.rolling_betas(excess, bundle.factors, fx=fx, window=window)
+    return rolled.loc[rolled.index >= start]
+
+
+def scenario_days(days: pd.Index, scenario: hs.Scenario) -> np.ndarray:
+    """A mask of the days in a registered stress window, (start, end] as Step 6 defines it."""
+    d = pd.DatetimeIndex(days)
+    return np.asarray((d > scenario.start) & (d <= scenario.end))
+
+
+def realized(bundle: Bundle, view: str, names: Sequence[str], *, cost_bps: float) -> pd.DataFrame:
+    """Each strategy's own path through every registered stress window it covers, at
+    `cost_bps` (Step 6's `outcome`: P&L, worst day, drawdown), by (scenario, strategy)."""
+    nets = net(bundle, view, cost_bps)
+    rows, keys = [], []
+    for s in hs.SCENARIOS.values():
+        inside = scenario_days(nets.index, s)
+        if not inside.any():
+            continue
+        for name in names:
+            rows.append(asdict(hs.outcome(nets.loc[inside, name])))
+            keys.append((s.name, name))
+    return pd.DataFrame(rows, index=pd.MultiIndex.from_tuples(keys, names=["scenario", "strategy"]))
+
+
 # --- the charts' series -----------------------------------------------------------------------
 
 
@@ -452,6 +555,20 @@ def slots(
 
 
 # --- helpers ----------------------------------------------------------------------------------
+
+
+def _excess(
+    bundle: Bundle,
+    view: str,
+    names: Sequence[str],
+    cost_bps: float,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> pd.DataFrame:
+    """The strategies' daily net returns over the dates, less the view's risk-free rate."""
+    nets = net(bundle, view, cost_bps)
+    days = np.asarray((nets.index >= start) & (nets.index <= end))
+    return nets.loc[days, list(names)].sub(bundle.returns[view].loc[days, RF], axis=0)
 
 
 def _check_view(view: str) -> None:
