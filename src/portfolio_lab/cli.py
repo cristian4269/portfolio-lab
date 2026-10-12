@@ -355,6 +355,7 @@ def _dashboard(
     if manifest.sources() != current:
         raise HoldoutError("the cached data changed while loading: the vintage is not frozen")
     raw = {t: p.read_bytes() for t, p in held.items()}  # read once: checked and copied as read
+    _same_as_recorded(raw, old, path)
     bundle = dashboard.build(inputs, end=end, estimator=estimator, allow_holdout=True)
     try:
         dashboard.check(
@@ -376,6 +377,20 @@ def _dashboard(
         folder=root / DASHBOARD,
         write=lambda folder: dashboard.write(bundle, folder, copies=copies),
     )
+
+
+def _same_as_recorded(raw: dict[str, bytes], old: dict[str, Any] | None, path: Path) -> None:
+    """Each holdout table must be the one the manifest records for the latest run that wrote
+    them (the rerun's, else the one-shot's), where it records one."""
+    runs = {} if old is None else old.get("runs", {})
+    recorded = runs.get("holdout_rerun", runs.get("holdout", {})).get("tables", {})
+    for name, content in raw.items():
+        want = recorded.get(f"{name}.csv")
+        if want is not None and hashlib.sha256(content).hexdigest() != want:
+            raise HoldoutError(
+                f"research/results/holdout/{name}.csv is not the table {path} records: run "
+                "`reproduce --holdout --rerun` to regenerate the holdout's tables"
+            )
 
 
 def _table(content: bytes, index: list[str]) -> pd.DataFrame:
