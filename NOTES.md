@@ -2,6 +2,52 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-12: step 9, session 1 (README, scrub, deploy requirements, audit)
+
+- **Plan** `plans/step-9-plan.md`, approved as written (D1-D8).
+- **Hosting, corrected:** a Community Cloud app from a private repo can be made public
+  (Share → "Make this app public"). Step 8's D9 premise was wrong, so G3 no longer forces G4.
+- **The scrub (D1, D2):**
+  - The tree had one local path and two mentions of the sibling project, all in the
+    blueprint; they are gone.
+  - The history keeps them, in the scaffold commit, and keeps the owner's email on the 12
+    merge commits GitHub made. Rewriting would change every hash the pre-registration cites.
+  - The PR descriptions are clean.
+- **Deploy requirements (D4):**
+  - `app/requirements.txt` is `uv export --no-dev --group app --no-hashes`.
+  - pip and uv both resolve its `-e .` from the working directory (the repo root). From
+    `app/` it fails loudly.
+  - A clean venv built from it passes the 16 AppTest smoke tests.
+  - **Memory:** with every tab and all three views loaded locally, the server's working set
+    was 260 MB (peak 272, 539 MB committed). Cloud's floor is 690 MB.
+  - **Windows quirk:** a pip install into a deep scratch path failed on MAX_PATH (statsmodels
+    test data); uv was unaffected.
+- **CI:**
+  - A step diffs the file, comments stripped, against a fresh export. uv is pinned to 0.12.20
+    so formatting cannot drift.
+  - `test_the_committed_bundle_reads` opens `app/data/` as the deployed app does.
+- **Terms re-checked** (DATA_SOURCES.md):
+  - French, the Bank of Canada and Statistics Canada are unchanged.
+  - **FRED's full terms** bar storing, caching or archiving FRED content and giving it to
+    third parties. They make no exception for public-domain series.
+  - `DEXCAUS` is the Board's H.10 series, which the Board's own site says is public domain.
+  - **Owner decision:** keep the bundle's USD/CAD returns and cite the Board's H.10 release,
+    retrieved via FRED, in the README, DATA_SOURCES and the About tab. The owner accepts the
+    residual risk under FRED's terms, as with G1.
+- **Fresh-clone audit (D8)**, on `d89d8d4`:
+  - `uv sync --locked --all-groups`, then 1509 passed at 99.96% coverage (13 min).
+  - `--holdout --rerun` from the clean checkout gave all 11 tables identical to the recorded
+    rerun. It warned, as designed, that src/ changed since the tag (Steps 7b-8).
+  - `--refresh` into an empty cache downloaded every source. All 7 match the frozen vintage
+    (no new French vintage yet), so the drift warning did not fire; the tests cover it.
+  - Invariants 1-4 hold, PLAN.md and study.py are identical to the tag, and all 13 README
+    relative links resolve.
+- **Reviews:**
+  - `/code-review` (high): 6 findings, all fixed.
+  - python-reviewer: no critical or high findings. Two of its lows are fixed (the export
+    check fails on uv's own error; the committed bundle test). Its two mediums are deploy-time
+    checks: the install's working directory and Python 3.13.
+
 ## 2026-10-12: dashboard design direction (after Step 8, owner asked)
 
 - **Audit** (frontend-design-direction skill):

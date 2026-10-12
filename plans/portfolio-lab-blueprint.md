@@ -70,7 +70,7 @@ the owner's explicit yes for that action in that session.
 2. No data committed except synthetic fixtures and allowed result files:
    `git ls-files | grep -Ei '\.(csv|zip|parquet|xlsx|json|gz)$' | grep -v -e '^tests/fixtures/' -e '^research/results/manifest.json$' -e '^app/data/'` is empty.
    `research/results/` is gitignored except `manifest.json`; figures (PNG) under `research/figures/` are committed; the dashboard's bundle under `app/data/` is committed (Step 8, written by `reproduce --dashboard`). Amended 2026-10-11: `.gz` added, `app/data/` allowed.
-3. No personal-use data or sibling-repo material: `git grep -il tiingo -- ':!plans/'` is empty; nothing copied from `../stock-prices/` data, cache or `.env`.
+3. No personal-use data or sibling-repo material: `git grep -il tiingo -- ':!plans/'` is empty; nothing copied from another local project's data, cache or `.env`.
 4. No secrets: all planned sources are keyless. If a key is ever needed it lives in `.env` (gitignored).
 5. Holdout rule above holds until step 7b.
 6. Every financial formula has a test against a hand-computed or textbook value.
@@ -124,7 +124,7 @@ revert a merged step with `git revert -m 1 <merge-commit>`.
 ## Step 0: Scaffold, tooling, CI
 Status: **done 2026-10-01** (commit 967e8db; private repo created, first CI run green)
 
-**Context.** Repo at `C:\Users\crist\Documents\portfolio-lab` (only `plans/` exists).
+**Context.** The repo root holds only `plans/`.
 uv 0.12.20 and CPython 3.13.15 are installed; gh is logged in as cristian4269.
 
 **Tasks**
@@ -302,7 +302,7 @@ Status: **done and merged 2026-10-11** (PR #10, merge commit `a4c9161`; 1 long s
 ---
 
 ## Step 8: Streamlit dashboard + deploy
-Status: **done 2026-10-11, pending PR** (branch `step-8-dashboard`; plan `plans/step-8-plan.md`, D2/D7 amended to 3 charted strategies; `dashboard.py`, `reproduce --dashboard`, the committed bundle in `app/data/`, `app/streamlit_app.py` with five tabs, AppTest smoke tests; python-reviewer and `/code-review` (high) findings fixed; deployment moved to Step 9 with G3 + G4, decision D9)
+Status: **done and merged 2026-10-11** (PR #11, merge commit 0f443e1; a design pass the owner asked for followed as PR #12, merge commit c0be19d, 2026-10-12; plan `plans/step-8-plan.md`, D2/D7 amended to 3 charted strategies; `dashboard.py`, `reproduce --dashboard`, the committed bundle in `app/data/`, `app/streamlit_app.py` with five tabs, AppTest smoke tests; python-reviewer and `/code-review` (high) findings fixed; deployment moved to Step 9 with G3 + G4, decision D9)
 
 **Tasks**
 - First: check the current free-tier terms of Streamlit Community Cloud (does it need a public repo? sleep behaviour? resources) vs one alternative; record in NOTES.md. If a public repo is required, ask **G3 and G4 together**.
@@ -316,12 +316,12 @@ Status: **done 2026-10-11, pending PR** (branch `step-8-dashboard`; plan `plans/
 ---
 
 ## Step 9: README, docs, final audit, publish
-Status: not started
+Status: **in progress** (branch `step-9-publish`; plan `plans/step-9-plan.md`, approved 2026-10-12; D5: G3 no longer forces G4, since a Community Cloud app from a private repo can be made public)
 
 **Tasks**
 - `README.md`, recruiter first: one-paragraph summary, screenshot, demo link, 3 headline results, then method, results, limitations, how to run, data sources and licenses, "not investment advice".
 - `docs/career/` (gitignored, stays local): CV bullet in French and English, 60-second pitch, likely interview questions with answers (why Ledoit-Wolf, why a holdout, what Kupiec tests, t+1 execution, CAD hedging).
-- **Scrub before going public:** remove local Windows paths and `../stock-prices` references from `plans/` (or gitignore `plans/`), check git history for anything private.
+- **Scrub before going public:** remove local Windows paths and references to other local projects from `plans/` (or gitignore `plans/`), check git history for anything private.
 - Fresh-clone audit: `uv sync --all-groups && uv run pytest --cov` (≥ 80%), `uv run portfolio-lab reproduce`, invariants 1-4, README links.
 - **Ask G4**, make the repo public, confirm the CI badge is green.
 
@@ -353,10 +353,32 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 | Holdout contamination | Data-layer guard + text-scan test; holdout stresses deferred; tagged pre-registration |
 | Underpowered Sharpe tests | Minimum detectable difference stated in advance; a null result is a valid finding |
 | Asynchronous FX timing | Documented; weekly regressions alongside daily |
-| Free host needs a public repo | Checked first in step 8; G3 + G4 asked together |
+| Free host needs a public repo | Checked in step 8; corrected 2026-10-12 (Step 9, D5): a Community Cloud app from a private repo can be made public, so G3 and G4 are asked together but answered separately |
 | Scope creep | Serial steps, MVP path, explicit cut order |
 
 ## Change log
+
+- 2026-10-12: step 9, session 1 (plan `plans/step-9-plan.md`, D1-D8 approved; details in
+  NOTES.md).
+  - **Done for PR A:**
+    - the recruiter-first README with dashboard screenshots (`docs/img/`);
+    - the scrub of `plans/` (no local path or sibling project name in the tree; history
+      kept, D1);
+    - `app/requirements.txt` exported from `uv.lock`, with a CI check, uv pinned in CI;
+    - `[project.urls]`;
+    - a test that reads the committed bundle;
+    - the terms re-checked;
+    - `docs/career/` (local).
+  - **Hosting corrected:** a Community Cloud app from a private repo can be made public, so
+    G3 and G4 are asked together but answered separately (D5).
+  - **Owner decision (FRED terms):** keep the series and cite the Board.
+    - FRED's full terms bar storing and redistributing FRED content.
+    - `DEXCAUS` is the Board's public-domain H.10 series, and the bundle holds its daily
+      returns.
+    - The bundle keeps them, cited to the Board's H.10 release retrieved via FRED. The owner
+      accepts the residual risk, as with G1.
+  - **Fresh-clone audit:** 1509 tests at 99.96%; the holdout rerun from a clean checkout
+    matched all 11 tables; a cold download matched the frozen vintage (7 of 7 sources).
 
 - 2026-10-11: step 8 done (plan `plans/step-8-plan.md`, all nine decisions approved; details
   in NOTES.md).

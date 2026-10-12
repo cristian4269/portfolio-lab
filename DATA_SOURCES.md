@@ -23,6 +23,30 @@ Each source is cited in the dashboard's About tab as below.
 | Statistics Canada (Web Data Service) | https://www.statcan.gc.ca/en/reference/licence | Statistics Canada Open Licence: users may "use, reproduce, publish, freely distribute, or sell the Information"; adapted use must say "Adapted from Statistics Canada, name of product, reference date. This does not constitute an endorsement by Statistics Canada of this product." | 2026-10-02 | "Adapted from Statistics Canada, Table 10-10-0122-01 Financial market statistics, last Wednesday unless otherwise stated, Bank of Canada (DOI 10.25318/1010012201-eng), <retrieval date>. This does not constitute an endorsement by Statistics Canada of this product." | **Allowed** |
 | SEC EDGAR | https://www.sec.gov/edgar | - | - | - | Considered, not needed for this scope |
 
+## Re-checked before publishing (2026-10-12, Step 9)
+
+- **French, Bank of Canada, Statistics Canada:** the key quotes above still stand. French's
+  page still shows only its copyright notice. The Statistics Canada licence page is dated
+  2025-07-10.
+- **FRED:** the public-domain quote above still stands. The full FRED Services Terms of Use,
+  though, go further than the quotes recorded on 2026-10-02:
+  - Their general prohibitions, item (p), bar storing, caching or archiving any FRED content.
+    They also bar giving a stored copy to any third party, or putting FRED content in any
+    database, compilation or archive.
+  - The summary says a "Public Domain: Citation Requested" series may be used without
+    permission "provided you do not engage in any prohibited use".
+- **The series behind `DEXCAUS`** is the Federal Reserve Board's H.10 release. The Board's
+  own site says its information "is in the public domain and may be copied and distributed
+  without permission", and asks that the Board be cited.
+- **What this touches:** the local download cache, and the dashboard bundle's daily USD/CAD
+  returns, which are committed and become public with the repo or the app.
+- **Owner decision, 2026-10-12: keep it and cite the Board.**
+  - The bundle keeps the daily USD/CAD returns, shared as the Board's public-domain H.10 data.
+    The README and the dashboard's About tab cite the Board's H.10 release, retrieved via
+    FRED.
+  - No FRED file is committed; the download cache stays on the owner's machine.
+  - The owner accepts the residual risk under FRED's own terms, as with G1.
+
 ## Series
 
 | Use | Series | Source | Frequency, coverage | Copyright line / licence | Verdict |

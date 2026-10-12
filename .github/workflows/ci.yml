@@ -14,7 +14,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
+          # Pinned so the export check below cannot fail on a newer uv's formatting.
+          version: "0.12.20"
           enable-cache: true
+      - name: Deploy requirements match the lock
+        # app/requirements.txt is what Streamlit Community Cloud installs; comments aside, it
+        # must equal a fresh export of uv.lock (regenerate with the command in its header).
+        run: |
+          uv export --quiet --locked --no-dev --group app --no-hashes --format requirements-txt \
+            -o "$RUNNER_TEMP/requirements.txt"
+          diff -u <(grep -v '^ *#' app/requirements.txt) <(grep -v '^ *#' "$RUNNER_TEMP/requirements.txt")
       - name: Install
         run: uv sync --locked --all-groups
       - name: Lint
