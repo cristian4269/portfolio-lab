@@ -27,7 +27,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter, PercentFormatter
 
-from portfolio_lab.report.palette import THEMES, Theme
+from portfolio_lab.report.palette import INDUSTRY_NAMES, THEMES, Theme
 from portfolio_lab.robustness import PRIMARY, role
 
 __all__ = [
@@ -59,20 +59,6 @@ VARIANTS = {
     "49 industries": "49 industries",
 }
 SCENARIOS = {"gfc": "GFC, Sep-Nov 2008", "covid": "COVID, Feb-Mar 2020", "rates": "Rates, 2022"}
-INDUSTRY_NAMES = {
-    "NoDur": "Consumer non-durables",
-    "Durbl": "Consumer durables",
-    "Manuf": "Manufacturing",
-    "Enrgy": "Energy",
-    "Chems": "Chemicals",
-    "BusEq": "Business equipment",
-    "Telcm": "Telecom",
-    "Utils": "Utilities",
-    "Shops": "Retail",
-    "Hlth": "Health care",
-    "Money": "Finance",
-    "Other": "Other",
-}
 FIGURES = ("growth", "drawdowns", "sharpe_differences", "weights", "stress")
 
 PX = 0.75  # points per CSS pixel (1/96 inch): the mark specs below read in pixels

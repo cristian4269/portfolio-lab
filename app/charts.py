@@ -31,8 +31,10 @@ def lines(
     y_title: str,
     y_format: str,
     log: bool = False,
+    x_format: str = "%Y",
 ) -> alt.LayerChart:
-    """One line per column of `frame` (its index the days), colored by `colors`."""
+    """One line per column of `frame` (its index the days), colored by `colors`; `x_format`
+    labels the days (years by default, "%b %d" for a window of weeks)."""
     names = [str(c) for c in frame.columns]
     keys = {n: f"s{i}" for i, n in enumerate(names)}  # names hold dots, which Vega reads as paths
     wide = frame.set_axis([keys[n] for n in names], axis=1).rename_axis("day").reset_index()
@@ -45,7 +47,7 @@ def lines(
         legend=alt.Legend(title=None, orient="bottom", columns=1, symbolType="stroke"),
     )
     scale = alt.Scale(type="log", nice=False) if log else alt.Scale(zero=False)
-    x = alt.X("day:T", title=None, axis=alt.Axis(format="%Y", labelOverlap=True))
+    x = alt.X("day:T", title=None, axis=alt.Axis(format=x_format, labelOverlap=True))
     y = alt.Y("value:Q", title=y_title, scale=scale, axis=alt.Axis(format=y_format))
     hover = alt.selection_point(
         fields=["day"], nearest=True, on="pointermove", empty=False, clear="pointerout"
@@ -119,6 +121,48 @@ def var_chart(path: pd.DataFrame, color: str, t: Theme, *, label: str) -> alt.La
         )
     )
     return _finish(alt.layer(lines_, dots).properties(height=HEIGHT), t)
+
+
+def stack(frame: pd.DataFrame, colors: list[str], t: Theme) -> alt.LayerChart:
+    """Target weights by trade date as stacked bands, each held until the next trade, in the
+    columns' order (largest first; slots 1-7 pass the validator on adjacent pairs, which is all
+    a stack shows), a 1 px surface gap between bands, and a tooltip with every band."""
+    names = [str(c) for c in frame.columns]
+    keys = {n: f"s{i}" for i, n in enumerate(names)}
+    wide = frame.set_axis([keys[n] for n in names], axis=1).rename_axis("day").reset_index()
+    long = wide.melt("day", var_name="key", value_name="value")
+    long["industry"] = long["key"].map({k: n for n, k in keys.items()})
+    long["order"] = long["key"].map({k: i for i, k in enumerate(keys.values())})
+    x = alt.X("day:T", title=None, axis=alt.Axis(format="%Y", labelOverlap=True))
+    bands = (
+        alt.Chart(long)
+        .mark_area(interpolate="step-after", stroke=t.surface, strokeWidth=1)
+        .encode(
+            x=x,
+            y=alt.Y("value:Q", stack="zero", title="Weight", axis=alt.Axis(format=".0%")),
+            color=alt.Color(
+                "industry:N",
+                scale=alt.Scale(domain=names, range=colors),
+                legend=alt.Legend(title=None, orient="bottom", columns=2, symbolType="square"),
+                sort=names,
+            ),
+            order=alt.Order("order:Q"),
+        )
+    )
+    hover = alt.selection_point(
+        fields=["day"], nearest=True, on="pointermove", empty=False, clear="pointerout"
+    )
+    tooltip = [alt.Tooltip("day:T", title="Traded", format="%b %d, %Y")]
+    tooltip += [alt.Tooltip(f"{keys[n]}:Q", title=n, format=".1%") for n in names]
+    rule = (
+        alt.Chart(wide)
+        .mark_rule(color=t.secondary, strokeWidth=1)
+        .encode(
+            x="day:T", opacity=alt.condition(hover, alt.value(1), alt.value(0)), tooltip=tooltip
+        )
+        .add_params(hover)
+    )
+    return _finish(alt.layer(bands, rule).properties(height=HEIGHT), t)
 
 
 def _clear_labels(last: pd.DataFrame, plotted: pd.Series, log: bool) -> list[str]:

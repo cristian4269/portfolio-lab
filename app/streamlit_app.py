@@ -18,7 +18,7 @@ import streamlit as st
 from portfolio_lab import dashboard as db
 from portfolio_lab import study
 from portfolio_lab.config import HOLDOUT_START
-from portfolio_lab.report.palette import Theme
+from portfolio_lab.report.palette import INDUSTRY_NAMES, Theme
 from portfolio_lab.risk import var
 from portfolio_lab.stress import historical as hs
 
@@ -29,7 +29,8 @@ VIEWS = {
     "CAD_HEDGED": "Canadian investor, hedged",
 }
 BENCHMARK_LABELS = {db.MARKET: "Fama-French market", study.BENCHMARK: "1/N"}
-PRIMARY = [study.BENCHMARK, *study.primary("lw_identity")]
+CACHE = {"max_entries": 32, "ttl": 3600}  # a bounded cache: the host has little memory
+TOP_HOLDINGS = 7  # the palette's adjacent-pair slots; the rest fold into one neutral band
 MIN_MONTHS = 12  # annual figures from less than a year would mislead (and Sharpe needs 6)
 METHODS = {
     "historical": "Historical",
@@ -94,17 +95,25 @@ def data_folder() -> Path:
     return Path(os.environ.get(DATA_ENV) or Path(__file__).parent / "data")
 
 
-@st.cache_resource(show_spinner="Loading the data")
+@st.cache_data(show_spinner="Loading the data", max_entries=1)
 def bundle(folder: str) -> db.Bundle:
+    """The bundle, read once; each caller gets its own copy, so no session can change the
+    data another one sees."""
     return db.read(Path(folder))
 
 
-@st.cache_data(show_spinner=False)
+def primary(b: db.Bundle) -> list[str]:
+    """1/N and the primary pair of the bundle's estimator: the charts' default."""
+    names = [study.BENCHMARK, *study.primary(str(b.design["value"]["estimator"]))]
+    return [n for n in names if n in b.strategies] or b.strategies[: db.MAX_CHARTED]
+
+
+@st.cache_data(show_spinner=False, **CACHE)
 def nets(folder: str, view: str, cost: float) -> pd.DataFrame:
     return db.net(bundle(folder), view, cost)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, **CACHE)
 def performance(
     folder: str,
     view: str,
@@ -120,7 +129,7 @@ def performance(
     )
 
 
-@st.cache_data(show_spinner="Backtesting the VaR")
+@st.cache_data(show_spinner="Backtesting the VaR", **CACHE)
 def var_backtest(
     folder: str,
     view: str,
@@ -135,7 +144,7 @@ def var_backtest(
     return db.var_backtest(series, method=method, level=level, start=start, end=end)
 
 
-@st.cache_data(show_spinner="Estimating the betas")
+@st.cache_data(show_spinner="Estimating the betas", **CACHE)
 def betas(
     folder: str,
     view: str,
@@ -147,7 +156,7 @@ def betas(
     return db.betas(bundle(folder), view, list(names), cost_bps=cost, start=start, end=end)
 
 
-@st.cache_data(show_spinner="Estimating the rolling betas")
+@st.cache_data(show_spinner="Estimating the rolling betas", **CACHE)
 def rolling(
     folder: str, view: str, name: str, cost: float, start: pd.Timestamp, end: pd.Timestamp
 ) -> pd.DataFrame:
@@ -189,7 +198,7 @@ def performance_tab(b: db.Bundle, c: Choice) -> None:
     st.subheader("Metrics")
     names = tuple(c.charted)
     metrics_table(performance(c.folder, c.view, names, c.cost, c.start, c.end, c.benchmark))
-    with st.expander(f"All {len(b.strategies)} strategies at these settings"):
+    if st.toggle(f"Show all {len(b.strategies)} strategies at these settings"):
         every = tuple(b.strategies)
         metrics_table(performance(c.folder, c.view, every, c.cost, c.start, c.end, c.benchmark))
     st.caption(
@@ -197,7 +206,25 @@ def performance_tab(b: db.Bundle, c: Choice) -> None:
         "monthly excess returns, annualized by the square root of 12. Tracking error and "
         f"information ratio are against the {BENCHMARK_LABELS[c.benchmark]}."
     )
+    holdings_section(b, c)
     registered_tests(b, c.view)
+
+
+def holdings_section(b: db.Bundle, c: Choice) -> None:
+    st.subheader("Holdings")
+    name = st.selectbox("Strategy", c.charted, key="holdings_strategy")
+    held = db.holdings(b, c.view, name, top=TOP_HOLDINGS)
+    held = held.loc[(held.index >= c.start) & (held.index <= c.end)]
+    colors = list(c.theme.series[: min(len(held.columns), TOP_HOLDINGS)])
+    if db.OTHER in held.columns:
+        colors = colors[: len(held.columns) - 1] + [c.theme.rest]
+    held = held.rename(columns=lambda n: INDUSTRY_NAMES.get(str(n), str(n)))
+    st.altair_chart(charts.stack(held, colors, c.theme), theme=None)
+    st.caption(
+        "The target weights set at each monthly rebalance and held until the next one (they "
+        f"drift with prices in between). The {TOP_HOLDINGS} largest industries on average are "
+        "shown, the rest in one band."
+    )
 
 
 def registered_tests(b: db.Bundle, view: str) -> None:
@@ -244,7 +271,7 @@ def risk_tab(c: Choice) -> None:
         st.info(f"Choose later months: {err}.")
         return
     level = f"{c.level:.0%}"
-    st.subheader(f"One-day {level} VaR, from the last 500 days")
+    st.subheader(f"One-day {level} VaR, from the last {study.VAR_WINDOW} days")
     one, two, three, four = st.columns(4)
     one.metric(f"Exceptions ({row['expected']:.0f} expected)", f"{int(row['exceptions'])}")
     two.metric("Kupiec p (exact)", f"{row['kupiec_exact_p']:.2f}")
@@ -271,27 +298,32 @@ def risk_tab(c: Choice) -> None:
 
 
 def factors_tab(c: Choice) -> None:
-    table = betas(c.folder, c.view, tuple(c.charted), c.cost, c.start, c.end)
-    long = table.reset_index()
-    coef = long.pivot_table(index="asset", columns="term", values="coef", sort=False)
-    coef = coef[[t for t in TERMS if t in coef.columns]]
-    coef["alpha"] = coef["alpha"] * 52  # weekly to annual
-    tstat = long.pivot_table(index="asset", columns="term", values="t", sort=False)[coef.columns]
+    try:
+        table = betas(c.folder, c.view, tuple(c.charted), c.cost, c.start, c.end)
+    except ValueError as err:
+        st.info(f"No factor regression for these months: {err}.")
+        return
+    coef, tstat = db.beta_table(table)
     st.subheader("Factor betas")
     numbers(
         coef.rename(columns=TERMS).rename_axis("Strategy"),
         {TERMS["alpha"]: "percent"} | {TERMS[t]: "%.2f" for t in coef.columns if t != "alpha"},
     )
-    fit = table.xs("alpha", level="term")[["r2", "nobs"]]
+    fit = table.xs("alpha", level="term")
+    cad = ""
+    if c.view == "CAD":
+        cad = "The CAD view adds the USD/CAD return" + (
+            " and the change in the Canadian 10-year yield. "
+            if "dy" in coef.columns
+            else "; the daily 10-year yield starts in 2001, so it is left out of this window. "
+        )
+    r2 = ", ".join(f"{n} {r:.2f}" for n, r in fit["r2"].items())
     st.caption(
         "Weekly excess returns (Wednesday to Wednesday) on the Fama-French five factors and "
         "momentum, all at once, so each beta holds the others fixed (Step 5b). "
-        + (
-            "The CAD view adds the USD/CAD return and the change in the Canadian 10-year yield. "
-            if c.view == "CAD"
-            else ""
-        )
-        + f"R²: {', '.join(f'{r:.2f}' for r in fit['r2'])}; {int(fit['nobs'].iloc[0])} weeks."
+        + cad
+        + f"R²: {r2}. {int(fit['nobs'].iloc[0])} weeks, {fit['start'].iloc[0]} to "
+        f"{fit['end'].iloc[0]}."
     )
     with st.expander("t-statistics (Newey-West)"):
         numbers(
@@ -325,7 +357,9 @@ def stress_tab(b: db.Bundle, c: Choice) -> None:
     inside = db.scenario_days(all_nets.index, s)
     st.subheader("What each strategy went through")
     growth = db.growth(all_nets.loc[inside, c.charted])
-    chart = charts.lines(growth, c.colors, c.theme, y_title="Value of $1", y_format="$,.2f")
+    chart = charts.lines(
+        growth, c.colors, c.theme, y_title="Value of $1", y_format="$,.2f", x_format="%b %d"
+    )
     st.altair_chart(chart, theme=None)
     realized = db.realized(b, c.view, c.charted, cost_bps=c.cost).xs(scenario, level="scenario")
     numbers(
@@ -389,6 +423,9 @@ def stress_tab(b: db.Bundle, c: Choice) -> None:
 
 
 def about_tab(b: db.Bundle) -> None:
+    tests = b.tables["tests"]
+    rejected = int(tests.loc[tests["family"] == "primary", "reject_primary"].astype(bool).sum())
+    verdict = "None rejects." if rejected == 0 else f"{rejected} of them reject."
     st.subheader("What this is")
     st.markdown(
         'A replication and extension of DeMiguel, Garlappi and Uppal (2009), "Optimal versus '
@@ -402,7 +439,7 @@ def about_tab(b: db.Bundle) -> None:
         "- **Backtest.** Monthly rebalancing on the last trading day, traded at the next close, "
         "5 bp per side by default. Covariances use Ledoit-Wolf shrinkage over 252 days.\n"
         "- **Test.** Ledoit and Wolf's (2008) bootstrap of the Sharpe ratio difference against "
-        "1/N, with Holm's correction over the four primary tests. None rejects.\n"
+        f"1/N, with Holm's correction over the four primary tests. {verdict}\n"
         "- **Everything else here is descriptive.** Other dates, costs and strategies show what "
         "happened, not what the test found."
     )
@@ -434,7 +471,7 @@ def controls(b: db.Bundle, folder: str, t: Theme) -> Choice:
         charted = st.multiselect(
             f"Strategies on the charts (up to {db.MAX_CHARTED})",
             b.strategies,
-            default=PRIMARY,
+            default=primary(b),
             max_selections=db.MAX_CHARTED,
             key="charted",
         )
@@ -478,15 +515,19 @@ def main() -> None:
         page_title="portfolio-lab", page_icon=":material/donut_small:", layout="wide"
     )
     folder = str(data_folder())
-    b = bundle(folder)
+    try:
+        b = bundle(folder)
+    except (OSError, ValueError) as err:  # a missing or damaged bundle: say so, no traceback
+        st.error(f"The dashboard's data could not be read: {err}")
+        st.stop()
     c = controls(b, folder, charts.theme(getattr(st.context.theme, "type", None)))
 
     st.title("Optimal versus naive diversification")
     st.caption(
         "A replication and extension of DeMiguel, Garlappi and Uppal (2009) for a Canadian "
-        "investor: 17 long-only strategies on the 12 Fama-French industries, monthly "
-        "rebalancing, costs, and a pre-registered test. A research exercise, not investment "
-        "advice."
+        f"investor: {len(b.strategies)} long-only strategies on the 12 Fama-French industries, "
+        "monthly rebalancing, costs, and a pre-registered test. A research exercise, not "
+        "investment advice."
     )
     if c.start < pd.Timestamp(HOLDOUT_START):
         st.caption(

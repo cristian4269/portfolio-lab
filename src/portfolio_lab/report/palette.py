@@ -1,4 +1,5 @@
-"""The charts' colors, shared by the report's figures (matplotlib) and the dashboard (Altair).
+"""The charts' colors and industry names, shared by the report's figures (matplotlib) and
+the dashboard (Altair).
 
 Validated with the dataviz skill's palette validator against each surface: slots 1-3 pass on
 every pair and slots 1-7 on adjacent pairs, in both modes. A chart that can put any two series
@@ -8,7 +9,7 @@ library, so the dashboard does not need matplotlib.
 
 from dataclasses import dataclass
 
-__all__ = ["EVERY_PAIR", "THEMES", "Theme"]
+__all__ = ["EVERY_PAIR", "INDUSTRY_NAMES", "THEMES", "Theme"]
 
 EVERY_PAIR = 3  # the slots that pass the validator on every pair, in both modes
 
@@ -48,4 +49,19 @@ THEMES = {
         series=("#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9"),
         rest="#898781",
     ),
+}
+
+INDUSTRY_NAMES = {
+    "NoDur": "Consumer non-durables",
+    "Durbl": "Consumer durables",
+    "Manuf": "Manufacturing",
+    "Enrgy": "Energy",
+    "Chems": "Chemicals",
+    "BusEq": "Business equipment",
+    "Telcm": "Telecom",
+    "Utils": "Utilities",
+    "Shops": "Retail",
+    "Hlth": "Health care",
+    "Money": "Finance",
+    "Other": "Other",
 }

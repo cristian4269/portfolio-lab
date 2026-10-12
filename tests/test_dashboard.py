@@ -627,3 +627,20 @@ def test_write_removes_files_of_an_older_bundle(bundle, tmp_path):
     assert not (tmp_path / "holdout" / "stress_realized.csv").exists()
     assert not (tmp_path / "returns_EUR.csv.gz").exists()
     assert (tmp_path / "README.md").exists()
+
+
+def test_holdings_keep_an_industry_named_other_apart_from_the_fold():
+    traded = pd.DatetimeIndex(["2020-01-02"], name="traded")
+    w = pd.DataFrame({"A": [0.2], "Other": [0.7], "B": [0.1]}, index=traded)
+    weights = pd.concat({("USD", "s"): w}, names=["view", "strategy", "traded"])
+    bundle = db.Bundle(
+        design=pd.DataFrame(),
+        returns={},
+        turnover={},
+        weights=weights,
+        factors=pd.DataFrame(),
+        tables={},
+    )
+    held = db.holdings(bundle, "USD", "s", top=1)
+    assert list(held.columns) == ["Other", db.OTHER]  # French's "Other" industry, then the rest
+    assert held.iloc[0].tolist() == pytest.approx([0.7, 0.3])
