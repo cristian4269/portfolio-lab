@@ -12,11 +12,10 @@ The drawing follows the dataviz method:
   and folds the rest into one neutral band.
 - Lines are 2 px, dots 8 px with a 2 px surface ring, grids solid hairlines. Every figure with
   several series has a legend. Text is in ink tokens, never in a series color.
-Only derived analytics are drawn (G1): portfolio returns, weights and test statistics.
+The figures draw portfolio returns, weights and test statistics, never an industry's own returns.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +27,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter, PercentFormatter
 
+from portfolio_lab.report.palette import INDUSTRY_NAMES, THEMES, Theme
 from portfolio_lab.robustness import PRIMARY, role
 
 __all__ = [
@@ -46,42 +46,6 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True)
-class Theme:
-    """A surface's colors: chart chrome, ink, and the categorical slots in their fixed order."""
-
-    surface: str
-    ink: str
-    secondary: str
-    muted: str
-    grid: str
-    axis: str
-    series: tuple[str, ...]
-    rest: str  # the folded band of the weights stack: a neutral, not a slot
-
-
-THEMES = {
-    "light": Theme(
-        surface="#fcfcfb",
-        ink="#0b0b0b",
-        secondary="#52514e",
-        muted="#898781",
-        grid="#e1e0d9",
-        axis="#c3c2b7",
-        series=("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7"),
-        rest="#898781",
-    ),
-    "dark": Theme(
-        surface="#1a1a19",
-        ink="#ffffff",
-        secondary="#c3c2b7",
-        muted="#898781",
-        grid="#2c2c2a",
-        axis="#383835",
-        series=("#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9"),
-        rest="#898781",
-    ),
-}
 ROLES = ("1/N", "min variance", "ERC")
 LABELS = {"1/N": "1/N", "min variance": "Minimum variance", "ERC": "ERC"}
 VIEWS = {"USD": "USD investor", "CAD": "Canadian investor, unhedged"}
@@ -95,20 +59,6 @@ VARIANTS = {
     "49 industries": "49 industries",
 }
 SCENARIOS = {"gfc": "GFC, Sep-Nov 2008", "covid": "COVID, Feb-Mar 2020", "rates": "Rates, 2022"}
-INDUSTRY_NAMES = {
-    "NoDur": "Consumer non-durables",
-    "Durbl": "Consumer durables",
-    "Manuf": "Manufacturing",
-    "Enrgy": "Energy",
-    "Chems": "Chemicals",
-    "BusEq": "Business equipment",
-    "Telcm": "Telecom",
-    "Utils": "Utilities",
-    "Shops": "Retail",
-    "Hlth": "Health care",
-    "Money": "Finance",
-    "Other": "Other",
-}
 FIGURES = ("growth", "drawdowns", "sharpe_differences", "weights", "stress")
 
 PX = 0.75  # points per CSS pixel (1/96 inch): the mark specs below read in pixels

@@ -6,7 +6,11 @@
   is recorded apart, as `holdout_rerun`, so the one-shot's own record is never overwritten);
 - with `--robustness`, after the holdout, the registered robustness checks (`robustness`),
   written to research/results/robustness/, under the same lock, and only on the 49-industry
-  file whose SHA-256 plans/step-7b-plan.md fixed.
+  file whose SHA-256 plans/step-7b-plan.md fixed;
+- with `--dashboard`, after both, the dashboard's bundle (`dashboard`), written to app/data/
+  (committed, so the deployed app downloads nothing) under the same lock. It is written only if
+  its 5 bp series give back the holdout's performance table and the robustness monthly series,
+  and it carries byte copies of the holdout's registered tables (Step 8).
 `figures` draws the report's figures from those tables into research/figures/ (it needs the
 optional `report` extra, matplotlib).
 
@@ -36,17 +40,19 @@ import os
 import subprocess
 import sys
 import warnings
+from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
 from typing import Any, NamedTuple
 
 import pandas as pd
 
-from portfolio_lab import __version__, config, manifest, robustness, study
+from portfolio_lab import __version__, config, dashboard, manifest, robustness, study
 from portfolio_lab.data import HoldoutError
 
 RESULTS = Path("research/results")
 FIGURES = Path("research/figures")
+DASHBOARD = Path(manifest.DASHBOARD_DATA)
 # The installed core: a missing one is a broken install; any other missing module is one the
 # report extra brings (matplotlib or its own dependencies).
 CORE = frozenset({"numpy", "pandas", "scipy", "statsmodels", "requests", "portfolio_lab"})
@@ -75,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--robustness",
         action="store_true",
         help="run the registered robustness checks on the recorded holdout (Step 7b)",
+    )
+    rep.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="write the dashboard's bundle to app/data/ from the recorded holdout (Step 8)",
     )
     rep.add_argument("--refresh", action="store_true", help="download every source again (dev)")
     rep.add_argument(
@@ -172,6 +183,8 @@ class _Run(NamedTuple):
     changed: list[str] | None = None
     extra: dict[str, dict[str, Any]] | None = None
     holdout_tests: str | None = None  # the SHA-256 of the holdout table robustness extended
+    folder: Path | None = None  # where the run writes, if not the results folder
+    write: Callable[[Path], dict[str, str]] | None = None  # its writer, if not one CSV a table
 
 
 def _reproduce(args: argparse.Namespace) -> int:
@@ -186,19 +199,22 @@ def _reproduce(args: argparse.Namespace) -> int:
             "--robustness and --holdout are separate runs: the holdout first, then "
             "--robustness on its results"
         )
-    if args.robustness:
+    if args.dashboard and (args.holdout or args.robustness):
+        raise ReproduceError(
+            "--dashboard is a run of its own: run --holdout, then --robustness, then --dashboard"
+        )
+    if args.dashboard:
+        run = _dashboard(args, root, out, path, old)
+    elif args.robustness:
         run = _robustness(args, root, out, path, old)
     elif args.holdout:
         run = _holdout(args, root, out, path, old)
     else:
         run = _dev(args, path, old)
-    folder = out / run.period
+    folder = out / run.period if run.folder is None else run.folder
     folder.mkdir(parents=True, exist_ok=True)
-    written = {}  # each table's SHA-256, so the record names exactly what this run wrote
-    for name, table in run.tables.items():
-        file = folder / f"{name}.csv"
-        table.to_csv(file, lineterminator="\n")
-        written[file.name] = hashlib.sha256(file.read_bytes()).hexdigest()
+    # each file's SHA-256, so the record names exactly what this run wrote
+    written = _write_tables(run.tables, folder) if run.write is None else run.write(folder)
     new = manifest.build(
         period=run.key,
         command=run.command,
@@ -213,7 +229,7 @@ def _reproduce(args: argparse.Namespace) -> int:
     )
     merged = new if old is None else manifest.merge(old, new)
     path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8", newline="\n")
-    print(f"wrote {len(run.tables)} tables to {folder} and the manifest to {path}")
+    print(f"wrote {len(written)} files to {folder} and the manifest to {path}")
     return 0
 
 
@@ -308,6 +324,96 @@ def _robustness(
     return _Run(
         "robustness", "robustness", command, tables, current, tag_commit, changed, extra, sha
     )
+
+
+def _dashboard(
+    args: argparse.Namespace, root: Path, out: Path, path: Path, old: dict[str, Any] | None
+) -> _Run:
+    tag_commit, current = _locked(args, root, out, "--dashboard")
+    if not _recorded(old):
+        raise HoldoutError(
+            f"the dashboard shows the one-shot holdout, which {path} does not record: run "
+            "`reproduce --holdout` first"
+        )
+    held = {t: out / "holdout" / f"{t}.csv" for t in ("performance", *dashboard.HOLDOUT_TABLES)}
+    for table in held.values():
+        if not table.exists():
+            raise ReproduceError(
+                f"no {table} (result tables are not committed): run `reproduce --holdout "
+                "--rerun` to regenerate the holdout's tables first"
+            )
+    monthly_path = out / "robustness" / "monthly.csv"
+    if not monthly_path.exists():
+        raise ReproduceError(
+            f"no {monthly_path} (result tables are not committed): run `reproduce "
+            "--robustness` first"
+        )
+    changed = _changed_since_tag(root)
+    end, estimator = config.HOLDOUT_END, study.PRIMARY_ESTIMATOR
+    assert end is not None and estimator is not None  # checked by check_prereg
+    inputs = study.load(end=end, allow_holdout=True, refresh=False)
+    if manifest.sources() != current:
+        raise HoldoutError("the cached data changed while loading: the vintage is not frozen")
+    raw = {t: p.read_bytes() for t, p in held.items()}  # read once: checked and copied as read
+    _same_as_recorded(raw, old, path)
+    monthly = monthly_path.read_bytes()
+    robust = {} if old is None else old.get("runs", {}).get("robustness", {})
+    want = robust.get("tables", {}).get("monthly.csv")
+    if want is not None and hashlib.sha256(monthly).hexdigest() != want:
+        raise HoldoutError(
+            f"{monthly_path} is not the table {path} records: run `reproduce --robustness` "
+            "to regenerate it"
+        )
+    bundle = dashboard.build(inputs, end=end, estimator=estimator, allow_holdout=True)
+    try:
+        dashboard.check(
+            bundle,
+            _table(raw["performance"], ["view", "strategy"]),
+            _table(monthly, ["view", "strategy", "month"]),
+        )
+    except ValueError as err:
+        raise ReproduceError(f"the bundle does not give back the holdout's tables: {err}") from err
+    copies = {f"holdout/{t}.csv": raw[t] for t in dashboard.HOLDOUT_TABLES}
+    return _Run(
+        "dashboard",
+        "dashboard",
+        "portfolio-lab reproduce --dashboard",
+        {"design": bundle.design},
+        current,
+        tag_commit,
+        changed,
+        folder=root / DASHBOARD,
+        write=lambda folder: dashboard.write(bundle, folder, copies=copies),
+    )
+
+
+def _same_as_recorded(raw: dict[str, bytes], old: dict[str, Any] | None, path: Path) -> None:
+    """Each holdout table must be the one the manifest records for the latest run that wrote
+    them (the rerun's, else the one-shot's), where it records one."""
+    runs = {} if old is None else old.get("runs", {})
+    recorded = runs.get("holdout_rerun", runs.get("holdout", {})).get("tables", {})
+    for name, content in raw.items():
+        want = recorded.get(f"{name}.csv")
+        if want is not None and hashlib.sha256(content).hexdigest() != want:
+            raise HoldoutError(
+                f"research/results/holdout/{name}.csv is not the table {path} records: run "
+                "`reproduce --holdout --rerun` to regenerate the holdout's tables"
+            )
+
+
+def _table(content: bytes, index: list[str]) -> pd.DataFrame:
+    """A result table as written, every float exactly."""
+    return pd.read_csv(io.BytesIO(content), index_col=index, float_precision="round_trip")
+
+
+def _write_tables(tables: dict[str, pd.DataFrame], folder: Path) -> dict[str, str]:
+    """One CSV per table, and each file's SHA-256."""
+    written = {}
+    for name, table in tables.items():
+        file = folder / f"{name}.csv"
+        table.to_csv(file, lineterminator="\n")
+        written[file.name] = hashlib.sha256(file.read_bytes()).hexdigest()
+    return written
 
 
 def _recorded(old: dict[str, Any] | None) -> bool:

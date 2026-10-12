@@ -51,6 +51,7 @@ SOURCES = {
 ROBUSTNESS_SOURCES = {"ind49_daily": french.BASE_URL + french.DATASETS["ind49_daily"]}
 HEADER_CHARS = 200
 RESULTS_MANIFEST = "research/results/manifest.json"  # tracked, and rewritten by every run
+DASHBOARD_DATA = "app/data"  # the dashboard's bundle: tracked, rewritten by reproduce --dashboard
 PACKAGES = ("numpy", "pandas", "scipy", "statsmodels", "portfolio-lab")
 
 
@@ -159,8 +160,8 @@ def git_output(root: Path, *args: str) -> bytes:
 def _git_state(root: Path) -> dict[str, Any]:
     try:
         commit = git_output(root, "rev-parse", "HEAD").decode().strip()
-        # Tracked changes only, and not the results manifest that every run rewrites: the
-        # flag says whether the code differs from the commit.
+        # Tracked changes only, and not the files the runs rewrite (the results manifest, the
+        # dashboard's bundle): the flag says whether the code differs from the commit.
         status = git_output(
             root,
             "status",
@@ -169,6 +170,7 @@ def _git_state(root: Path) -> dict[str, Any]:
             "--",
             ".",
             f":(exclude){RESULTS_MANIFEST}",
+            f":(exclude){DASHBOARD_DATA}",
         )
     except (OSError, subprocess.CalledProcessError):
         return {"commit": None, "dirty": None}

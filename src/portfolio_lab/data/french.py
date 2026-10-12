@@ -1,7 +1,8 @@
 """Kenneth R. French Data Library: download and parse the CSV zip files.
 
-Terms (owner decision G1): fetched at runtime into the local cache, never
-committed, always cited; only derived analytics are published.
+Terms: a copyright notice and no explicit reuse terms; always cited. The files are
+fetched at runtime into the local cache. (Owner decision G1, which also kept them out
+of git and limited publishing to derived analytics, was removed on 2026-10-11.)
 
 File layout: free-text header (the first line names the CRSP vintage), then
 one or more blocks. A block is an optional title line, a header line starting

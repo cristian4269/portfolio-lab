@@ -2,6 +2,126 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-11: step 8, session 3 of 3 (reviews, verification)
+
+- **python-reviewer** (no critical findings; it confirmed `check`, `realized`, the default
+  metrics, the pyarrow read and the bundle hashes on the real data). Fixed:
+  - **High:** the Factors tab crashed in the CAD view on any window ending before 2001 (the
+    daily 10-year yield starts then) and stopped the Stress tab from drawing. A CAD window that
+    starts before the yield now leaves it out (fx kept), and the caption says so and names the
+    sample's dates.
+  - Bounded caches (32 entries, 1 h); read-only bundle frames shared by every session; the
+    17-strategy table only on request; defaults, VaR window, counts and the tests' verdict
+    from the bundle; labelled R²; a clean error for a damaged bundle; `check` refuses other
+    columns; copied holdout tables must match the manifest's hashes; `write` prunes an older
+    bundle's files; `stress_realized` is no longer copied; the weights now feed a Holdings
+    chart.
+  - **Found while fixing:** French's 12 industries include one named "Other", so the folded
+    band of `holdings` is "All others".
+  - **Not done:** importing `engine._cost_rate` (an internal import, as robustness uses
+    `study._performance`); mypy over `app/` (Altair keyword noise); gzip bytes that could
+    differ under another zlib (the check is numeric, so only git churn).
+- **`/code-review` (high): 10 findings, all fixed.** Holdings now start with the targets in
+  force at the window's start; the stress tab handles a bundle with no registered window;
+  the thinned VaR series is labelled; `read` requires 1/N; `net` computes only the
+  strategies asked for; `performance` needs 12 months; the robustness series must match its
+  recorded hash; `design.csv` is written last and lists every file's SHA-256, so a bundle
+  written only in part is refused.
+- **The "error" in the browser pane after the review fixes** was the dev server, not the code:
+  `AttributeError: module 'portfolio_lab.dashboard' has no attribute 'MIN_MONTHS'`. Streamlit
+  reran the edited app script but kept the old `dashboard` module, which `from portfolio_lab
+  import dashboard` reads off the already-imported package. Restart the server after editing
+  anything under `src/` (a deployed app always starts fresh). Replayed on the real bundle with
+  AppTest: USD, CAD and CAD hedged, and CAD windows 1972-75, 1988-93 and 1990-2026, render
+  with no error. It also showed the Factors caption printing `1972-02-01 00:00:00`; it now
+  prints days.
+- **Re-exports** (`83477bc`, `bc51d62`): every data file byte-identical to the first export;
+  only `stress_realized.csv` left and `design.csv` gained the file list.
+
+## 2026-10-11: step 8, session 2 of 3 (Risk, Factors, Stress; smoke tests; speed)
+
+- **The tabs**, live at the selected view, months and cost:
+  - **Risk:** one strategy at a time; rolling one-day VaR from the last 500 days, four methods
+    (FHS by default), 95% or 99% from the sidebar; exceptions, Kupiec (exact), independence
+    and conditional coverage, and the latest VaR and ES. `dashboard.var_backtest` equals the
+    holdout's `var` table on the same data (tested on synthetic data). Example, USD 1/N at 99%
+    FHS over the holdout: 43 exceptions for 39 expected, Kupiec p 0.52, independence p 0.00.
+  - **Factors:** Step 5b's weekly partial betas over the selected months (the CAD view adds fx
+    and dy), t-statistics, and rolling 252-day betas of a chosen factor. Holdout USD: R² 0.97,
+    0.74, 0.95; latest market betas 0.77, 0.46, 0.66 (1/N, minimum variance, ERC).
+  - **Stress:** each strategy's own path through the registered windows (live), then the
+    registered replays and shocks (fixed). `dashboard.realized` equals the study's
+    `stress_realized`.
+- **The page asks for at least 12 months.** The AppTest found that fewer than 6 crashed the
+  monthly Sharpe; annual figures from under a year would mislead anyway.
+- **AppTest smoke tests** (`tests/test_app.py`, 7 tests, about 30 s): the whole app on a
+  synthetic bundle whose registered tables come from `study.run`. AppTest quirks: a radio is
+  set by its shown label; a select-slider by its values before `format_func`; widgets are
+  found by key (main-area widgets come before the sidebar's in the lists).
+- **Speed:** pyarrow (which comes with Streamlit) reads the bundle with exact floats in 0.5 s
+  instead of 2.3 s. The first page after a server start: title 9.0 s, first chart 10.4 s,
+  tables 11.7 s (about 4.4 s of it is importing Streamlit, scipy and statsmodels). A visit to
+  a running server: title 0.4 s, chart 1.5 s, tables 2.6 s.
+- **Browser checks:** every tab in light (desktop) and dark (375 px phone width): the palette
+  follows the theme, and the page never scrolls sideways (tables scroll inside themselves).
+  A chart in a tab clicked by a script before the page settles can stay at zero width; a
+  user's click after load renders it.
+
+## 2026-10-11: step 8, session 1 of 3 (plan, hosting, G1 removed)
+
+- **Hosting, checked against the official docs on 2026-10-11** (details in
+  `plans/step-8-plan.md`):
+  - **Streamlit Community Cloud** (free): an app takes its repo's privacy, so a private repo
+    gives one private app that only invited viewers can open. A public link needs a public
+    repo (G3 ties to G4). Private repos need GitHub's broad `repo` OAuth scope. Apps sleep
+    after 12 hours without traffic, and any visitor can wake them. Resources (dated
+    2024-02): 0.078-2 cores, 690 MB-2.7 GB RAM.
+  - **Render** (free): deploys from a private repo with a public URL. It spins down after 15
+    idle minutes and takes about a minute to start; 750 hours a month.
+  - **Hugging Face Spaces:** Gradio and Docker Spaces now need a paid plan. Out.
+  - **Owner decision (D9):** build and verify locally in Step 8. Deploy on Community Cloud in
+    Step 9 after the scrub, with G3 and G4 asked together.
+- **G1 removed by the owner (2026-10-11).** The French data stay cited; the "runtime fetch,
+  never committed, derived analytics only" restrictions are gone. Updated: the blueprint
+  (header, G1 row, invariant 2, Step 8, risks, acceptance), `DATA_SOURCES.md`, the
+  docstrings of `data/french.py` and `report/figures.py`, and REPORT §3's sentence that cited
+  "the French library's terms".
+- **Plan approved as written** (`plans/step-8-plan.md`): all nine decisions as recommended
+  after the G1 change.
+  - The dashboard reads a committed bundle in `app/data/`, written by `reproduce --dashboard`
+    under the holdout lock, which checks its own 5 bp series against the holdout's tables.
+  - All 17 strategies in all three views. The charts compare at most 3 (changed from the
+    plan's 6, see below); the metrics table can show all 17.
+  - Invariant 2 amended: `.gz` added to the check, `app/data/` allowed.
+- **The bundle** (`reproduce --dashboard`, 2026-10-12 00:05 UTC on `40e3a69`, 2 min, exit 0,
+  committed in `69095c1`):
+  - 17 strategies x 3 views, daily from 1964-07-02 (USD) and 1972-01-04 (CAD, CAD hedged) to
+    2026-08-31, plus factors, turnover, weights and the four registered holdout tables. 9.9 MB.
+  - The check passed: every strategy's 5 bp holdout metrics in USD and CAD equal
+    `performance.csv`, and the hedged monthly series equal the robustness run's, to 1e-12.
+    `net_at` gives back the engine's net returns bit for bit (0, 5 and 20 bp in the tests).
+  - The run warns that src changed since the tag (it names the 7b and 8 files) and records
+    them; the dirty flag now leaves `app/data/` out, like the manifest.
+  - Reading it takes about 2 s (exact float parsing); importing scipy and statsmodels on
+    Windows adds about 4 s on a cold start.
+- **The charts compare at most 3 strategies, not the plan's 6** (plan D2 and D7 amended).
+  The dataviz validator on every pair (lines cross) passes only slots 1-3 in both modes; with 4
+  or more the dark slots 1 and 7 sit at dE 9.8 and the light slots 2 and 4 at 13.7, under the
+  hard floor of 15. The metrics table can show all 17 at the current settings.
+- **The palette moved to `report/palette.py`** (no matplotlib), so the app can import it;
+  `report.figures` re-exports `Theme` and `THEMES` unchanged.
+- **The app's first version** (`app/streamlit_app.py`, `app/charts.py`, `.streamlit/config.toml`):
+  sidebar (investor view, strategies, months, cost, benchmark), the Performance tab (growth of
+  $1, drawdowns, metrics, the registered tests), an About tab with the citations. Checked in the
+  browser: 1/N 12.72% CAGR and 16.7% volatility, minimum variance's registered difference
+  −0.041 [−0.315, 0.234], as in the REPORT.
+  - End labels that would collide are dropped (the legend and tooltip carry them), and the log
+    scale is on by default only past 25 years.
+  - Streamlit keeps imported modules from the app folder loaded: restart the server after
+    editing `app/charts.py`.
+  - Patch scripts on Windows: write with `newline="\n"`; never put backticks in a
+    double-quoted `uv run python -c "..."` (bash runs them).
+
 ## 2026-10-11: step 7b, session 1 of 3 (plan, the one-shot holdout run)
 
 - **Plan approved** by the owner as written (`plans/step-7b-plan.md`, commit `9ca40f4`): all

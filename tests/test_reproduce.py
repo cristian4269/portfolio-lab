@@ -10,7 +10,7 @@ import zipfile
 import pandas as pd
 import pytest
 
-from portfolio_lab import cli, config, manifest, robustness, study
+from portfolio_lab import cli, config, dashboard, manifest, robustness, study
 from portfolio_lab.data import HoldoutError, cache
 
 
@@ -680,3 +680,164 @@ def test_cache_industries_downloads_the_49_industries_through_dev(monkeypatch):
     monkeypatch.setattr(robustness.data, "load_assets", lambda *a, **kw: calls.append((a, kw)))
     robustness.cache_industries()
     assert calls == [((49,), {"end": config.DEV_END, "allow_holdout": False, "refresh": True})]
+
+
+# --- Step 8: the dashboard's bundle -----------------------------------------------------------
+
+
+@pytest.fixture
+def dash(robust, repo, monkeypatch):
+    """A repository whose holdout and robustness tables exist, with stubs for the bundle. The
+    holdout is rerun first, as the real one was, so the manifest records its tables' hashes."""
+    assert cli.main(["reproduce", "--holdout", "--rerun"]) == 0
+    robust.clear()
+    held = repo / "research" / "results" / "holdout"
+    for name in ("performance", *dashboard.HOLDOUT_TABLES):
+        if name != "tests":  # the robust fixture wrote it
+            (held / f"{name}.csv").write_bytes(f"view,strategy,x\nUSD,s,{name}\n".encode())
+    rob = repo / "research" / "results" / "robustness"
+    rob.mkdir(parents=True, exist_ok=True)
+    (rob / "monthly.csv").write_bytes(
+        b"view,strategy,month,net,excess\nUSD,s,2011-01-31,0.1,0.09\n"
+    )
+    design = pd.DataFrame({"value": {"estimator": "lw_identity"}})
+
+    def fake_build(inputs, **kw):
+        robust["build"] = {"inputs": inputs, **kw}
+        return dashboard.Bundle(
+            design=design, returns={}, turnover={}, weights=design, factors=design, tables={}
+        )
+
+    def fake_check(bundle, performance, monthly):
+        robust["check"] = {"bundle": bundle, "performance": performance, "monthly": monthly}
+
+    def fake_write(bundle, folder, *, copies):
+        robust["write"] = {"folder": folder, "copies": dict(copies)}
+        files = {"design.csv": b"key,value\nestimator,lw_identity\n", **copies}
+        for name, content in files.items():
+            (folder / name).parent.mkdir(parents=True, exist_ok=True)
+            (folder / name).write_bytes(content)
+        return {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
+
+    monkeypatch.setattr(dashboard, "build", fake_build)
+    monkeypatch.setattr(dashboard, "check", fake_check)
+    monkeypatch.setattr(dashboard, "write", fake_write)
+    return robust
+
+
+def test_parser_has_the_dashboard_option():
+    assert cli.build_parser().parse_args(["reproduce", "--dashboard"]).dashboard
+    assert not cli.build_parser().parse_args(["reproduce"]).dashboard
+
+
+def test_dashboard_writes_the_bundle_after_the_holdout(dash, repo):
+    one_shot = manifest_of(repo)["runs"]["holdout"]
+    assert cli.main(["reproduce", "--dashboard"]) == 0
+    assert dash["load"] == {"end": "2026-08-31", "allow_holdout": True, "refresh": False}
+    built = dash["build"]
+    assert built["inputs"] == "inputs" and built["end"] == "2026-08-31"
+    assert built["estimator"] == "lw_identity" and built["allow_holdout"] is True
+    checked = dash["check"]
+    assert list(checked["performance"].index.names) == ["view", "strategy"]
+    assert list(checked["monthly"].index.names) == ["view", "strategy", "month"]
+    held = repo / "research" / "results" / "holdout"
+    assert dash["write"]["folder"] == repo / "app" / "data"
+    assert dash["write"]["copies"] == {
+        f"holdout/{t}.csv": (held / f"{t}.csv").read_bytes() for t in dashboard.HOLDOUT_TABLES
+    }
+    runs = manifest_of(repo)["runs"]
+    rec = runs["dashboard"]
+    assert rec["command"] == "portfolio-lab reproduce --dashboard"
+    assert rec["estimator"] == "lw_identity"
+    assert rec["git"]["tag_commit"] == cli.check_prereg(repo)
+    assert rec["tables"]["holdout/tests.csv"] == sha(held / "tests.csv")
+    assert rec["tables"]["design.csv"] == sha(repo / "app" / "data" / "design.csv")
+    assert runs["holdout"] == one_shot
+
+
+def test_dashboard_refuses_before_the_one_shot_holdout(stubbed, repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    freeze(repo)
+    stubbed.clear()
+    assert cli.main(["reproduce", "--dashboard"]) == 2
+    err = capsys.readouterr().err
+    assert "load" not in stubbed and "does not record" in err and "--holdout" in err
+
+
+def test_dashboard_needs_the_holdout_and_robustness_tables(dash, repo, capsys):
+    monthly = repo / "research" / "results" / "robustness" / "monthly.csv"
+    content = monthly.read_bytes()
+    monthly.unlink()
+    assert cli.main(["reproduce", "--dashboard"]) == 2
+    assert "--robustness" in capsys.readouterr().err
+    monthly.write_bytes(content)
+    (repo / "research" / "results" / "holdout" / "stress.csv").unlink()
+    assert cli.main(["reproduce", "--dashboard"]) == 2
+    assert "stress.csv" in capsys.readouterr().err
+    assert "load" not in dash
+
+
+def test_dashboard_keeps_the_holdout_lock(dash, repo, capsys):
+    (repo / "research" / "PLAN.md").write_bytes(b"# Plan\n\nedited after the holdout\n")
+    assert cli.main(["reproduce", "--dashboard"]) == 2
+    assert "load" not in dash and "PLAN.md" in capsys.readouterr().err
+
+
+def test_dashboard_refuses_the_options_of_other_runs(dash, repo, capsys):
+    others = (["--holdout"], ["--robustness"], ["--refresh"], ["--out", str(repo / "elsewhere")])
+    for extra in others:
+        assert cli.main(["reproduce", "--dashboard", *extra]) == 2, extra
+    assert "load" not in dash
+    err = capsys.readouterr().err
+    assert "--holdout" in err and "--robustness" in err and "--refresh" in err and "--out" in err
+
+
+def test_dashboard_writes_nothing_when_the_check_fails(dash, repo, monkeypatch, capsys):
+    def failing(bundle, performance, monthly):
+        raise ValueError("the cagr of USD '1/N' is 0.1 in the bundle and 0.2 in the table")
+
+    monkeypatch.setattr(dashboard, "check", failing)
+    assert cli.main(["reproduce", "--dashboard"]) == 2
+    assert "write" not in dash and "the cagr of USD" in capsys.readouterr().err
+    assert "dashboard" not in manifest_of(repo)["runs"]
+    assert not (repo / "app" / "data").exists()
+
+
+def test_dashboard_refuses_frozen_data_that_change_while_loading(dash, monkeypatch, capsys):
+    def changing(**kw):
+        dash["load"] = kw
+        cache._store(manifest.SOURCES["ff5_daily"], french_zip("swapped"))
+        return "inputs"
+
+    monkeypatch.setattr(study, "load", changing)
+    assert cli.main(["reproduce", "--dashboard"]) == 2
+    assert "build" not in dash and "changed while loading" in capsys.readouterr().err
+
+
+def test_dirty_ignores_the_dashboard_bundle(repo):
+    (repo / "app" / "data").mkdir(parents=True)
+    (repo / "app" / "data" / "design.csv").write_text("key,value\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "bundle")
+    (repo / "app" / "data" / "design.csv").write_text("key,value\nend,2026-08-31\n")
+    assert manifest._git_state(repo)["dirty"] is False  # a re-export is data, not code
+    (repo / "research" / "PLAN.md").write_bytes(b"edited")
+    assert manifest._git_state(repo)["dirty"] is True
+
+
+def test_dashboard_refuses_holdout_tables_unlike_the_recorded_ones(dash, repo, capsys):
+    tests = repo / "research" / "results" / "holdout" / "tests.csv"
+    tests.write_bytes(tests.read_bytes() + b"edited")
+    assert cli.main(["reproduce", "--dashboard"]) == 2
+    err = capsys.readouterr().err
+    assert "tests.csv" in err and "--rerun" in err and "build" not in dash
+
+
+def test_dashboard_refuses_a_robustness_table_unlike_the_recorded_one(dash, repo, capsys):
+    path = repo / "research" / "results" / "manifest.json"
+    m = json.loads(path.read_text())
+    m["runs"].setdefault("robustness", {}).setdefault("tables", {})["monthly.csv"] = "0" * 64
+    path.write_text(json.dumps(m))
+    assert cli.main(["reproduce", "--dashboard"]) == 2
+    err = capsys.readouterr().err
+    assert "monthly.csv" in err and "--robustness" in err and "build" not in dash

@@ -369,6 +369,98 @@
         "stress_realized.csv": "8016911e167fd3fa71113d18f21bbdef8abcac89d27efdaeb49400d4b0ccaa17",
         "shocks.csv": "89e9c11daba5836c52ada5aaccc3c5cab2b893a7bb2b45207f6a915662045137"
       }
+    },
+    "dashboard": {
+      "command": "portfolio-lab reproduce --dashboard",
+      "created": "2026-10-12T01:33:20+00:00",
+      "estimator": "lw_identity",
+      "git": {
+        "commit": "af7d6b7d455f09cc9096f5cec2914cd9bb7fcaf7",
+        "dirty": false,
+        "tag_commit": "317d4c45828f996a5e6d3971496622a0f8113d68",
+        "changed_since_tag": [
+          "src/portfolio_lab/cli.py",
+          "src/portfolio_lab/dashboard.py",
+          "src/portfolio_lab/data/french.py",
+          "src/portfolio_lab/manifest.py",
+          "src/portfolio_lab/report/figures.py",
+          "src/portfolio_lab/report/palette.py",
+          "src/portfolio_lab/robustness.py"
+        ]
+      },
+      "sources": {
+        "ff5_daily": {
+          "url": "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_5_Factors_2x3_daily_CSV.zip",
+          "header": "This file was created by using the 202608 CRSP database.",
+          "sha256": "7881223b51929ee0d6d23b8a28524aaec478a2c3d4eeca47224955cc845c5186",
+          "bytes": 150292,
+          "retrieved": "2026-10-10T01:24:41+00:00"
+        },
+        "mom_daily": {
+          "url": "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Momentum_Factor_daily_CSV.zip",
+          "header": "This file was created by using the 202608 CRSP database.  It",
+          "sha256": "ecf82b116e6ec56d2b79a2f27bd1d1598c217b5c6c25caa55b945bdd8a2c0b78",
+          "bytes": 85269,
+          "retrieved": "2026-10-10T01:24:42+00:00"
+        },
+        "ind12_daily": {
+          "url": "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/12_Industry_Portfolios_daily_CSV.zip",
+          "header": "This file was created using the 202608 CRSP database.",
+          "sha256": "cde9864260d22e42fdbd29a8a1272b8a0ab67aaf4d8cc6fd7898e11c448f06b1",
+          "bytes": 1093383,
+          "retrieved": "2026-10-10T01:24:38+00:00"
+        },
+        "usdcad": {
+          "url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXCAUS",
+          "header": "observation_date,DEXCAUS",
+          "sha256": "d218f8173a6fa0d510cef6f99ebf339d0599aebbbc1ceef97a959061dd474e8d",
+          "bytes": 258487,
+          "retrieved": "2026-10-10T01:24:42+00:00"
+        },
+        "ca_tbill_3m": {
+          "url": "https://www150.statcan.gc.ca/t1/wds/rest/getDataFromVectorByReferencePeriodRange?vectorIds=%22122531%22&startRefPeriod=1900-01-01&endReferencePeriod=2100-12-01",
+          "header": "[{\"status\":\"SUCCESS\",\"object\":{\"responseStatusCode\":0,\"productId\":10100122,\"coordinate\":\"1.56.0.0.0.0.0.0.0.0\",\"vectorId\":122531,\"vectorDataPoint\":[{\"refPer\":\"1962-01-01\",\"refPer2\":\"\",\"refPerRaw\":\"196",
+          "sha256": "16b4bfd5e1f3b3ee0ab0089180cee75790a45f82b4f67faedceb6dd42efe4e46",
+          "bytes": 177310,
+          "retrieved": "2026-10-10T01:24:43+00:00"
+        },
+        "ca_govt_long": {
+          "url": "https://www150.statcan.gc.ca/t1/wds/rest/getDataFromVectorByReferencePeriodRange?vectorIds=%22122487%22&startRefPeriod=1900-01-01&endReferencePeriod=2100-12-01",
+          "header": "[{\"status\":\"SUCCESS\",\"object\":{\"responseStatusCode\":0,\"productId\":10100122,\"coordinate\":\"1.26.0.0.0.0.0.0.0.0\",\"vectorId\":122487,\"vectorDataPoint\":[{\"refPer\":\"1936-01-01\",\"refPer2\":\"\",\"refPerRaw\":\"193",
+          "sha256": "5c5d9940fbaa6d6ba92dcf7e2719abdf5600ef74d940971bab43ce8d639167c9",
+          "bytes": 248430,
+          "retrieved": "2026-10-10T01:24:44+00:00"
+        },
+        "ca_govt_10y": {
+          "url": "https://www.bankofcanada.ca/valet/observations/BD.CDN.10YR.DQ.YLD/json",
+          "header": "{",
+          "sha256": "fd43f53858d50f2734370f1c6e9af1fc8d86519ec494c6ec95f97c26801533c9",
+          "bytes": 838314,
+          "retrieved": "2026-10-10T01:24:44+00:00"
+        }
+      },
+      "packages": {
+        "python": "3.13.15",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "scipy": "1.18.1",
+        "statsmodels": "0.15.0",
+        "portfolio-lab": "0.1.0"
+      },
+      "tables": {
+        "returns_USD.csv.gz": "079f41cb9bd5af479b281753d25c65defd38bad63ecd497d4264e731b47d9bbb",
+        "turnover_USD.csv.gz": "0926b932407e29c53d34a007300cd65180c52757f648ec6869d1e36723bdb23c",
+        "returns_CAD.csv.gz": "8ef68dd958e77abe816930b5021f62d3b45f51c04106269244aa59d024dcef98",
+        "turnover_CAD.csv.gz": "ba37c7edbbb1888ce55e9f8c0086e03c49d2b7af23f197ac4c629d3a55ef17e2",
+        "returns_CAD_HEDGED.csv.gz": "5b01ffb09e9c91a5dacc2090112c1cb4043e95d34b0fbe705d69ef99b4effc5a",
+        "turnover_CAD_HEDGED.csv.gz": "476bbd2b360da3bfba9bb34b9873b08505b5bbda75f26e400142dc1bd147a210",
+        "weights.csv.gz": "5369f2cee31117b6edf0a64927c4e9eee134fa416d41c23a19cd81bd9a74e616",
+        "factors.csv.gz": "6824b71b940da4606661e74c58c9383ca614adb67b90032b32c3449f1c808195",
+        "holdout/tests.csv": "6feddd2efb6855e1b24f2b7151455b7ba2b879d3e78bc045dd3faeff9591b702",
+        "holdout/stress.csv": "eaf188b47012e689fe9d489ad48235d16cf85f2afa9c29c096e73ac4b7cc7bef",
+        "holdout/shocks.csv": "89e9c11daba5836c52ada5aaccc3c5cab2b893a7bb2b45207f6a915662045137",
+        "design.csv": "48c6061ffb0b321840ac70fdc9967fa4f5e6c77c33ca9a7f103de349c0d03290"
+      }
     }
   }
 }

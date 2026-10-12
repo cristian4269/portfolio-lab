@@ -1,7 +1,7 @@
 # Blueprint: Risk-aware portfolio lab
 
 Status: **APPROVED v2 (2026-10-01)** · Created 2026-10-01 · Owner: cristian4269
-Decided: G1 = fetch French data at runtime, cite, derived analytics only · G5 = MIT.
+Decided: G1 = removed 2026-10-11 (French data cited; no other restriction) · G5 = MIT.
 Mode: git + gh available → one branch per step; PRs once the GitHub repo exists (gate G2).
 
 ## How to use this file (cold start)
@@ -27,7 +27,7 @@ risk-model validation on top. This reads as research, not coursework.
 
 | Gate | Decision | Default proposed | When |
 |---|---|---|---|
-| **G1** | Kenneth French Data Library shows a copyright notice but no explicit reuse terms. Use it by fetching at runtime, never committing raw files, citing it, and publishing only derived analytics (no per-industry raw series displays or downloads)? Alternative: email Prof. French for permission first. | Fetch at runtime + cite; derived results only | Before step 1 |
+| **G1** | Kenneth French Data Library shows a copyright notice but no explicit reuse terms. Use it by fetching at runtime, never committing raw files, citing it, and publishing only derived analytics (no per-industry raw series displays or downloads)? Alternative: email Prof. French for permission first. | Fetch at runtime + cite; derived results only. **Removed by the owner 2026-10-11 (Step 8):** only the citation stays | Before step 1 |
 | **G2** | Create the GitHub repo `cristian4269/portfolio-lab` so CI runs early. | **Private** at end of step 0 | End of step 0 |
 | **Push** | Every `git push` (branches, tags) needs the owner's yes **in that session**. A yes given in an earlier session does not carry over. | Ask each time | Every push |
 | **G3** | Deploy the dashboard. If the chosen free host requires a public repo, G3 and G4 are asked together. | Ask in step 8 | Step 8 |
@@ -68,8 +68,8 @@ the owner's explicit yes for that action in that session.
 
 1. `uv run pytest` passes (network tests excluded by default); `uv run ruff check .` and `uv run ruff format --check .` clean; coverage ≥ 80% on `src/` from step 2 on.
 2. No data committed except synthetic fixtures and allowed result files:
-   `git ls-files | grep -Ei '\.(csv|zip|parquet|xlsx|json)$' | grep -v -e '^tests/fixtures/' -e '^research/results/manifest.json$'` is empty.
-   `research/results/` is gitignored except `manifest.json`; figures (PNG) under `research/figures/` are committed (derived analytics, per G1).
+   `git ls-files | grep -Ei '\.(csv|zip|parquet|xlsx|json|gz)$' | grep -v -e '^tests/fixtures/' -e '^research/results/manifest.json$' -e '^app/data/'` is empty.
+   `research/results/` is gitignored except `manifest.json`; figures (PNG) under `research/figures/` are committed; the dashboard's bundle under `app/data/` is committed (Step 8, written by `reproduce --dashboard`). Amended 2026-10-11: `.gz` added, `app/data/` allowed.
 3. No personal-use data or sibling-repo material: `git grep -il tiingo -- ':!plans/'` is empty; nothing copied from `../stock-prices/` data, cache or `.env`.
 4. No secrets: all planned sources are keyless. If a key is ever needed it lives in `.env` (gitignored).
 5. Holdout rule above holds until step 7b.
@@ -289,7 +289,7 @@ before looking, fixed holdout, counted trials, one-shot holdout.
 ---
 
 ## Step 7b: Holdout run, robustness, report  *(strongest model)*
-Status: **done 2026-10-11, pending PR** (1 long session; plan `plans/step-7b-plan.md`; the one-shot holdout ran on `9ca40f4` with src identical to `prereg-v1`, recorded in `adccda8`; `robustness.py`, `report/figures.py`, `reproduce --robustness`, `portfolio-lab figures`; `research/REPORT.md` and 5 figures; reruns bit-identical; python-reviewer and `/code-review` (high) findings fixed)
+Status: **done and merged 2026-10-11** (PR #10, merge commit `a4c9161`; 1 long session; plan `plans/step-7b-plan.md`; the one-shot holdout ran on `9ca40f4` with src identical to `prereg-v1`, recorded in `adccda8`; `robustness.py`, `report/figures.py`, `reproduce --robustness`, `portfolio-lab figures`; `research/REPORT.md` and 5 figures; reruns bit-identical; python-reviewer and `/code-review` (high) findings fixed)
 
 **Tasks**
 - Run the holdout **once** (`allow_holdout=True` in `reproduce` only) to `HOLDOUT_END`; log the run in NOTES.md.
@@ -302,12 +302,12 @@ Status: **done 2026-10-11, pending PR** (1 long session; plan `plans/step-7b-pla
 ---
 
 ## Step 8: Streamlit dashboard + deploy
-Status: not started
+Status: **done 2026-10-11, pending PR** (branch `step-8-dashboard`; plan `plans/step-8-plan.md`, D2/D7 amended to 3 charted strategies; `dashboard.py`, `reproduce --dashboard`, the committed bundle in `app/data/`, `app/streamlit_app.py` with five tabs, AppTest smoke tests; python-reviewer and `/code-review` (high) findings fixed; deployment moved to Step 9 with G3 + G4, decision D9)
 
 **Tasks**
 - First: check the current free-tier terms of Streamlit Community Cloud (does it need a public repo? sleep behaviour? resources) vs one alternative; record in NOTES.md. If a public repo is required, ask **G3 and G4 together**.
 - `app/streamlit_app.py` (deps in the `app` group): sidebar (strategies, dates, USD / CAD / CAD-hedged view, cost slider, VaR level); tabs: Performance (equity curve, drawdown, metrics incl. tracking error and information ratio), Risk (rolling VaR/ES, exceptions, Kupiec/Christoffersen), Factors, Stress, About (method, data sources and licenses, "not investment advice").
-- Shows derived analytics only: no raw per-industry series tables or download buttons (G1).
+- ~~Shows derived analytics only: no raw per-industry series tables or download buttons (G1).~~ G1 removed 2026-10-11; the About tab cites the sources.
 - Speed: `st.cache_data`, precomputed default runs; target ~10 s cold load.
 - Chart colors per the dataviz skill; works at phone width.
 
@@ -337,7 +337,7 @@ Status: not started
 - [ ] `research/REPORT.md` 4-8 pages with confidence intervals, robustness, limitations; `prereg-v1` tag precedes holdout results.
 - [ ] `DATA_SOURCES.md` lists every source and series with terms and citation.
 - [ ] CV bullet + pitch exist locally in `docs/career/`.
-- [ ] No raw data, no Tiingo, no secrets, no local paths in the public repo.
+- [ ] No raw data files outside the allowed paths (invariant 2), no Tiingo, no secrets, no local paths in the public repo.
 
 ## Out of scope
 
@@ -348,7 +348,7 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 
 | Risk | Mitigation |
 |---|---|
-| French library terms unclear | G1; runtime fetch, no raw files, citation, derived analytics only; optional permission email |
+| French library terms unclear | Citation. G1's restrictions (runtime fetch, no raw files, derived analytics only) were removed by the owner on 2026-10-11, who accepted this risk; a permission email remains optional |
 | Data revisions break reproducibility | Frozen `HOLDOUT_END`, manifest with SHA-256, drift warning |
 | Holdout contamination | Data-layer guard + text-scan test; holdout stresses deferred; tagged pre-registration |
 | Underpowered Sharpe tests | Minimum detectable difference stated in advance; a null result is a valid finding |
@@ -357,6 +357,35 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 | Scope creep | Serial steps, MVP path, explicit cut order |
 
 ## Change log
+
+- 2026-10-11: step 8 done (plan `plans/step-8-plan.md`, all nine decisions approved; details
+  in NOTES.md).
+  - **Owner decisions:** G1 removed (the French data stay cited); hosting deferred to Step 9,
+    where G3 and G4 are asked together (a free public Streamlit app needs a public repo).
+  - **The bundle:** `reproduce --dashboard` runs under the holdout lock and writes
+    `app/data/` (9.9 MB, committed; invariant 2 amended to allow it and to catch `.gz`).
+    - It writes nothing unless its 5 bp series give back the holdout's `performance.csv` and
+      the robustness monthly series to 1e-12; the holdout tables it copies and the robustness
+      series must hash to the manifest's records.
+    - `design.csv` is written last and lists every file's SHA-256; a re-export repeats the
+      files byte for byte.
+  - **Interface (`dashboard`):** `build`, `write`, `read` (read-only frames), `check`,
+    `net_at` (exactly `engine.reprice`'s net), `net`, `months`, `performance` (the study's
+    table), `var_backtest`, `betas`, `beta_table`, `rolling_betas`, `realized`,
+    `scenario_days`, `holdings`, `growth`, `drawdowns`, `thin`, `slots`; `MAX_CHARTED` = 3,
+    `MIN_MONTHS` = 12. `report.palette` holds `THEMES` and `INDUSTRY_NAMES` (no matplotlib).
+  - **The app** (`uv run --group app streamlit run app/streamlit_app.py`): Performance
+    (growth, drawdowns, metrics for any of the 17, holdings, the registered tests), Risk
+    (rolling VaR and its backtests), Factors (Step 5b betas, rolling betas), Stress (paths,
+    registered replays and shocks), About (method, citations). Live at any view, months
+    (12 or more), cost and benchmark; the registered tests stay fixed.
+  - **Changed from the plan:** at most 3 strategies per chart (the palette passes every pair
+    only for slots 1-3); the page needs 12 months.
+  - **Verified:** the AppTest smoke tests; every tab in a browser, light at desktop width and
+    dark at 375 px (no sideways scroll); a cold start shows the first chart in about 10 s, a
+    running server in 1.5 s.
+  - **For Step 9:** deploy on Streamlit Community Cloud after the scrub (G3 + G4), and check
+    that it installs the src-layout package (fallback: `app/requirements.txt`).
 
 - 2026-10-11: step 7b done (plan `plans/step-7b-plan.md`, all nine decisions approved;
   details in NOTES.md).
