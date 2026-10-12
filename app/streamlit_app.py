@@ -31,7 +31,6 @@ VIEWS = {
 BENCHMARK_LABELS = {db.MARKET: "Fama-French market", study.BENCHMARK: "1/N"}
 CACHE = {"max_entries": 32, "ttl": 3600}  # a bounded cache: the host has little memory
 TOP_HOLDINGS = 7  # the palette's adjacent-pair slots; the rest fold into one neutral band
-MIN_MONTHS = 12  # annual figures from less than a year would mislead (and Sharpe needs 6)
 METHODS = {
     "historical": "Historical",
     "normal": "Normal",
@@ -95,10 +94,10 @@ def data_folder() -> Path:
     return Path(os.environ.get(DATA_ENV) or Path(__file__).parent / "data")
 
 
-@st.cache_data(show_spinner="Loading the data", max_entries=1)
+@st.cache_resource(show_spinner="Loading the data")
 def bundle(folder: str) -> db.Bundle:
-    """The bundle, read once; each caller gets its own copy, so no session can change the
-    data another one sees."""
+    """The bundle, read once and shared by every session: its frames are read-only, so no
+    session can change the data another one sees."""
     return db.read(Path(folder))
 
 
@@ -163,6 +162,11 @@ def rolling(
     return db.rolling_betas(bundle(folder), view, name, cost_bps=cost, start=start, end=end)
 
 
+@st.cache_data(show_spinner=False, **CACHE)
+def stress_outcomes(folder: str, view: str, names: tuple[str, ...], cost: float) -> pd.DataFrame:
+    return db.realized(bundle(folder), view, list(names), cost_bps=cost)
+
+
 # --- the tabs ---------------------------------------------------------------------------------
 
 
@@ -213,8 +217,7 @@ def performance_tab(b: db.Bundle, c: Choice) -> None:
 def holdings_section(b: db.Bundle, c: Choice) -> None:
     st.subheader("Holdings")
     name = st.selectbox("Strategy", c.charted, key="holdings_strategy")
-    held = db.holdings(b, c.view, name, top=TOP_HOLDINGS)
-    held = held.loc[(held.index >= c.start) & (held.index <= c.end)]
+    held = db.holdings(b, c.view, name, top=TOP_HOLDINGS, start=c.start, end=c.end)
     colors = list(c.theme.series[: min(len(held.columns), TOP_HOLDINGS)])
     if db.OTHER in held.columns:
         colors = colors[: len(held.columns) - 1] + [c.theme.rest]
@@ -351,6 +354,9 @@ def factors_tab(c: Choice) -> None:
 def stress_tab(b: db.Bundle, c: Choice) -> None:
     all_nets = nets(c.folder, c.view, c.cost)
     covered = [s for s in SCENARIOS if db.scenario_days(all_nets.index, hs.SCENARIOS[s]).any()]
+    if not covered:
+        st.info("The data hold none of the registered stress windows.")
+        return
     scenario = st.radio("Scenario", covered, format_func=SCENARIOS.__getitem__, horizontal=True)
     s = hs.SCENARIOS[scenario]
     st.caption(s.note)
@@ -361,7 +367,9 @@ def stress_tab(b: db.Bundle, c: Choice) -> None:
         growth, c.colors, c.theme, y_title="Value of $1", y_format="$,.2f", x_format="%b %d"
     )
     st.altair_chart(chart, theme=None)
-    realized = db.realized(b, c.view, c.charted, cost_bps=c.cost).xs(scenario, level="scenario")
+    realized = stress_outcomes(c.folder, c.view, tuple(c.charted), c.cost).xs(
+        scenario, level="scenario"
+    )
     numbers(
         realized[["pnl", "worst_day", "worst_date", "max_drawdown", "days"]]
         .rename(
@@ -541,8 +549,8 @@ def main() -> None:
     problem = None
     if not c.charted:
         problem = "Choose at least one strategy in the controls."
-    elif months < MIN_MONTHS:
-        problem = f"Choose at least {MIN_MONTHS} months: annual figures need a full year."
+    elif months < db.MIN_MONTHS:
+        problem = f"Choose at least {db.MIN_MONTHS} months: annual figures need a full year."
     if problem:
         for tab in tabs[:4]:
             with tab:

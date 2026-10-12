@@ -84,7 +84,9 @@ def var_chart(path: pd.DataFrame, color: str, t: Theme, *, label: str) -> alt.La
     """A strategy's daily returns (a muted 1 px line) above its rolling loss limit, -VaR (a 2 px
     line in the strategy's color), with each exception, a loss past the VaR, as an ink dot."""
     drawn = db.thin(pd.DataFrame({"r": path["return"], "v": -path["var"]}), "min")
-    names = {"r": "Daily return", "v": label}
+    span = len(path) / len(drawn)  # 1 for days; about 5 when thinned to weeks, 21 to months
+    first = "Daily return" if span == 1 else f"Worst day of each {'week' if span < 10 else 'month'}"
+    names = {"r": first, "v": label}
     long = drawn.rename_axis("day").reset_index().melt("day", var_name="key", value_name="value")
     long["series"] = long["key"].map(names)
     domain = list(names.values())
