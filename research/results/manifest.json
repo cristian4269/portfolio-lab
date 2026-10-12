@@ -372,10 +372,10 @@
     },
     "dashboard": {
       "command": "portfolio-lab reproduce --dashboard",
-      "created": "2026-10-12T00:05:53+00:00",
+      "created": "2026-10-12T01:20:29+00:00",
       "estimator": "lw_identity",
       "git": {
-        "commit": "40e3a69312a407f19ae7c5316820ce4228ccde70",
+        "commit": "cddb1828d11ee27643269095be373a4b53887b1c",
         "dirty": false,
         "tag_commit": "317d4c45828f996a5e6d3971496622a0f8113d68",
         "changed_since_tag": [
@@ -384,6 +384,7 @@
           "src/portfolio_lab/data/french.py",
           "src/portfolio_lab/manifest.py",
           "src/portfolio_lab/report/figures.py",
+          "src/portfolio_lab/report/palette.py",
           "src/portfolio_lab/robustness.py"
         ]
       },
@@ -458,7 +459,6 @@
         "factors.csv.gz": "6824b71b940da4606661e74c58c9383ca614adb67b90032b32c3449f1c808195",
         "holdout/tests.csv": "6feddd2efb6855e1b24f2b7151455b7ba2b879d3e78bc045dd3faeff9591b702",
         "holdout/stress.csv": "eaf188b47012e689fe9d489ad48235d16cf85f2afa9c29c096e73ac4b7cc7bef",
-        "holdout/stress_realized.csv": "8016911e167fd3fa71113d18f21bbdef8abcac89d27efdaeb49400d4b0ccaa17",
         "holdout/shocks.csv": "89e9c11daba5836c52ada5aaccc3c5cab2b893a7bb2b45207f6a915662045137"
       }
     }
