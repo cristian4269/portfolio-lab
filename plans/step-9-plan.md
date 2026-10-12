@@ -9,7 +9,7 @@ with its design pass, PR #12). Default model, 2 sessions, MVP.
 **The tree is almost clean.** A scan of every tracked file for local paths, the sibling
 project, Tiingo, emails and secrets found three lines, all in `plans/portfolio-lab-blueprint.md`:
 - line 127: the local Windows path of the repo (it shows the Windows user name);
-- line 73 (invariant 3) and line 324 (Step 9's own task) name `../stock-prices`;
+- line 73 (invariant 3) and line 324 (Step 9's own task) name the sibling project's folder;
 - Tiingo is named only as invariant 3's check (`git grep -il tiingo`) and in the acceptance
   criteria.
 
@@ -17,7 +17,7 @@ project, Tiingo, emails and secrets found three lines, all in `plans/portfolio-l
 - No file was ever committed and later deleted, except one bundle file under `app/data/`
   (derived results, allowed).
 - No API key, token or password pattern appears in any commit.
-- The Windows path and `../stock-prices` sit in the scaffold commit `967e8db`.
+- The Windows path and the sibling folder name sit in the scaffold commit `967e8db`.
 - **12 merge commits carry the owner's personal email.** These are the PR merges done on
   GitHub (author `<personal gmail>`, committer GitHub). Every other commit uses the GitHub
   noreply address.
@@ -84,7 +84,7 @@ project, Tiingo, emails and secrets found three lines, all in `plans/portfolio-l
   amendments). A quant interviewer would read them.
 - **The edits:**
   - the Windows path becomes "the repo root";
-  - `../stock-prices` becomes "another local project";
+  - the sibling folder becomes "another local project";
   - invariant 3 keeps its Tiingo check (a vendor name; it shows the license care).
 - *Alternative:* gitignore `plans/`. That hides the process, and the lines stay in history
   anyway.
@@ -190,7 +190,7 @@ A → G4 (public) → G3 (deploy).
   `uv build`.
 - The D4 venv proof and the D8 audit.
 - **Invariants 1-6.** PLAN.md and `study.py` byte-identical to `prereg-v1`.
-- **The scrub re-run:** no Windows path or `../stock-prices` in any tracked file.
+- **The scrub re-run:** no Windows path or sibling folder name in any tracked file.
 - **Reviews:**
   - python-reviewer on the code-adjacent diff (CI step, `pyproject.toml`, requirements);
   - `/code-review` (high) on the branch.

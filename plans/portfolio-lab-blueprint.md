@@ -70,7 +70,7 @@ the owner's explicit yes for that action in that session.
 2. No data committed except synthetic fixtures and allowed result files:
    `git ls-files | grep -Ei '\.(csv|zip|parquet|xlsx|json|gz)$' | grep -v -e '^tests/fixtures/' -e '^research/results/manifest.json$' -e '^app/data/'` is empty.
    `research/results/` is gitignored except `manifest.json`; figures (PNG) under `research/figures/` are committed; the dashboard's bundle under `app/data/` is committed (Step 8, written by `reproduce --dashboard`). Amended 2026-10-11: `.gz` added, `app/data/` allowed.
-3. No personal-use data or sibling-repo material: `git grep -il tiingo -- ':!plans/'` is empty; nothing copied from `../stock-prices/` data, cache or `.env`.
+3. No personal-use data or sibling-repo material: `git grep -il tiingo -- ':!plans/'` is empty; nothing copied from another local project's data, cache or `.env`.
 4. No secrets: all planned sources are keyless. If a key is ever needed it lives in `.env` (gitignored).
 5. Holdout rule above holds until step 7b.
 6. Every financial formula has a test against a hand-computed or textbook value.
@@ -124,7 +124,7 @@ revert a merged step with `git revert -m 1 <merge-commit>`.
 ## Step 0: Scaffold, tooling, CI
 Status: **done 2026-10-01** (commit 967e8db; private repo created, first CI run green)
 
-**Context.** Repo at `C:\Users\crist\Documents\portfolio-lab` (only `plans/` exists).
+**Context.** The repo root holds only `plans/`.
 uv 0.12.20 and CPython 3.13.15 are installed; gh is logged in as cristian4269.
 
 **Tasks**
@@ -321,7 +321,7 @@ Status: **in progress** (branch `step-9-publish`; plan `plans/step-9-plan.md`, a
 **Tasks**
 - `README.md`, recruiter first: one-paragraph summary, screenshot, demo link, 3 headline results, then method, results, limitations, how to run, data sources and licenses, "not investment advice".
 - `docs/career/` (gitignored, stays local): CV bullet in French and English, 60-second pitch, likely interview questions with answers (why Ledoit-Wolf, why a holdout, what Kupiec tests, t+1 execution, CAD hedging).
-- **Scrub before going public:** remove local Windows paths and `../stock-prices` references from `plans/` (or gitignore `plans/`), check git history for anything private.
+- **Scrub before going public:** remove local Windows paths and references to other local projects from `plans/` (or gitignore `plans/`), check git history for anything private.
 - Fresh-clone audit: `uv sync --all-groups && uv run pytest --cov` (≥ 80%), `uv run portfolio-lab reproduce`, invariants 1-4, README links.
 - **Ask G4**, make the repo public, confirm the CI badge is green.
 
