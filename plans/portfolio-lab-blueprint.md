@@ -316,7 +316,7 @@ Status: **done and merged 2026-10-11** (PR #11, merge commit 0f443e1; a design p
 ---
 
 ## Step 9: README, docs, final audit, publish
-Status: not started
+Status: **in progress** (branch `step-9-publish`; plan `plans/step-9-plan.md`, approved 2026-10-12; D5: G3 no longer forces G4, since a Community Cloud app from a private repo can be made public)
 
 **Tasks**
 - `README.md`, recruiter first: one-paragraph summary, screenshot, demo link, 3 headline results, then method, results, limitations, how to run, data sources and licenses, "not investment advice".
