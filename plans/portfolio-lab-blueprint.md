@@ -358,6 +358,25 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 
 ## Change log
 
+- 2026-10-12: step 9, session 1 (plan `plans/step-9-plan.md`, D1-D8 approved; details in
+  NOTES.md).
+  - **Done for PR A:**
+    - the recruiter-first README with dashboard screenshots (`docs/img/`);
+    - the scrub of `plans/` (no local path or sibling project name in the tree; history
+      kept, D1);
+    - `app/requirements.txt` exported from `uv.lock`, with a CI check, uv pinned in CI;
+    - `[project.urls]`;
+    - a test that reads the committed bundle;
+    - the terms re-checked;
+    - `docs/career/` (local).
+  - **Hosting corrected:** a Community Cloud app from a private repo can be made public, so
+    G3 and G4 are asked together but answered separately (D5).
+  - **Open before publishing:** FRED's full terms bar storing and redistributing FRED content.
+    `DEXCAUS` is the Board's public-domain H.10 series, and the bundle holds its daily returns.
+    The owner decides.
+  - **Fresh-clone audit:** 1509 tests at 99.96%; the holdout rerun from a clean checkout
+    matched all 11 tables; a cold download matched the frozen vintage (7 of 7 sources).
+
 - 2026-10-11: step 8 done (plan `plans/step-8-plan.md`, all nine decisions approved; details
   in NOTES.md).
   - **Owner decisions:** G1 removed (the French data stay cited); hosting deferred to Step 9,
