@@ -302,7 +302,7 @@ Status: **done and merged 2026-10-11** (PR #10, merge commit `a4c9161`; 1 long s
 ---
 
 ## Step 8: Streamlit dashboard + deploy
-Status: in progress (started 2026-10-11, branch `step-8-dashboard`)
+Status: **done 2026-10-11, pending PR** (branch `step-8-dashboard`; plan `plans/step-8-plan.md`, D2/D7 amended to 3 charted strategies; `dashboard.py`, `reproduce --dashboard`, the committed bundle in `app/data/`, `app/streamlit_app.py` with five tabs, AppTest smoke tests; python-reviewer and `/code-review` (high) findings fixed; deployment moved to Step 9 with G3 + G4, decision D9)
 
 **Tasks**
 - First: check the current free-tier terms of Streamlit Community Cloud (does it need a public repo? sleep behaviour? resources) vs one alternative; record in NOTES.md. If a public repo is required, ask **G3 and G4 together**.
@@ -357,6 +357,35 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 | Scope creep | Serial steps, MVP path, explicit cut order |
 
 ## Change log
+
+- 2026-10-11: step 8 done (plan `plans/step-8-plan.md`, all nine decisions approved; details
+  in NOTES.md).
+  - **Owner decisions:** G1 removed (the French data stay cited); hosting deferred to Step 9,
+    where G3 and G4 are asked together (a free public Streamlit app needs a public repo).
+  - **The bundle:** `reproduce --dashboard` runs under the holdout lock and writes
+    `app/data/` (9.9 MB, committed; invariant 2 amended to allow it and to catch `.gz`).
+    - It writes nothing unless its 5 bp series give back the holdout's `performance.csv` and
+      the robustness monthly series to 1e-12; the holdout tables it copies and the robustness
+      series must hash to the manifest's records.
+    - `design.csv` is written last and lists every file's SHA-256; a re-export repeats the
+      files byte for byte.
+  - **Interface (`dashboard`):** `build`, `write`, `read` (read-only frames), `check`,
+    `net_at` (exactly `engine.reprice`'s net), `net`, `months`, `performance` (the study's
+    table), `var_backtest`, `betas`, `beta_table`, `rolling_betas`, `realized`,
+    `scenario_days`, `holdings`, `growth`, `drawdowns`, `thin`, `slots`; `MAX_CHARTED` = 3,
+    `MIN_MONTHS` = 12. `report.palette` holds `THEMES` and `INDUSTRY_NAMES` (no matplotlib).
+  - **The app** (`uv run --group app streamlit run app/streamlit_app.py`): Performance
+    (growth, drawdowns, metrics for any of the 17, holdings, the registered tests), Risk
+    (rolling VaR and its backtests), Factors (Step 5b betas, rolling betas), Stress (paths,
+    registered replays and shocks), About (method, citations). Live at any view, months
+    (12 or more), cost and benchmark; the registered tests stay fixed.
+  - **Changed from the plan:** at most 3 strategies per chart (the palette passes every pair
+    only for slots 1-3); the page needs 12 months.
+  - **Verified:** the AppTest smoke tests; every tab in a browser, light at desktop width and
+    dark at 375 px (no sideways scroll); a cold start shows the first chart in about 10 s, a
+    running server in 1.5 s.
+  - **For Step 9:** deploy on Streamlit Community Cloud after the scrub (G3 + G4), and check
+    that it installs the src-layout package (fallback: `app/requirements.txt`).
 
 - 2026-10-11: step 7b done (plan `plans/step-7b-plan.md`, all nine decisions approved;
   details in NOTES.md).

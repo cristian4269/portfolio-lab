@@ -2,6 +2,34 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-11: step 8, session 3 of 3 (reviews, verification)
+
+- **python-reviewer** (no critical findings; it confirmed `check`, `realized`, the default
+  metrics, the pyarrow read and the bundle hashes on the real data). Fixed:
+  - **High:** the Factors tab crashed in the CAD view on any window ending before 2001 (the
+    daily 10-year yield starts then) and stopped the Stress tab from drawing. A CAD window that
+    starts before the yield now leaves it out (fx kept), and the caption says so and names the
+    sample's dates.
+  - Bounded caches (32 entries, 1 h); read-only bundle frames shared by every session; the
+    17-strategy table only on request; defaults, VaR window, counts and the tests' verdict
+    from the bundle; labelled R²; a clean error for a damaged bundle; `check` refuses other
+    columns; copied holdout tables must match the manifest's hashes; `write` prunes an older
+    bundle's files; `stress_realized` is no longer copied; the weights now feed a Holdings
+    chart.
+  - **Found while fixing:** French's 12 industries include one named "Other", so the folded
+    band of `holdings` is "All others".
+  - **Not done:** importing `engine._cost_rate` (an internal import, as robustness uses
+    `study._performance`); mypy over `app/` (Altair keyword noise); gzip bytes that could
+    differ under another zlib (the check is numeric, so only git churn).
+- **`/code-review` (high): 10 findings, all fixed.** Holdings now start with the targets in
+  force at the window's start; the stress tab handles a bundle with no registered window;
+  the thinned VaR series is labelled; `read` requires 1/N; `net` computes only the
+  strategies asked for; `performance` needs 12 months; the robustness series must match its
+  recorded hash; `design.csv` is written last and lists every file's SHA-256, so a bundle
+  written only in part is refused.
+- **Re-exports** (`83477bc`, `bc51d62`): every data file byte-identical to the first export;
+  only `stress_realized.csv` left and `design.csv` gained the file list.
+
 ## 2026-10-11: step 8, session 2 of 3 (Risk, Factors, Stress; smoke tests; speed)
 
 - **The tabs**, live at the selected view, months and cost:
