@@ -14,6 +14,8 @@ from portfolio_lab.backtest import engine
 from portfolio_lab.config import HOLDOUT_START
 from portfolio_lab.construct import strategy as st
 from portfolio_lab.report import inference as inf
+from portfolio_lab.risk import factors as fa
+from portfolio_lab.stress import historical as hs
 
 END = "2022-12-31"
 
@@ -440,3 +442,89 @@ def test_slots_keep_each_strategys_color():
     assert db.slots(["a", "c", "d"], {"a": 0, "c": 2}) == {"a": 0, "c": 2, "d": 1}
     with pytest.raises(ValueError, match="at most 3"):
         db.slots(["a", "b", "c", "d"], {})
+
+
+# --- risk, factors and stress ------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def study_tables(inputs):
+    return study.run(
+        inputs,
+        period="holdout",
+        end=END,
+        estimator="sample",
+        allow_holdout=True,
+        settings=SMALL,
+        strategies=group(),
+    )
+
+
+def test_var_backtest_is_the_studys_on_the_holdout(bundle, study_tables):
+    held = study_tables["var"]
+    start, end = pd.Timestamp(HOLDOUT_START), pd.Timestamp(END)
+    for view, name in (("USD", study.BENCHMARK), ("CAD", group()[2].name)):
+        series = db.net(bundle, view, 5.0)[name]
+        for method, level in (("historical", 0.99), ("fhs", 0.95)):
+            path, row = db.var_backtest(series, method=method, level=level, start=start, end=end)
+            theirs = held.loc[(view, name, study.VAR_WINDOW, level, method)]
+            for col in ("days", "exceptions", "kupiec_p", "kupiec_exact_p", "independence_p"):
+                assert row[col] == pytest.approx(theirs[col], rel=1e-12, abs=1e-12), col
+            assert list(path.columns) == ["return", "var", "es", "exception"]
+            assert path.index[0] >= start and path.index[-1] == end
+            assert int(path["exception"].sum()) == row["exceptions"]
+            assert (path["exception"] == (path["return"] < -path["var"])).all()
+
+
+def test_var_backtest_needs_a_forecast_in_the_dates(bundle):
+    series = db.net(bundle, "USD", 5.0)[study.BENCHMARK]
+    early = series.index[100]
+    with pytest.raises(ValueError, match="forecast"):
+        db.var_backtest(series, method="normal", level=0.95, start=series.index[0], end=early)
+
+
+def test_betas_are_step_5bs_on_the_selected_days(bundle, inputs):
+    start, end = pd.Timestamp("2012-01-01"), pd.Timestamp("2019-12-31")
+    names = bundle.strategies[:2]
+    for view in ("USD", "CAD"):
+        mine = db.betas(bundle, view, names, cost_bps=5.0, start=start, end=end)
+        nets = db.net(bundle, view, 5.0)
+        days = (nets.index >= start) & (nets.index <= end)
+        excess = nets.loc[days, names].sub(bundle.returns[view].loc[days, db.RF], axis=0)
+        if view == "CAD":
+            theirs = fa.macro_betas(
+                excess, inputs.dy, inputs.fx, inputs.factors, frequency="weekly"
+            )
+        else:
+            theirs = fa.factor_betas(excess, inputs.factors, frequency="weekly")
+        pd.testing.assert_frame_equal(mine, theirs, check_exact=False, rtol=1e-12)
+    terms = set(mine.index.get_level_values("term"))
+    assert {"alpha", "Mkt-RF", "fx", "dy"} <= terms
+
+
+def test_rolling_betas_use_the_history_before_the_start(bundle):
+    start, end = pd.Timestamp("2015-01-01"), pd.Timestamp("2016-12-31")
+    name = bundle.strategies[1]
+    rolled = db.rolling_betas(bundle, "USD", name, cost_bps=5.0, start=start, end=end)
+    assert rolled.index[0] == bundle.returns["USD"].index[bundle.returns["USD"].index >= start][0]
+    assert rolled.index[-1] <= end and "Mkt-RF" in rolled.columns
+
+
+def test_realized_stress_is_the_studys(bundle, study_tables):
+    held = study_tables["stress_realized"]
+    names = [study.BENCHMARK, group()[1].name]
+    for view in ("USD", "CAD"):
+        mine = db.realized(bundle, view, names, cost_bps=5.0)
+        for (scenario, name), row in mine.iterrows():
+            theirs = held.loc[(scenario, view, name)]
+            assert row["pnl"] == pytest.approx(theirs["pnl"], rel=1e-12)
+            assert row["max_drawdown"] == pytest.approx(theirs["max_drawdown"], rel=1e-12)
+            assert row["days"] == theirs["days"]
+        assert set(mine.index.get_level_values("scenario")) == {"gfc", "covid", "rates"}
+
+
+def test_scenario_days_are_the_window_after_its_start():
+    days = pd.bdate_range("2008-08-25", "2008-12-05")
+    mask = db.scenario_days(days, hs.SCENARIOS["gfc"])
+    picked = days[mask]
+    assert picked[0] == pd.Timestamp("2008-09-02") and picked[-1] == pd.Timestamp("2008-11-28")
