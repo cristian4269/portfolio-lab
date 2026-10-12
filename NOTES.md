@@ -2,6 +2,35 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-11: step 8, session 2 of 3 (Risk, Factors, Stress; smoke tests; speed)
+
+- **The tabs**, live at the selected view, months and cost:
+  - **Risk:** one strategy at a time; rolling one-day VaR from the last 500 days, four methods
+    (FHS by default), 95% or 99% from the sidebar; exceptions, Kupiec (exact), independence
+    and conditional coverage, and the latest VaR and ES. `dashboard.var_backtest` equals the
+    holdout's `var` table on the same data (tested on synthetic data). Example, USD 1/N at 99%
+    FHS over the holdout: 43 exceptions for 39 expected, Kupiec p 0.52, independence p 0.00.
+  - **Factors:** Step 5b's weekly partial betas over the selected months (the CAD view adds fx
+    and dy), t-statistics, and rolling 252-day betas of a chosen factor. Holdout USD: R² 0.97,
+    0.74, 0.95; latest market betas 0.77, 0.46, 0.66 (1/N, minimum variance, ERC).
+  - **Stress:** each strategy's own path through the registered windows (live), then the
+    registered replays and shocks (fixed). `dashboard.realized` equals the study's
+    `stress_realized`.
+- **The page asks for at least 12 months.** The AppTest found that fewer than 6 crashed the
+  monthly Sharpe; annual figures from under a year would mislead anyway.
+- **AppTest smoke tests** (`tests/test_app.py`, 7 tests, about 30 s): the whole app on a
+  synthetic bundle whose registered tables come from `study.run`. AppTest quirks: a radio is
+  set by its shown label; a select-slider by its values before `format_func`; widgets are
+  found by key (main-area widgets come before the sidebar's in the lists).
+- **Speed:** pyarrow (which comes with Streamlit) reads the bundle with exact floats in 0.5 s
+  instead of 2.3 s. The first page after a server start: title 9.0 s, first chart 10.4 s,
+  tables 11.7 s (about 4.4 s of it is importing Streamlit, scipy and statsmodels). A visit to
+  a running server: title 0.4 s, chart 1.5 s, tables 2.6 s.
+- **Browser checks:** every tab in light (desktop) and dark (375 px phone width): the palette
+  follows the theme, and the page never scrolls sideways (tables scroll inside themselves).
+  A chart in a tab clicked by a script before the page settles can stay at zero width; a
+  user's click after load renders it.
+
 ## 2026-10-11: step 8, session 1 of 3 (plan, hosting, G1 removed)
 
 - **Hosting, checked against the official docs on 2026-10-11** (details in
