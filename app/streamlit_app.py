@@ -325,8 +325,8 @@ def factors_tab(c: Choice) -> None:
         "Weekly excess returns (Wednesday to Wednesday) on the Fama-French five factors and "
         "momentum, all at once, so each beta holds the others fixed (Step 5b). "
         + cad
-        + f"R²: {r2}. {int(fit['nobs'].iloc[0])} weeks, {fit['start'].iloc[0]} to "
-        f"{fit['end'].iloc[0]}."
+        + f"R²: {r2}. {int(fit['nobs'].iloc[0])} weeks, {_day(fit['start'].iloc[0])} to "
+        f"{_day(fit['end'].iloc[0])}."
     )
     with st.expander("t-statistics (Newey-West)"):
         numbers(
@@ -349,6 +349,11 @@ def factors_tab(c: Choice) -> None:
     )
     st.altair_chart(chart, theme=None)
     st.caption("Daily regressions over each trailing year, a description rather than a forecast.")
+
+
+def _day(value: object) -> str:
+    """A date as YYYY-MM-DD, whether it comes as a timestamp or a string."""
+    return str(pd.Timestamp(str(value)).date())
 
 
 def stress_tab(b: db.Bundle, c: Choice) -> None:

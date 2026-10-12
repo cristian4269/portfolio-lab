@@ -27,6 +27,14 @@ Running log of decisions, data quirks and findings. Newest first.
   strategies asked for; `performance` needs 12 months; the robustness series must match its
   recorded hash; `design.csv` is written last and lists every file's SHA-256, so a bundle
   written only in part is refused.
+- **The "error" in the browser pane after the review fixes** was the dev server, not the code:
+  `AttributeError: module 'portfolio_lab.dashboard' has no attribute 'MIN_MONTHS'`. Streamlit
+  reran the edited app script but kept the old `dashboard` module, which `from portfolio_lab
+  import dashboard` reads off the already-imported package. Restart the server after editing
+  anything under `src/` (a deployed app always starts fresh). Replayed on the real bundle with
+  AppTest: USD, CAD and CAD hedged, and CAD windows 1972-75, 1988-93 and 1990-2026, render
+  with no error. It also showed the Factors caption printing `1972-02-01 00:00:00`; it now
+  prints days.
 - **Re-exports** (`83477bc`, `bc51d62`): every data file byte-identical to the first export;
   only `stress_realized.csv` left and `design.csv` gained the file list.
 

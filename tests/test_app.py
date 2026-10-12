@@ -125,7 +125,8 @@ def test_the_one_over_n_benchmark_renders(app):
 def test_cad_factors_leave_out_the_yield_before_it_starts(app):
     app.radio(key="view").set_value("Canadian investor, unhedged").run()  # months from 2011
     assert not app.exception
-    assert any("left out of this window" in c.value for c in app.caption)
+    factors = next(c.value for c in app.caption if "left out of this window" in c.value)
+    assert "00:00:00" not in factors  # the sample's dates, as days
 
 
 def test_holdings_are_drawn(app):
