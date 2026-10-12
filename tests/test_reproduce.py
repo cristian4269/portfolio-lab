@@ -687,7 +687,10 @@ def test_cache_industries_downloads_the_49_industries_through_dev(monkeypatch):
 
 @pytest.fixture
 def dash(robust, repo, monkeypatch):
-    """A repository whose holdout and robustness tables exist, with stubs for the bundle."""
+    """A repository whose holdout and robustness tables exist, with stubs for the bundle. The
+    holdout is rerun first, as the real one was, so the manifest records its tables' hashes."""
+    assert cli.main(["reproduce", "--holdout", "--rerun"]) == 0
+    robust.clear()
     held = repo / "research" / "results" / "holdout"
     for name in ("performance", *dashboard.HOLDOUT_TABLES):
         if name != "tests":  # the robust fixture wrote it
@@ -820,3 +823,11 @@ def test_dirty_ignores_the_dashboard_bundle(repo):
     assert manifest._git_state(repo)["dirty"] is False  # a re-export is data, not code
     (repo / "research" / "PLAN.md").write_bytes(b"edited")
     assert manifest._git_state(repo)["dirty"] is True
+
+
+def test_dashboard_refuses_holdout_tables_unlike_the_recorded_ones(dash, repo, capsys):
+    tests = repo / "research" / "results" / "holdout" / "tests.csv"
+    tests.write_bytes(tests.read_bytes() + b"edited")
+    assert cli.main(["reproduce", "--dashboard"]) == 2
+    err = capsys.readouterr().err
+    assert "tests.csv" in err and "--rerun" in err and "build" not in dash
