@@ -353,7 +353,7 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 | Holdout contamination | Data-layer guard + text-scan test; holdout stresses deferred; tagged pre-registration |
 | Underpowered Sharpe tests | Minimum detectable difference stated in advance; a null result is a valid finding |
 | Asynchronous FX timing | Documented; weekly regressions alongside daily |
-| Free host needs a public repo | Checked first in step 8; G3 + G4 asked together |
+| Free host needs a public repo | Checked in step 8; corrected 2026-10-12 (Step 9, D5): a Community Cloud app from a private repo can be made public, so G3 and G4 are asked together but answered separately |
 | Scope creep | Serial steps, MVP path, explicit cut order |
 
 ## Change log

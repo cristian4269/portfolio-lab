@@ -371,7 +371,8 @@ The table gives the annual Sharpe difference against 1/N, with the raw p in brac
   French library publishes after the tag, reported apart and descriptive only. It waits for
   enough new months to say anything.
 - **An external check** of the prewhitened HAC against the authors' R code.
-- **The dashboard** (done in Step 8, after this report): the same tables, interactive, in
+- **The dashboard** (done in Step 8, after this report; this line updated 2026-10-12): the
+  same tables, interactive, in
   `app/streamlit_app.py`. The [README](../README.md) shows how to run it.
 - **More power:** a longer or international sample, where the pre-registration would have to
   start again, before looking.

@@ -90,8 +90,10 @@ An interactive view of the study in Streamlit, with five tabs: **Performance**, 
   and benchmark drive the growth and drawdown charts, metrics and holdings, VaR backtests,
   factor betas and stress windows.
 
-The data bundle is committed in `app/data/`, so the app downloads nothing. To run it locally
-(needs [uv](https://docs.astral.sh/uv/) and Python 3.13 or later):
+The data bundle is committed in `app/data/`, so the app downloads nothing. A host installs
+`app/requirements.txt` (exported from `uv.lock`) and needs Python 3.13 or later; on Streamlit
+Community Cloud, pick 3.13 in the deploy's advanced settings. To run it locally (needs
+[uv](https://docs.astral.sh/uv/)):
 
 ```bash
 uv sync --group app
@@ -173,7 +175,8 @@ factors, USD/CAD returns and Canadian yield changes. Terms and citations:
   Fama-French five factors and momentum, daily. Copyright notice only, no explicit reuse
   terms; cited.
 - **[FRED](https://fred.stlouisfed.org/legal/):** USD/CAD (`DEXCAUS`, the Federal Reserve
-  Board's H.10 noon rates). Public domain, citation requested.
+  Board's H.10 noon rates). Public domain, citation requested; FRED's own terms on storing
+  and sharing its content are discussed in DATA_SOURCES.md.
 - **[Bank of Canada](https://www.bankofcanada.ca/terms/) (Valet API):** the 10-year benchmark
   yield. Attribution required, with a note of any change.
 - **[Statistics Canada](https://www.statcan.gc.ca/en/reference/licence):** the 3-month
