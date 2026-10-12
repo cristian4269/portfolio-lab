@@ -2,6 +2,30 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-12: step 10, session 1 (recruiter polish: audit, PR 1)
+
+- **Audit** `plans/step-10-polish-plan.md`: read only, 31 findings ranked by the
+  product-owner agent for quant research and risk readers. The owner approved all four PRs, in
+  order.
+- **The ranking pass corrected one audit claim and found one REPORT error,** both checked in
+  the code and the report:
+  - The audit said the Risk tab opens on historical; it opens on filtered historical at 99%.
+    At 99%, §8 has that model failing conditional coverage in 6 of 6 series, so the default
+    view contradicts the risk headline. The fix (PR 2) is a table of every method at both
+    levels, not a new default.
+  - REPORT §8 said no model's 99% exceptions are free of clustering, but its own table has
+    FHS on 1000 days passing conditional coverage in 1 of 6 series. Reworded, dated.
+- **PR 1** (README, REPORT; wording only, no number changed):
+  - the owner's byline;
+  - a fourth headline, the VaR result;
+  - "What this demonstrates";
+  - "How it was built": Claude Code proposed and wrote most of the code; the owner chose,
+    approved and gated;
+  - expected shortfall stated as not backtested;
+  - REPORT §4's count fixed, plus a Revisions section.
+- **Measured:** `bt.report` for 4 methods × 2 levels on one holdout series takes 2.3 s
+  locally, so PR 2's table is one cached call.
+
 ## 2026-10-12: step 9, session 2 (public repo, deploy, done)
 
 - **PR A** (#13) merged as f419674; CI was green.

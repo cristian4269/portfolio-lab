@@ -5,6 +5,9 @@ investor and for a Canadian investor?** A pre-registered replication and extensi
 DeMiguel, Garlappi and Uppal (2009), "Optimal versus naive diversification" (*Review of
 Financial Studies* 22(5)), with risk-model validation.
 
+By **Cristian Ciorba**, Finance student at HEC Montréal ·
+[LinkedIn](https://www.linkedin.com/in/cristian-ciorba-6a70b0381)
+
 [![CI](https://github.com/cristian4269/portfolio-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/cristian4269/portfolio-lab/actions/workflows/ci.yml)
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -32,6 +35,42 @@ Holdout: January 2011 to August 2026, 188 months, run once. Details in
 3. **The tests are honest about power.** Over 188 months they detect only annual Sharpe
    differences of about 0.4-0.5 for minimum variance and about 0.12 for ERC, so a null was the
    expected outcome. It does not show that the strategies are equal.
+4. **Only filtered historical simulation forecasts the 95% VaR well.** Of four one-day VaR
+   methods, it alone (on a 500- or a 1000-day window) gets the 95% exceptions at the right
+   rate and without clustering, in all 6 series (three portfolios, two currency views). At 99% no method passes Christoffersen's
+   conditional coverage test in more than 1 of 6 series, though every series stays in the
+   Basel green zone ([REPORT §8](research/REPORT.md#8-risk-model-validation-var-backtests-and-stress)).
+
+## What this demonstrates
+
+- **Research design.** A pre-registered test with a one-shot holdout that the code enforces:
+  the holdout command refuses to run unless the plan matches its git tag, the data match the
+  frozen vintage, and no holdout run is recorded yet
+  ([REPORT §2](research/REPORT.md#2-question-and-pre-registration)).
+- **Statistical inference.** Ledoit and Wolf's (2008) studentized block bootstrap of Sharpe
+  ratio differences, Holm's correction, and a power analysis stated before the holdout and
+  checked after it ([REPORT §5](research/REPORT.md#5-primary-results)).
+- **Portfolio construction and backtesting.** Ledoit-Wolf shrinkage, long-only minimum
+  variance and equal risk contribution, and a walk-forward backtest that trades at the next
+  close and pays its costs ([`construct/`](src/portfolio_lab/construct/),
+  [`backtest/`](src/portfolio_lab/backtest/)).
+- **Market risk.** One-day VaR and expected shortfall by four methods, VaR backtests (Kupiec,
+  Christoffersen, the Basel traffic light), and historical and hypothetical stress tests
+  ([REPORT §8](research/REPORT.md#8-risk-model-validation-var-backtests-and-stress),
+  [`risk/`](src/portfolio_lab/risk/), [`stress/`](src/portfolio_lab/stress/)).
+- **Factors and currency.** Fama-French five-factor and momentum regressions with Newey-West
+  errors, for a USD investor and a Canadian one, unhedged or hedged
+  ([`risk/factors.py`](src/portfolio_lab/risk/factors.py),
+  [`data/views.py`](src/portfolio_lab/data/views.py)).
+- **Honest reporting.** A null result stated with its power, exploratory results kept apart
+  from the registered ones, and a section on what failed or changed
+  ([REPORT §10](research/REPORT.md#10-what-failed-or-changed)).
+- **Reproducible, tested code.** Typed Python, a pytest suite in CI, every financial formula
+  tested against a hand-computed or textbook value, and one command that rebuilds the results
+  from a data vintage recorded by SHA-256 ([`tests/`](tests/),
+  [`manifest.json`](research/results/manifest.json)).
+- **Communication.** A [live dashboard](https://portfolio-lab-demo.streamlit.app/) that keeps
+  the registered result fixed and labels everything else descriptive.
 
 ## Method in brief
 
@@ -102,15 +141,28 @@ uv sync --group app
 uv run --group app streamlit run app/streamlit_app.py
 ```
 
+## How it was built
+
+portfolio-lab was built with Claude Code, Anthropic's AI coding assistant. The assistant
+proposed the plans and wrote most of the code and tests. Cristian Ciorba chose the design among
+its proposals, approved each step's plan before any code was written, and approved every push,
+merge and the pre-registration freeze. Those decisions are logged in [`plans/`](plans/) and
+[NOTES.md](NOTES.md). The checks are meant to carry the weight instead of trust in either of
+them: every financial formula is tested against a hand-computed or textbook value, one command
+regenerates the report, and [REPORT §10](research/REPORT.md#10-what-failed-or-changed) lists
+what could not be checked externally.
+
 ## Limitations
 
 - **Power.** Even 188 months cannot separate minimum variance from 1/N unless their annual
   Sharpe ratios differ by about 0.4.
+- **Expected shortfall is not backtested.** The library forecasts it beside VaR and the
+  dashboard shows it, but only the VaR exceptions are backtested.
 - **Untradable assets.** Industry portfolios are not investable as such. The 5 bp cost stands
   in for an ETF or a basket and leaves out market impact and currency costs.
-- **Known history.** The owner and the assistant that helped build the project know that
-  2011-2026 was a strong, technology-led US market. The pre-registration rules out tuning on
-  these series, not that knowledge.
+- **Known history.** The author and the AI assistant both know that 2011-2026 was a strong,
+  technology-led US market. The pre-registration rules out tuning on these series, not that
+  knowledge.
 - **One vintage.** The French library is revised when CRSP updates. The numbers hold for the
   vintage frozen on 2026-10-10; a newer one warns and may drift.
 - **One design.** Long-only, monthly, 12 industries. DeMiguel et al. also study short sales,
