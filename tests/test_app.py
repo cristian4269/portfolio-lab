@@ -61,13 +61,18 @@ def app(folder, monkeypatch):
     return at
 
 
+def metrics(at) -> pd.DataFrame:
+    """The Performance tab's metrics table (the registered table comes first on the page)."""
+    return next(d.value for d in at.dataframe if "CAGR" in d.value.columns)
+
+
 def cagr(at) -> pd.Series:
-    return at.dataframe[0].value["CAGR"]
+    return metrics(at)["CAGR"]
 
 
 def test_every_tab_renders(app):
     assert [t.label for t in app.tabs] == ["Performance", "Risk", "Factors", "Stress", "About"]
-    assert any("registered tests" in h.value for h in app.subheader)
+    assert any("registered test" in m.value for m in app.markdown)  # the verdict, up top
     assert any("VaR" in h.value for h in app.subheader)
     assert any("Factor betas" in h.value for h in app.subheader)
     assert any("stress" in h.value.lower() for h in app.subheader)
@@ -89,8 +94,8 @@ def test_at_most_three_strategies_are_charted(app):
 
 
 def test_every_view_renders(app):
-    for label in ("Canadian investor, unhedged", "Canadian investor, hedged"):
-        app.radio(key="view").set_value(label).run()  # AppTest selects by the shown label
+    for label in ("CAD", "CAD_HEDGED"):
+        app.segmented_control(key="view").set_value(label).run()
         assert not app.exception, label
     assert any("no test" in c.value for c in app.caption)  # the hedged view's registered tests
 
@@ -116,14 +121,13 @@ def test_no_strategy_asks_for_one(app):
 
 
 def test_the_one_over_n_benchmark_renders(app):
-    radio = next(r for r in app.radio if r.label == "Tracking error against")
-    radio.set_value("1/N").run()
+    app.segmented_control(key="benchmark").set_value(study.BENCHMARK).run()
     assert not app.exception
-    assert app.dataframe[0].value.loc[study.BENCHMARK, "Tracking error"] == 0.0
+    assert metrics(app).loc[study.BENCHMARK, "Tracking error"] == 0.0
 
 
 def test_cad_factors_leave_out_the_yield_before_it_starts(app):
-    app.radio(key="view").set_value("Canadian investor, unhedged").run()  # months from 2011
+    app.segmented_control(key="view").set_value("CAD").run()  # months from 2011
     assert not app.exception
     factors = next(c.value for c in app.caption if "left out of this window" in c.value)
     assert "00:00:00" not in factors  # the sample's dates, as days
@@ -166,3 +170,26 @@ def test_labels_use_a_true_minus_sign():
 def test_the_theme_follows_streamlit():
     assert charts.theme("dark").surface == "#1a1a19"
     assert charts.theme("light").surface == charts.theme(None).surface == "#fcfcfb"
+
+
+def test_strategies_show_readable_names(app):
+    assert app.multiselect(key="charted").format_func("min variance (lw_identity, 252d)") == (
+        "Min variance · LW identity"
+    )
+    assert "Min variance · LW identity" in metrics(app).index
+
+
+def test_the_forest_plot_marks_zero_plainly():
+    rows = pd.DataFrame(
+        {
+            "label": ["Min variance · USD", "ERC · USD"],
+            "diff": [-0.04, 0.01],
+            "ci_low": [-0.3, -0.07],
+            "ci_high": [0.2, 0.09],
+            "p": [0.77, 0.79],
+            "holm_primary": [1.0, 1.0],
+        }
+    )
+    spec = charts.forest(rows, charts.theme("light")).to_dict(validate=True)
+    assert len(spec["layer"]) == 3  # the zero line, the intervals, the estimates
+    assert "datum.value == 0 ? '0'" in str(spec)

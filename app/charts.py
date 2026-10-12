@@ -167,6 +167,44 @@ def stack(frame: pd.DataFrame, colors: list[str], t: Theme) -> alt.LayerChart:
     return _finish(alt.layer(bands, rule).properties(height=HEIGHT), t)
 
 
+def forest(rows: pd.DataFrame, t: Theme) -> alt.LayerChart:
+    """The registered tests as a forest plot: each test's Sharpe ratio difference against 1/N
+    (an ink dot) and its 95% interval (a line), against a zero line. One neutral series, so
+    no legend; the labels name each test, and the tooltip gives its numbers."""
+    data = rows[["label", "diff", "ci_low", "ci_high", "p", "holm_primary"]].reset_index(drop=True)
+    y = alt.Y(
+        "label:N",
+        title=None,
+        sort=None,
+        axis=alt.Axis(labelLimit=0, ticks=False, domain=False, labelPadding=8),
+    )
+    axis = alt.Axis(  # signed ticks, and a plain 0 at the line every test is judged against
+        title="Annual Sharpe ratio difference against 1/N",
+        labelExpr="datum.value == 0 ? '0' : format(datum.value, '+.1f')",
+    )
+    zero = alt.Chart(pd.DataFrame({"x": [0.0]})).mark_rule(color=t.axis, strokeWidth=1)
+    zero = zero.encode(x=alt.X("x:Q", axis=axis))
+    spans = alt.Chart(data).mark_rule(color=t.secondary, strokeWidth=2, strokeCap="round")
+    spans = spans.encode(y=y, x=alt.X("ci_low:Q", axis=axis), x2="ci_high:Q")
+    dots = (
+        alt.Chart(data)
+        .mark_point(filled=True, size=80, color=t.ink, stroke=t.surface, strokeWidth=2, opacity=1)
+        .encode(
+            y=y,
+            x=alt.X("diff:Q", axis=axis),
+            tooltip=[
+                alt.Tooltip("label:N", title="Test"),
+                alt.Tooltip("diff:Q", title="Difference", format="+.3f"),
+                alt.Tooltip("ci_low:Q", title="95% CI low", format="+.3f"),
+                alt.Tooltip("ci_high:Q", title="95% CI high", format="+.3f"),
+                alt.Tooltip("holm_primary:Q", title="Holm p", format=".2f"),
+            ],
+        )
+    )
+    height = 36 * len(data) + 8
+    return _finish(alt.layer(zero, spans, dots).properties(height=height), t)
+
+
 def _clear_labels(last: pd.DataFrame, plotted: pd.Series, log: bool) -> list[str]:
     """The series whose end labels sit at least LABEL_GAP apart (an approximate pixel scale
     from the range of every plotted value), keeping the highest first; the rest rely on the

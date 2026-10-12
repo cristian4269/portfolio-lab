@@ -2,6 +2,33 @@
 
 Running log of decisions, data quirks and findings. Newest first.
 
+## 2026-10-12: dashboard design direction (after Step 8, owner asked)
+
+- **Audit** (frontend-design-direction skill):
+  - The registered answer sat at the bottom of the Performance tab, and fixed and live results
+    looked alike.
+  - An oversized title, raw strategy names in truncated chips, and a flat sidebar.
+- **Direction, approved by the owner ("Apply all six"):** a research note. Quiet chrome, the
+  numbers forward, serif headings, the validated palette unchanged.
+  - **The memorable detail:** a "Registered · run once · fixed" strip above the tabs. A forest
+    plot of the four registered Sharpe differences, each interval across zero, beside a verdict
+    derived from the tests table ("No registered test rejects. ... every 95% interval contains
+    zero, and every Holm-adjusted p is 1.00."). A gray "Descriptive · <view> · <months> · <bp>"
+    badge then heads the live tabs.
+  - `dashboard.display_name`: "Min variance · LW identity", "ERC · EWMA", "Momentum tilt ·
+    0.5" (the 252-day window, common to all 17, is left out); unique over the registry.
+  - **The sidebar** in four sections (Investor, Strategies, Period and costs, Risk), with
+    segmented controls (`required=True`) for the view, benchmark, VaR level, VaR method and
+    stress scenario.
+  - **Theme tokens** in `.streamlit/config.toml`: `headingFont = "serif"` (Source Serif, bundled),
+    smaller heading sizes, `baseRadius` 0.5rem, borders and table headers in the chart grid's
+    tone.
+- **Checked:** desktop light (1366 px) and phone dark (375 px). Every tab renders, there is no
+  sideways scroll, and the forest plot sits within the phone's first screen. AppTest tests: 16;
+  dashboard and scan: 78 with them.
+- **AppTest:** a segmented control is set by its value (`segmented_control(key=...).set_value`).
+  The metrics table is no longer `dataframe[0]`, because the registered table comes first.
+
 ## 2026-10-11: step 8, session 3 of 3 (reviews, verification)
 
 - **python-reviewer** (no critical findings; it confirmed `check`, `realized`, the default

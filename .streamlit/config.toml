@@ -1,5 +1,8 @@
 # The dashboard's Streamlit settings (app/streamlit_app.py). The surfaces and ink are the ones
 # the chart palette was validated against (src/portfolio_lab/report/palette.py).
+#
+# Direction: a research note. Serif headings (Source Serif, bundled with Streamlit), sans text,
+# quiet borders in the chart grid's tone, modest heading sizes for a tool used repeatedly.
 
 [browser]
 gatherUsageStats = false
@@ -7,14 +10,24 @@ gatherUsageStats = false
 [client]
 toolbarMode = "viewer"
 
+[theme]
+headingFont = "serif"
+headingFontSizes = ["2.1rem", "1.45rem", "1.2rem", "1.05rem", "1rem", "0.95rem"]
+headingFontWeights = 600
+baseRadius = "0.5rem"
+
 [theme.light]
 primaryColor = "#2a78d6"
 backgroundColor = "#fcfcfb"
 secondaryBackgroundColor = "#f2f1ed"
 textColor = "#0b0b0b"
+borderColor = "#e1e0d9"
+dataframeHeaderBackgroundColor = "#f2f1ed"
 
 [theme.dark]
 primaryColor = "#3987e5"
 backgroundColor = "#1a1a19"
 secondaryBackgroundColor = "#242423"
 textColor = "#ffffff"
+borderColor = "#2c2c2a"
+dataframeHeaderBackgroundColor = "#242423"
