@@ -17,7 +17,10 @@ The net return at any cost is exact from the gross return and the turnover (`net
 trade the weights are exactly the target whatever the cost, so the drift does not depend on it.
 `check` refuses a bundle whose 5 bp series do not give back the holdout's own tables, and
 `performance` is the study's performance table for any view, strategies, dates, cost and
-benchmark. Everything here is pure except `build`, which backtests through the guarded engine.
+benchmark. For the charts: `growth`, `drawdowns`, `thin` (at most `MAX_POINTS` per series) and
+`slots`, which keeps each charted strategy's color while others come and go (at most
+`MAX_CHARTED`, the palette's every-pair slots). Everything here is pure except `build`, which
+backtests through the guarded engine.
 """
 
 import gzip
@@ -37,6 +40,7 @@ from portfolio_lab.config import HOLDOUT_START
 from portfolio_lab.construct.strategy import Strategy
 from portfolio_lab.report import inference as inf
 from portfolio_lab.report import metrics
+from portfolio_lab.report.palette import EVERY_PAIR
 from portfolio_lab.risk import factors as fa
 from portfolio_lab.risk import var
 
@@ -48,14 +52,20 @@ __all__ = [
     "MARKET",
     "RF",
     "VIEWS",
+    "MAX_CHARTED",
+    "MAX_POINTS",
     "Bundle",
     "build",
     "check",
+    "drawdowns",
+    "growth",
     "months",
     "net",
     "net_at",
     "performance",
     "read",
+    "slots",
+    "thin",
     "write",
 ]
 
@@ -67,6 +77,8 @@ BENCHMARKS = (MARKET, study.BENCHMARK)
 FACTOR_COLUMNS = (*fa.FACTORS, "RF", fa.FX, fa.DY)
 HOLDOUT_TABLES = ("tests", "stress", "stress_realized", "shocks")
 DESIGN_KEYS = ("estimator", "end", "cost_bps", "strategies")
+MAX_CHARTED = EVERY_PAIR  # lines can cross, so every pair of colors must stay apart
+MAX_POINTS = 2000  # per series on a chart; the tables use every day
 
 _SAME = 1e-12  # the bundle must give back the recorded tables to rounding
 _YEAR = math.sqrt(12)
@@ -392,6 +404,51 @@ def check(bundle: Bundle, held_performance: pd.DataFrame, held_monthly: pd.DataF
                 ):
                     what = f"the monthly {col} of {v} {name!r} in {month}"
                     _same(here, there, what, "the robustness monthly series")
+
+
+# --- the charts' series -----------------------------------------------------------------------
+
+
+def growth(net: pd.DataFrame) -> pd.DataFrame:
+    """The value of $1 invested before the first day, at each day's close."""
+    return (1 + net).cumprod()
+
+
+def drawdowns(net: pd.DataFrame) -> pd.DataFrame:
+    """The fall from the running peak at each close (0 at a peak, negative below it)."""
+    return metrics.drawdowns(net)
+
+
+def thin(frame: pd.DataFrame, how: str, max_points: int = MAX_POINTS) -> pd.DataFrame:
+    """At most `max_points` rows for a chart: the days as they are if they fit, else weeks
+    (to Friday), else months. Each period keeps its `how` value, the "last" close or the "min"
+    (a drawdown's worst point), labelled by its last day in the data."""
+    if how not in ("last", "min"):
+        raise ValueError(f"how must be 'last' or 'min', got {how!r}")
+    if len(frame) <= max_points:
+        return frame
+    days = pd.DatetimeIndex(frame.index)
+    periods = days.to_period("W-FRI")
+    if periods.nunique() > max_points:
+        periods = days.to_period("M")
+    grouped = frame.groupby(periods)
+    out = grouped.last() if how == "last" else grouped.min()
+    ends = pd.Series(days, index=days).groupby(periods).max()
+    out.index = pd.DatetimeIndex(ends.to_numpy(), name=frame.index.name)
+    return out
+
+
+def slots(
+    selected: Sequence[str], previous: Mapping[str, int], size: int = MAX_CHARTED
+) -> dict[str, int]:
+    """A palette slot for each selected strategy: the one it had in `previous` if it still
+    has it, else the lowest free one, so a strategy's color never changes while others are
+    added or removed (color follows the entity, not its rank)."""
+    if len(selected) > size:
+        raise ValueError(f"at most {size} strategies are charted at once, got {len(selected)}")
+    kept = {n: s for n, s in previous.items() if n in selected and 0 <= s < size}
+    free = [s for s in range(size) if s not in kept.values()]
+    return {n: kept[n] if n in kept else free.pop(0) for n in selected}
 
 
 # --- helpers ----------------------------------------------------------------------------------

@@ -417,14 +417,14 @@ def test_growth_and_drawdowns_by_hand():
 
 
 def test_thin_keeps_short_series_and_samples_long_ones():
-    days = pd.bdate_range("2000-01-03", "2020-12-31")
+    days = pd.bdate_range("1960-01-01", "2020-12-31")  # over 2000 weeks
     frame = pd.DataFrame({"s": np.arange(len(days), dtype=float)}, index=days)
     assert db.thin(frame.iloc[:500], "last").equals(frame.iloc[:500])  # daily fits
     weekly = db.thin(frame.iloc[:3000], "last")
     assert len(weekly) <= db.MAX_POINTS and weekly["s"].iloc[-1] == 2999.0  # the last close
     monthly = db.thin(frame, "min")
-    assert len(monthly) == 252 and monthly["s"].iloc[0] == 0.0  # each month's worst point
-    assert monthly.index[0] == pd.Timestamp("2000-01-31")  # its last day of data
+    assert len(monthly) == 61 * 12 and monthly["s"].iloc[0] == 0.0  # each month's worst point
+    assert monthly.index[0] == pd.Timestamp("1960-01-29")  # its last day of data
 
 
 def test_thin_refuses_an_unknown_rule():
