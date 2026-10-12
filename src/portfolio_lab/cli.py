@@ -356,12 +356,20 @@ def _dashboard(
         raise HoldoutError("the cached data changed while loading: the vintage is not frozen")
     raw = {t: p.read_bytes() for t, p in held.items()}  # read once: checked and copied as read
     _same_as_recorded(raw, old, path)
+    monthly = monthly_path.read_bytes()
+    robust = {} if old is None else old.get("runs", {}).get("robustness", {})
+    want = robust.get("tables", {}).get("monthly.csv")
+    if want is not None and hashlib.sha256(monthly).hexdigest() != want:
+        raise HoldoutError(
+            f"{monthly_path} is not the table {path} records: run `reproduce --robustness` "
+            "to regenerate it"
+        )
     bundle = dashboard.build(inputs, end=end, estimator=estimator, allow_holdout=True)
     try:
         dashboard.check(
             bundle,
             _table(raw["performance"], ["view", "strategy"]),
-            _table(monthly_path.read_bytes(), ["view", "strategy", "month"]),
+            _table(monthly, ["view", "strategy", "month"]),
         )
     except ValueError as err:
         raise ReproduceError(f"the bundle does not give back the holdout's tables: {err}") from err
