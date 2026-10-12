@@ -30,6 +30,7 @@ import hashlib
 import importlib.util
 import io
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -66,6 +67,7 @@ __all__ = [
     "betas",
     "build",
     "check",
+    "display_name",
     "drawdowns",
     "growth",
     "holdings",
@@ -585,6 +587,49 @@ def realized(bundle: Bundle, view: str, names: Sequence[str], *, cost_bps: float
             rows.append(asdict(hs.outcome(nets.loc[inside, name])))
             keys.append((s.name, name))
     return pd.DataFrame(rows, index=pd.MultiIndex.from_tuples(keys, names=["scenario", "strategy"]))
+
+
+# --- readable names --------------------------------------------------------------------------
+
+_ESTIMATOR_NAMES = {
+    "sample": "sample",
+    "lw_identity": "LW identity",
+    "lw_constant_correlation": "LW const. corr.",
+    "ewma": "EWMA",
+}
+_USUAL_WINDOW = "252"  # every registered strategy's, so it goes without saying
+_PATTERNS = (  # each registered name, with its parts as named groups
+    (
+        re.compile(r"min variance \((?P<est>\w+), (?P<win>\d+)d(?:, cap (?P<cap>[\d.]+))?\)"),
+        "Min variance",
+    ),
+    (re.compile(r"ERC \((?P<est>\w+), (?P<win>\d+)d\)"), "ERC"),
+    (re.compile(r"momentum tilt \(strength (?P<strength>[\d.]+)\) on 1/N"), "Momentum tilt"),
+    (
+        re.compile(r"low-vol tilt \(strength (?P<strength>[\d.]+), (?P<win>\d+)d\) on 1/N"),
+        "Low-vol tilt",
+    ),
+)
+
+
+def display_name(name: str) -> str:
+    """A registered strategy's name as the dashboard shows it ("Min variance · LW identity");
+    the 252-day window, which every registered strategy uses, is left out. Any other name is
+    returned as it is."""
+    for pattern, label in _PATTERNS:
+        if match := pattern.fullmatch(name):
+            part = {k: str(v) for k, v in match.groupdict().items() if v is not None}
+            parts = [label]
+            if "est" in part:
+                parts.append(_ESTIMATOR_NAMES.get(part["est"], part["est"]))
+            if "strength" in part:
+                parts.append(part["strength"])
+            if "cap" in part:
+                parts.append(f"cap {float(part['cap']):.0%}")
+            if part.get("win", _USUAL_WINDOW) != _USUAL_WINDOW:
+                parts.append(f"{part['win']}d")
+            return " · ".join(parts)
+    return name
 
 
 # --- the charts' series -----------------------------------------------------------------------
