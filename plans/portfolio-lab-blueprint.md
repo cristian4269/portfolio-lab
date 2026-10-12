@@ -302,7 +302,7 @@ Status: **done and merged 2026-10-11** (PR #10, merge commit `a4c9161`; 1 long s
 ---
 
 ## Step 8: Streamlit dashboard + deploy
-Status: **done 2026-10-11, pending PR** (branch `step-8-dashboard`; plan `plans/step-8-plan.md`, D2/D7 amended to 3 charted strategies; `dashboard.py`, `reproduce --dashboard`, the committed bundle in `app/data/`, `app/streamlit_app.py` with five tabs, AppTest smoke tests; python-reviewer and `/code-review` (high) findings fixed; deployment moved to Step 9 with G3 + G4, decision D9)
+Status: **done and merged 2026-10-11** (PR #11, merge commit 0f443e1; a design pass the owner asked for followed as PR #12, merge commit c0be19d, 2026-10-12; plan `plans/step-8-plan.md`, D2/D7 amended to 3 charted strategies; `dashboard.py`, `reproduce --dashboard`, the committed bundle in `app/data/`, `app/streamlit_app.py` with five tabs, AppTest smoke tests; python-reviewer and `/code-review` (high) findings fixed; deployment moved to Step 9 with G3 + G4, decision D9)
 
 **Tasks**
 - First: check the current free-tier terms of Streamlit Community Cloud (does it need a public repo? sleep behaviour? resources) vs one alternative; record in NOTES.md. If a public repo is required, ask **G3 and G4 together**.
