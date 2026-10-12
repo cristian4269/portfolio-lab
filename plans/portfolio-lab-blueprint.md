@@ -68,8 +68,8 @@ the owner's explicit yes for that action in that session.
 
 1. `uv run pytest` passes (network tests excluded by default); `uv run ruff check .` and `uv run ruff format --check .` clean; coverage ≥ 80% on `src/` from step 2 on.
 2. No data committed except synthetic fixtures and allowed result files:
-   `git ls-files | grep -Ei '\.(csv|zip|parquet|xlsx|json|gz)$' | grep -v -e '^tests/fixtures/' -e '^research/results/manifest.json$' -e '^app/data/'` is empty.
-   `research/results/` is gitignored except `manifest.json`; figures (PNG) under `research/figures/` are committed; the dashboard's bundle under `app/data/` is committed (Step 8, written by `reproduce --dashboard`). Amended 2026-10-11: `.gz` added, `app/data/` allowed.
+   `git ls-files | grep -Ei '\.(csv|zip|parquet|xlsx|json|gz)$' | grep -v -e '^tests/fixtures/' -e '^research/results/manifest.json$' -e '^app/data/' -e '^\.devcontainer/'` is empty.
+   `research/results/` is gitignored except `manifest.json`; figures (PNG) under `research/figures/` are committed; the dashboard's bundle under `app/data/` is committed (Step 8, written by `reproduce --dashboard`). Amended 2026-10-11: `.gz` added, `app/data/` allowed. Amended 2026-10-12: `.devcontainer/` (the Codespaces config Streamlit Community Cloud added at deploy) allowed: configuration, not data.
 3. No personal-use data or sibling-repo material: `git grep -il tiingo -- ':!plans/'` is empty; nothing copied from another local project's data, cache or `.env`.
 4. No secrets: all planned sources are keyless. If a key is ever needed it lives in `.env` (gitignored).
 5. Holdout rule above holds until step 7b.
@@ -316,7 +316,7 @@ Status: **done and merged 2026-10-11** (PR #11, merge commit 0f443e1; a design p
 ---
 
 ## Step 9: README, docs, final audit, publish
-Status: **in progress** (branch `step-9-publish`; plan `plans/step-9-plan.md`, approved 2026-10-12; D5: G3 no longer forces G4, since a Community Cloud app from a private repo can be made public)
+Status: **done 2026-10-12** (PR A #13, merge commit f419674; PR B on branch `step-9-done`; plan `plans/step-9-plan.md`, D1-D8 approved; repo public (G4) and the dashboard live at https://portfolio-lab-demo.streamlit.app/ (G3); FRED terms: keep the USD/CAD returns, cite the Board)
 
 **Tasks**
 - `README.md`, recruiter first: one-paragraph summary, screenshot, demo link, 3 headline results, then method, results, limitations, how to run, data sources and licenses, "not investment advice".
@@ -329,15 +329,15 @@ Status: **in progress** (branch `step-9-publish`; plan `plans/step-9-plan.md`, a
 
 ## Acceptance criteria
 
-- [ ] `uv sync && uv run pytest` passes from a fresh clone; coverage ≥ 80% on `src/`.
-- [ ] GitHub Actions CI (tests + lint) green on `main`.
-- [ ] `uv run portfolio-lab reproduce` regenerates every report number on the same data vintage (manifest), and flags drift on a newer one.
-- [ ] Live dashboard (or static report if step 8 is cut): strategies, dates, performance, drawdowns, VaR/ES, stress.
-- [ ] README recruiter-first with summary, screenshot, demo link.
-- [ ] `research/REPORT.md` 4-8 pages with confidence intervals, robustness, limitations; `prereg-v1` tag precedes holdout results.
-- [ ] `DATA_SOURCES.md` lists every source and series with terms and citation.
-- [ ] CV bullet + pitch exist locally in `docs/career/`.
-- [ ] No raw data files outside the allowed paths (invariant 2), no Tiingo, no secrets, no local paths in the public repo.
+- [x] `uv sync && uv run pytest` passes from a fresh clone; coverage ≥ 80% on `src/`.
+- [x] GitHub Actions CI (tests + lint) green on `main`.
+- [x] `uv run portfolio-lab reproduce` regenerates every report number on the same data vintage (manifest), and flags drift on a newer one.
+- [x] Live dashboard (or static report if step 8 is cut): strategies, dates, performance, drawdowns, VaR/ES, stress.
+- [x] README recruiter-first with summary, screenshot, demo link.
+- [x] `research/REPORT.md` 4-8 pages with confidence intervals, robustness, limitations; `prereg-v1` tag precedes holdout results.
+- [x] `DATA_SOURCES.md` lists every source and series with terms and citation.
+- [x] CV bullet + pitch exist locally in `docs/career/`.
+- [x] No raw data files outside the allowed paths (invariant 2), no Tiingo, no secrets, no local paths in the public repo.
 
 ## Out of scope
 
@@ -357,6 +357,18 @@ code; ML price prediction; paid data; scraping against terms; intraday data.
 | Scope creep | Serial steps, MVP path, explicit cut order |
 
 ## Change log
+
+- 2026-10-12: **step 9 done; every acceptance criterion met.** Details in NOTES.md.
+  - PR A (#13) merged as f419674.
+  - **G4:** the repo is public, with eight topics; the CI badge renders.
+  - **G3:** the dashboard is live at https://portfolio-lab-demo.streamlit.app/. It installs
+    from `app/requirements.txt` on Python 3.13. Every tab renders in the USD and CAD views,
+    with no exception, and the numbers match REPORT.md.
+  - **The deploy added `.devcontainer/devcontainer.json`** (commit 805f66c). PR B makes it
+    work: Python 3.13, `app/requirements.txt`. Invariant 2 now allows it, since it is
+    configuration.
+  - **PR B** also adds the demo link (README, `[project.urls]`, REPORT §12, the repo's
+    homepage).
 
 - 2026-10-12: step 9, session 1 (plan `plans/step-9-plan.md`, D1-D8 approved; details in
   NOTES.md).
